@@ -326,14 +326,21 @@ const commentsService = selectedApi?.services.find(
               </div>
               <div>
                 <label className="text-[10px] text-gray-500 mb-1 block">Total Views</label>
-                <input
+                                <input
                   type="number"
                   value={totalViews}
                   onChange={(e) => {
                     setUseClonedPlan(false);
-                    const safeValue = Number.isFinite(Number(e.target.value)) ? Number(e.target.value) : 0;
-                    setTotalViews(Math.max(0, Math.floor(safeValue)));
+                    const raw = e.target.value;
+                    if (raw === "" || raw === undefined) {
+                      setTotalViews(0);
+                      return;
+                    }
+                    const parsed = parseInt(raw, 10);
+                    const safeValue = Number.isFinite(parsed) ? parsed : 0;
+                    setTotalViews(Math.max(0, safeValue));
                   }}
+                  min={0}
                   className="w-full rounded-lg border border-yellow-500/20 bg-black px-2 py-1.5 text-xs text-white focus:border-yellow-500/50 focus:outline-none"
                 />
               </div>
