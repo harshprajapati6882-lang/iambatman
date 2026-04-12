@@ -517,18 +517,20 @@ function pickWeightedIndex(weights: number[]): number {
 
 // 🔥 UPDATED: Now accepts minViewsPerRun as parameter
 function resolveRunCount(totalViews: number, desiredRuns: number, averageTarget: number, minViewsPerRun: number): number {
-  // Maximum runs possible based on minimum views per run
+  if (totalViews <= 0) return 1;
+  if (totalViews < minViewsPerRun) return 1;
+
   const maxRunsByMinimum = Math.max(1, Math.floor(totalViews / minViewsPerRun));
   let runCount = clamp(desiredRuns, 1, maxRunsByMinimum);
 
-  // Ensure average views per run is reasonable
   while (runCount > 1 && totalViews / runCount < minViewsPerRun * 1.3) {
     runCount -= 1;
   }
 
-  const averageBound = Math.max(1, Math.floor(totalViews / Math.max(minViewsPerRun, averageTarget)));
+  const safeDivisor = Math.max(minViewsPerRun, averageTarget, 1);
+  const averageBound = Math.max(1, Math.floor(totalViews / safeDivisor));
   runCount = Math.min(runCount, Math.max(1, averageBound));
-  
+
   return Math.max(1, runCount);
 }
 
@@ -663,13 +665,21 @@ function allocateRounded(values: number[], total: number): number[] {
 
 // 🔥 UPDATED: Now accepts minViewsPerRun as parameter
 function redistributeForMinimum(runs: number[], minimum: number): number[] {
+  if (runs.length <= 1) return [...runs];
+
   const result = [...runs];
+  const total = result.reduce((a, b) => a + b, 0);
+
+  if (total <= 0) return result;
+  if (total < minimum) return [total];
 
   for (let index = 0; index < result.length; index += 1) {
     if (result[index] >= minimum) continue;
 
     let deficit = minimum - result[index];
-    while (deficit > 0) {
+    let safetyCounter = 0;
+    while (deficit > 0 && safetyCounter < result.length * 2) {
+      safetyCounter++;
       let donor = -1;
       let donorExcess = 0;
       for (let candidate = 0; candidate < result.length; candidate += 1) {
@@ -689,8 +699,10 @@ function redistributeForMinimum(runs: number[], minimum: number): number[] {
     }
   }
 
-  // Merge runs that are still below minimum
-  for (let index = 0; index < result.length; index += 1) {
+  let mergeIterations = 0;
+  const maxMergeIterations = result.length * 2;
+  for (let index = 0; index < result.length && mergeIterations < maxMergeIterations; index += 1) {
+    mergeIterations++;
     if (result[index] >= minimum || result.length === 1) continue;
 
     if (index === result.length - 1) {
@@ -708,14 +720,25 @@ function redistributeForMinimum(runs: number[], minimum: number): number[] {
 
 // 🔥 UPDATED: Now accepts minViewsPerRun as parameter
 function distributeWithMinimum(weights: number[], total: number, minimum: number): number[] {
-  if (total === 0) return [0];
+  if (total <= 0) return [0];
   if (total < minimum) return [total];
+  if (weights.length === 0) return [total];
 
-  const count = clamp(weights.length, 1, Math.floor(total / minimum));
+  const count = clamp(weights.length, 1, Math.max(1, Math.floor(total / minimum)));
+  if (count <= 0) return [total];
+
   const localWeights = weights.slice(0, count).map((weight) => Math.max(0.01, weight));
   const weightSum = localWeights.reduce((acc, value) => acc + value, 0);
+
+  if (weightSum <= 0) {
+    const perRun = Math.floor(total / count);
+    const result = Array.from({ length: count }, () => perRun);
+    result[0] += total - perRun * count;
+    return result;
+  }
+
   const baseline = count * minimum;
-  const remainder = total - baseline;
+  const remainder = Math.max(0, total - baseline);
   const rawExtras = localWeights.map((weight) => (weight / weightSum) * remainder);
   const extras = allocateRounded(rawExtras, remainder);
   return extras.map((extra) => extra + minimum);
@@ -764,23 +787,29 @@ function generateViewRunsFromCurve(
 ): number[] {
   if (totalViews <= 0) return [0];
   if (totalViews < minViewsPerRun) return [totalViews];
+  if (runCount <= 0) return [totalViews];
+  if (runCount === 1) return [totalViews];
+
+  const safeRunCount = Math.min(runCount, Math.max(1, Math.floor(totalViews / minViewsPerRun)));
+  if (safeRunCount <= 0) return [totalViews];
+  if (safeRunCount === 1) return [totalViews];
 
   const context = createCurveContext(patternType);
   const varianceFactor = clamp(variancePercent, 10, 50) / 100;
   const presetVarianceBoost = preset === "viral-boost" ? 1.2 : preset === "slow-burn" ? 0.8 : 1;
   const noiseAmplitude = clamp(0.01 + varianceFactor * 0.02 * presetVarianceBoost, 0.01, 0.03);
 
-  const cumulativeRaw = Array.from({ length: runCount + 1 }, (_, index) => {
-    const t = index / runCount;
+    const cumulativeRaw = Array.from({ length: safeRunCount + 1 }, (_, index) => {
+    const t = index / safeRunCount;
     const base = curveValue(patternType, t, context);
     const wiggle = 1 + random(-noiseAmplitude, noiseAmplitude) + Math.sin((index + 1) * 0.8 + context.phase) * context.wobble;
     return base * wiggle;
   });
 
   const cumulative = normalizeMonotone(cumulativeRaw);
-  const rampRuns = Math.max(3, Math.min(5, Math.floor(runCount * 0.2)));
-  const incrementsRaw = Array.from({ length: runCount }, (_, index) => {
-    const phase = index / Math.max(1, runCount - 1);
+    const rampRuns = Math.max(3, Math.min(5, Math.floor(safeRunCount * 0.2)));
+  const incrementsRaw = Array.from({ length: safeRunCount }, (_, index) => {
+    const phase = index / Math.max(1, safeRunCount - 1);
     const delta = Math.max(0.00001, cumulative[index + 1] - cumulative[index]);
     const shapeVariance = random(1 - varianceFactor * 0.55, 1 + varianceFactor * 0.7);
     const wave = 1 + Math.sin((phase + variant.timingShift) * Math.PI * variant.waveFrequency) * variant.waveAmplitude;
@@ -808,15 +837,29 @@ function generateViewRunsFromCurve(
       phaseFactor *= 0.52 + easeIn * 0.44;
     }
 
-    if (index >= runCount - rampRuns) {
+    if (index >= safeRunCount - rampRuns) {
       phaseFactor *= random(0.82, 0.98);
     }
 
     return delta * shapeVariance * phaseFactor * wave;
   });
 
-  const incrementSum = incrementsRaw.reduce((acc, value) => acc + value, 0);
-  const scaled = incrementsRaw.map((value) => (value / Math.max(0.0001, incrementSum)) * totalViews);
+    const incrementSum = incrementsRaw.reduce((acc, value) => acc + value, 0);
+
+  if (incrementSum <= 0) {
+    const perRun = Math.max(minViewsPerRun, Math.floor(totalViews / safeRunCount));
+    const result = Array.from({ length: safeRunCount }, () => perRun);
+    let diff = totalViews - result.reduce((a, b) => a + b, 0);
+    let idx = 0;
+    while (diff !== 0 && idx < result.length * 10) {
+      if (diff > 0) { result[idx % result.length]++; diff--; }
+      else if (result[idx % result.length] > minViewsPerRun) { result[idx % result.length]--; diff++; }
+      idx++;
+    }
+    return result;
+  }
+
+  const scaled = incrementsRaw.map((value) => (value / incrementSum) * totalViews);
   const rounded = allocateRounded(scaled, totalViews);
   const phasedWeights = rounded.map((value, index) => {
     const phase = index / Math.max(1, rounded.length - 1);
@@ -1265,9 +1308,52 @@ function detectRisk(viewsPerHour: number, variancePercent: number, hours: number
 
 // 🔥 MAIN FUNCTION - Now uses config.minViewsPerRun
 export function createPatternPlan(config: OrderConfig): PatternPlan {
-  // 🔥 Get minViewsPerRun from config (default to 100 if not set)
   const minViewsPerRun = config.minViewsPerRun || 100;
-  
+  const now = new Date();
+
+  if (!Number.isFinite(config.totalViews) || config.totalViews <= 0) {
+    return {
+      patternId: randomInt(100, 999),
+      patternName: "empty",
+      patternType: "smooth-s-curve",
+      totalRuns: 0,
+      approximateIntervalMin: 0,
+      finishTime: now,
+      estimatedDurationHours: 0,
+      risk: "Safe",
+      runs: [],
+    };
+  }
+
+  if (config.totalViews < minViewsPerRun) {
+    const singleRun: RunStep = {
+      run: 1,
+      at: new Date(now.getTime() + (config.startDelayHours || 0) * 3600000),
+      minutesFromStart: (config.startDelayHours || 0) * 60,
+      views: config.totalViews,
+      likes: 0,
+      shares: 0,
+      saves: 0,
+      comments: 0,
+      cumulativeViews: config.totalViews,
+      cumulativeLikes: 0,
+      cumulativeShares: 0,
+      cumulativeSaves: 0,
+      cumulativeComments: 0,
+    };
+    return {
+      patternId: randomInt(100, 999),
+      patternName: "minimal",
+      patternType: "smooth-s-curve",
+      totalRuns: 1,
+      approximateIntervalMin: 0,
+      finishTime: singleRun.at,
+      estimatedDurationHours: config.startDelayHours || 0,
+      risk: "Safe",
+      runs: [singleRun],
+    };
+  }
+
   const presetProfile = resolvePresetProfile(config.quickPreset);
   const selectedPatternProfile = pickPatternProfile(presetProfile.patternType);
   const patternType = presetProfile.patternType ?? selectedPatternProfile.baseType ?? pickRandomPatternType();
@@ -1321,7 +1407,6 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   }
 
   const baseInterval = durationMin / Math.max(1, viewRuns.length - 1);
-  const now = new Date();
   let elapsed = startDelayMin;
   const provisionalRuns = viewRuns.map((views, index) => {
     if (index > 0) {
