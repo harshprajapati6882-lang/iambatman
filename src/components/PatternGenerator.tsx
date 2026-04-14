@@ -26,9 +26,24 @@ export function PatternGenerator({
             <p className="text-xs uppercase tracking-wide text-gray-600">Total Runs</p>
             <p className="mt-1 text-base font-semibold text-gray-200">{plan?.totalRuns ?? 0}</p>
           </div>
-          <div className="rounded-xl border border-yellow-500/20 bg-black p-3">
+                    <div className={`rounded-xl border bg-black p-3 ${
+            (plan?.approximateIntervalMin ?? 0) < 40
+              ? "border-red-500/50"
+              : "border-yellow-500/20"
+          }`}>
             <p className="text-xs uppercase tracking-wide text-gray-600">Interval (approx)</p>
-            <p className="mt-1 text-base font-semibold text-gray-200">{plan?.approximateIntervalMin ?? 0} min</p>
+            <p className={`mt-1 text-base font-semibold ${
+              (plan?.approximateIntervalMin ?? 0) < 40
+                ? "text-red-400"
+                : "text-gray-200"
+            }`}>
+              {plan?.approximateIntervalMin ?? 0} min
+              {(plan?.approximateIntervalMin ?? 0) < 40 && (
+                <span className="ml-2 text-[10px] font-normal text-red-400/70">
+                  ⚠️ too short
+                </span>
+              )}
+            </p>
           </div>
           <div className="rounded-xl border border-yellow-500/20 bg-black p-3">
             <p className="text-xs uppercase tracking-wide text-gray-600">Finish Time</p>
