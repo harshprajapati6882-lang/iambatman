@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { CreatedOrder, OrderStatus } from "../types/order";
 import { RunTable } from "./RunTable";
@@ -35,11 +35,10 @@ export function OrderCard({ order, onControl, onClone, controlBusy }: OrderCardP
   const safeRunErrors = order?.runErrors || [];
   const finishTime = safeRuns[safeRuns.length - 1]?.at;
 
-
-    const { totalRuns, completedRuns, progressPercent } = useMemo(() => {
+  // 🔥 FIX: Only use actual backend status, not time-based
+  const { totalRuns, completedRuns, progressPercent } = useMemo(() => {
     const nextTotalRuns = Math.max(1, safeRuns.length);
 
-    // 🔥 FIX: Only use actual status, not time-based
     const completedFromStatuses = safeRunStatuses.filter(
       (status) => status === "completed"
     ).length;
@@ -55,83 +54,50 @@ export function OrderCard({ order, onControl, onClone, controlBusy }: OrderCardP
     );
 
     const nextProgressPercent = Math.round((nextCompletedRuns / nextTotalRuns) * 100);
-    return { totalRuns: nextTotalRuns, completedRuns: nextCompletedRuns, progressPercent: nextProgressPercent };
+    return {
+      totalRuns: nextTotalRuns,
+      completedRuns: nextCompletedRuns,
+      progressPercent: nextProgressPercent,
+    };
   }, [safeRuns, safeRunStatuses, order.status, order.completedRuns]);
 
+  // 🔥 FIX: effectiveStatus no longer uses nowMs (time-based)
   const effectiveStatus = useMemo(() => {
-    const runs = order.runs || [];
-    const now = Date.now();
-
-    if (runs.length > 0) {
-      const allCompleted = runs.every((run) => {
-        const runTime = new Date(run.at).getTime();
-        return runTime <= now;
-      });
-
-      if (allCompleted) return "completed";
-    }
-
     if (order.status === "processing") return "running";
-
+    if (order.status === "completed") return "completed";
+    if (order.status === "cancelled") return "cancelled";
+    if (order.status === "failed") return "failed";
+    if (order.status === "paused") return "paused";
     return order.status;
-  }, [order, nowMs]);
+  }, [order.status]);
 
-  const graphData = useMemo(() => {
-  const runs = Array.isArray(order?.runs) ? order.runs : [];
-
-  let v = 0, l = 0, sh = 0, sa = 0, c = 0;
-
-  return runs.map((run, index) => {
-    if (!run) return null;
-
-    const runTime = run?.at ? new Date(run.at).getTime() : 0;
-
-    if (runTime <= nowMs) {
-      v += Number(run?.views || 0);
-      l += Number(run?.likes || 0);
-      sh += Number(run?.shares || 0);
-      sa += Number(run?.saves || 0);
-      c += Number(run?.comments || 0);
-    }
-
-    return {
-  time: run.at,
-  views: v,
-  likes: l,
-  shares: sh,
-  saves: sa,
-  comments: c,
-};
-  }).filter(Boolean);
-}, [order?.runs, nowMs]);
-
+  // 🔥 Chart uses plannedData only (cumulative per run)
   const plannedData = useMemo(() => {
-  const runs = order.runs || [];
+    const runs = order.runs || [];
+    return runs.map((run) => ({
+      time: run.at,
+      views: run.cumulativeViews || 0,
+      likes: (run.cumulativeLikes || 0) * 10,
+      shares: (run.cumulativeShares || 0) * 10,
+      saves: (run.cumulativeSaves || 0) * 10,
+      comments: (run.cumulativeComments || 0) * 10,
+    }));
+  }, [order.runs]);
 
-  return runs.map((run, index) => ({
-    time: run.at,
-    views: run.cumulativeViews || 0,
-    likes: (run.cumulativeLikes || 0) * 10,
-shares: (run.cumulativeShares || 0) * 10,
-saves: (run.cumulativeSaves || 0) * 10,
-comments: (run.cumulativeComments || 0) * 10,
-  }));
-}, [order.runs]);
-  
   const shortLink =
-    order.link.length > 56 ? `${order.link.slice(0, 36)}...${order.link.slice(-14)}` : order.link;
+    order.link.length > 56
+      ? `${order.link.slice(0, 36)}...${order.link.slice(-14)}`
+      : order.link;
 
-  // 🔥 FIX: Remove the legacy /api/cancel call - use onControl for everything
   const handleControl = async (action: "pause" | "resume" | "cancel") => {
     try {
       if (action === "cancel") {
-        const confirmCancel = window.confirm("Are you sure you want to cancel this mission?");
+        const confirmCancel = window.confirm(
+          "Are you sure you want to cancel this mission?"
+        );
         if (!confirmCancel) return;
       }
-
-      // ✅ FIX: Always use onControl (which calls /api/order/control with schedulerOrderId)
       onControl(order, action);
-
     } catch (err) {
       console.error("Control action failed", err);
       alert("Action failed. Please try again.");
@@ -145,7 +111,10 @@ comments: (run.cumulativeComments || 0) * 10,
           <p className="text-xs uppercase tracking-wide text-gray-600">Mission ID</p>
           <h3 className="text-lg font-semibold text-yellow-400">{order.id}</h3>
           <p className="text-sm text-yellow-300">{order.name || `Mission #${order.id}`}</p>
-          <p className="max-w-xl truncate text-sm text-gray-500" title={order.link || "No link provided"}>
+          <p
+            className="max-w-xl truncate text-sm text-gray-500"
+            title={order.link || "No link provided"}
+          >
             {shortLink || "No link provided"}
           </p>
           {order.schedulerOrderId && (
@@ -155,13 +124,36 @@ comments: (run.cumulativeComments || 0) * 10,
           )}
         </div>
         <div className="space-y-2 text-right">
-          <p className="text-sm text-gray-500">Panel ID: <span className="font-semibold text-yellow-300">{order.smmOrderId}</span></p>
-          <p className="text-sm text-gray-500">Service: <span className="font-semibold text-gray-300">{order.serviceId}</span></p>
-          <p className="text-sm text-gray-500">Quantity: <span className="font-semibold text-gray-300">{order.totalViews}</span></p>
-          <p className="text-sm text-gray-500">Status: <span className={`font-semibold ${statusColor[effectiveStatus]}`}>{effectiveStatus}</span></p>
-          {order.errorMessage && <p className="text-xs text-red-400">Error: {order.errorMessage}</p>}
-          {finishTime && <p className="text-xs text-gray-600">ETA: {finishTime.toLocaleString()}</p>}
-          <p className="text-xs text-gray-600">Updated: {new Date(order.lastUpdatedAt || order.createdAt).toLocaleString()}</p>
+          <p className="text-sm text-gray-500">
+            Panel ID:{" "}
+            <span className="font-semibold text-yellow-300">{order.smmOrderId}</span>
+          </p>
+          <p className="text-sm text-gray-500">
+            Service:{" "}
+            <span className="font-semibold text-gray-300">{order.serviceId}</span>
+          </p>
+          <p className="text-sm text-gray-500">
+            Quantity:{" "}
+            <span className="font-semibold text-gray-300">{order.totalViews}</span>
+          </p>
+          <p className="text-sm text-gray-500">
+            Status:{" "}
+            <span className={`font-semibold ${statusColor[effectiveStatus]}`}>
+              {effectiveStatus}
+            </span>
+          </p>
+          {order.errorMessage && (
+            <p className="text-xs text-red-400">Error: {order.errorMessage}</p>
+          )}
+          {finishTime && (
+            <p className="text-xs text-gray-600">
+              ETA: {finishTime.toLocaleString()}
+            </p>
+          )}
+          <p className="text-xs text-gray-600">
+            Updated:{" "}
+            {new Date(order.lastUpdatedAt || order.createdAt).toLocaleString()}
+          </p>
         </div>
       </div>
 
@@ -171,46 +163,54 @@ comments: (run.cumulativeComments || 0) * 10,
           <span>{progressPercent}%</span>
         </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-gray-800">
-          <div className="h-full rounded-full bg-yellow-500 transition-all" style={{ width: `${progressPercent}%` }} />
+          <div
+            className="h-full rounded-full bg-yellow-500 transition-all"
+            style={{ width: `${progressPercent}%` }}
+          />
         </div>
         <p className="text-xs text-gray-500">
           {completedRuns} / {totalRuns} runs completed
         </p>
+
+        {/* Chart */}
         <div className="mt-4 h-48 w-full">
-  <ResponsiveContainer width="100%" height="100%">
-    <LineChart data={plannedData}>
-      <CartesianGrid strokeDasharray="3 3" stroke="#111" opacity={0.3} />
-      <XAxis
-  dataKey="time"
-  stroke="#666"
-  tickFormatter={(time) => {
-    const d = new Date(time);
-    return d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0");
-  }}
-/>
-      <YAxis stroke="#666" />
-
-      <Tooltip
-  formatter={(value, name) => {
-    if (name?.startsWith("planned")) return null; // ❌ hide planned
-    return [value, name];
-  }}
-/>
-
-      {/* Planned (faded lines) */}
-<Line type="monotone" dataKey="views" stroke="#3b82f6" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-views" />
-<Line type="monotone" dataKey="likes" stroke="#ec4899" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-likes" />
-<Line type="monotone" dataKey="shares" stroke="#22c55e" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-shares" />
-<Line type="monotone" dataKey="saves" stroke="#eab308" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-saves" />
-<Line type="monotone" dataKey="comments" stroke="#a855f7" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-comments" />
-            <Line type="monotone" dataKey="views" stroke="#3b82f6" strokeWidth={2} dot={false} />
-<Line type="monotone" dataKey="likes" stroke="#ec4899" strokeWidth={2} dot={false} />
-<Line type="monotone" dataKey="shares" stroke="#22c55e" strokeWidth={2} dot={false} />
-<Line type="monotone" dataKey="saves" stroke="#eab308" strokeWidth={2} dot={false} />
-<Line type="monotone" dataKey="comments" stroke="#a855f7" strokeWidth={2} dot={false} />
-    </LineChart>
-  </ResponsiveContainer>
-</div>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={plannedData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#111" opacity={0.3} />
+              <XAxis
+                dataKey="time"
+                stroke="#666"
+                tickFormatter={(time) => {
+                  const d = new Date(time);
+                  return (
+                    d.getHours() +
+                    ":" +
+                    String(d.getMinutes()).padStart(2, "0")
+                  );
+                }}
+              />
+              <YAxis stroke="#666" />
+              <Tooltip
+                formatter={(value, name) => {
+                  if (String(name).startsWith("planned")) return null;
+                  return [value, name];
+                }}
+              />
+              {/* Planned faded lines */}
+              <Line type="monotone" dataKey="views" stroke="#3b82f6" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-views" />
+              <Line type="monotone" dataKey="likes" stroke="#ec4899" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-likes" />
+              <Line type="monotone" dataKey="shares" stroke="#22c55e" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-shares" />
+              <Line type="monotone" dataKey="saves" stroke="#eab308" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-saves" />
+              <Line type="monotone" dataKey="comments" stroke="#a855f7" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-comments" />
+              {/* Solid lines */}
+              <Line type="monotone" dataKey="views" stroke="#3b82f6" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="likes" stroke="#ec4899" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="shares" stroke="#22c55e" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="saves" stroke="#eab308" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="comments" stroke="#a855f7" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
@@ -232,7 +232,11 @@ comments: (run.cumulativeComments || 0) * 10,
         </button>
         <button
           type="button"
-          disabled={controlBusy || effectiveStatus === "cancelled" || effectiveStatus === "completed"}
+          disabled={
+            controlBusy ||
+            effectiveStatus === "cancelled" ||
+            effectiveStatus === "completed"
+          }
           onClick={() => handleControl("cancel")}
           className="rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-xs text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -256,16 +260,20 @@ comments: (run.cumulativeComments || 0) * 10,
 
       <AnimatePresence initial={false}>
         {expanded && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}>
-            <RunTable 
-              runs={safeRuns} 
-              runStatuses={safeRunStatuses} 
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+          >
+            <RunTable
+              runs={safeRuns}
+              runStatuses={safeRunStatuses}
               runErrors={safeRunErrors}
               runRetries={order.runRetries || []}
               runOriginalTimes={order.runOriginalTimes || []}
               runCurrentTimes={order.runCurrentTimes || []}
               runReasons={order.runReasons || []}
-              mode="logs" 
+              mode="logs"
             />
           </motion.div>
         )}
