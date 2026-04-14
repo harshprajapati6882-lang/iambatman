@@ -1137,6 +1137,55 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     viewRuns = distributeWithMinimum(boostedWeights, requestedViews, minViewsPerRun);
   }
 
+    // =========================================================
+  // 🔥 FIRST 3 RUNS VIEWS CAP
+  // If total views < 5000 AND minViewsPerRun is default (100),
+  // cap first 3 runs to 100-150 views each.
+  // If user changed minViewsPerRun to 200, 300, etc → skip this rule.
+  // =========================================================
+  if (requestedViews < 5000 && minViewsPerRun <= 100 && viewRuns.length >= 4) {
+    let totalStolen = 0;
+
+    for (let i = 0; i < Math.min(3, viewRuns.length); i++) {
+      if (viewRuns[i] > 150) {
+        const excess = viewRuns[i] - randomInt(100, 150);
+        totalStolen += excess;
+        viewRuns[i] -= excess;
+      } else if (viewRuns[i] < 100) {
+        // If somehow below 100, bring up to 100
+        const deficit = 100 - viewRuns[i];
+        viewRuns[i] = 100;
+        totalStolen -= deficit; // we need to take from others
+      }
+    }
+
+    // Redistribute stolen views to remaining runs (index 3+)
+    if (totalStolen > 0) {
+      const laterRuns = viewRuns.length - 3;
+      const perRun = Math.floor(totalStolen / laterRuns);
+      let leftover = totalStolen - perRun * laterRuns;
+
+      for (let i = 3; i < viewRuns.length; i++) {
+        viewRuns[i] += perRun;
+        if (leftover > 0) {
+          viewRuns[i]++;
+          leftover--;
+        }
+      }
+    } else if (totalStolen < 0) {
+      // Need to take from later runs to cover deficit
+      let needed = Math.abs(totalStolen);
+      for (let i = viewRuns.length - 1; i >= 3 && needed > 0; i--) {
+        const canTake = viewRuns[i] - minViewsPerRun;
+        if (canTake > 0) {
+          const take = Math.min(needed, canTake);
+          viewRuns[i] -= take;
+          needed -= take;
+        }
+      }
+    }
+  }
+
   const baseInterval = durationMin / Math.max(1, viewRuns.length - 1);
   let elapsed = startDelayMin;
   const provisionalRuns = viewRuns.map((views, index) => {
@@ -1285,20 +1334,18 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     return result;
   })();
 
-  // =========================================================
+    // =========================================================
   // 🔥 SHARES DISTRIBUTION
   // Rules:
   // - Not in first 3 runs (indexes 0,1,2)
   // - Not in last run
   // - Minimum 20 per run
   // - No negative values
-  // - Only place shares when cumulative likes before this run > shares value
   // =========================================================
   const sharesRuns = (() => {
     const result = Array.from({ length: provisionalRuns.length }, () => 0);
     if (!config.includeShares || sharesTotal <= 0 || provisionalRuns.length <= 4) return result;
 
-    // Skip first 3 runs and last run
     const availableIndexes = Array.from(
       { length: provisionalRuns.length },
       (_, i) => i
@@ -1312,7 +1359,6 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     const minPerRun = 20;
 
-    // Reduce selected runs if total can't cover all minimums
     while (selectedIndexes.length > 1 && sharesTotal < selectedIndexes.length * minPerRun) {
       selectedIndexes.pop();
     }
@@ -1322,18 +1368,10 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     let remaining = sharesTotal;
 
     for (let i = 0; i < selectedIndexes.length; i++) {
-      const idx = selectedIndexes[i];
       const isLast = i === selectedIndexes.length - 1;
 
-      // 🔥 Cumulative likes placed BEFORE this run
-      const likesPlacedBefore = likesRuns.slice(0, idx).reduce((sum, val) => sum + val, 0);
-
       if (isLast) {
-        const value = Math.max(minPerRun, remaining);
-        // Only place if cumulative likes > shares value
-        if (likesPlacedBefore > value) {
-          result[idx] = value;
-        }
+        result[selectedIndexes[i]] = Math.max(minPerRun, remaining);
       } else {
         const runsLeft = selectedIndexes.length - i;
         const avgRemaining = remaining / runsLeft;
@@ -1342,15 +1380,9 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
           Math.max(minPerRun, Math.round(avgRemaining * random(0.6, 1.4))),
           maxAllowed
         );
-        const finalValue = Math.max(minPerRun, value);
-
-        // Only place if cumulative likes > shares value
-        if (likesPlacedBefore > finalValue) {
-          result[idx] = finalValue;
-          remaining -= finalValue;
-          remaining = Math.max(0, remaining);
-        }
-        // If condition not met, skip this run (don't subtract remaining)
+        result[selectedIndexes[i]] = Math.max(minPerRun, value);
+        remaining -= result[selectedIndexes[i]];
+        remaining = Math.max(0, remaining);
       }
     }
 
