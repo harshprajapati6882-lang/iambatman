@@ -356,11 +356,13 @@ export default function App() {
       return <DashboardPage orders={orders} />;
     }
     if (activePage === "orders") {
-      return (
+            return (
         <OrdersPage
           orders={orders}
           notice={ordersNotice}
           controllingOrderId={controllingOrderId}
+          apis={apis}
+          bundles={bundles}
           onCloneOrder={(order) => {
             setCloneSourceOrder(order);
             navigateToPage("new-order");
