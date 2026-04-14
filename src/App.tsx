@@ -334,7 +334,7 @@ export default function App() {
       clearTimeout(initialSync);
       clearInterval(interval);
     };
-  }, [activePage]); // 🔥 Only re-setup when page changes
+    }, [activePage, syncOrdersWithBackend]); // 🔥 Only re-setup when page changes
 
   const content = useMemo(() => {
     if (activePage === "new-order") {
