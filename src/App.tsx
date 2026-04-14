@@ -14,7 +14,7 @@ type NavKey = "dashboard" | "new-order" | "orders" | "apis" | "bundles";
 const NAV_ITEMS: { key: NavKey; label: string; icon: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: "📊" },
   { key: "new-order", label: "New Order", icon: "⚡" },
-  { key: "orders", label: "Orders", icon: "📦" },
+  { key: "orders", label: "Orders", icon: "📦" }, 
   { key: "apis", label: "APIs", icon: "🔗" },
   { key: "bundles", label: "Bundles", icon: "📁" },
 ];
