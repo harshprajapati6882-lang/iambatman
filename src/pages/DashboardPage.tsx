@@ -3,11 +3,12 @@ import type { CreatedOrder } from "../types/order";
 
 interface DashboardPageProps {
   orders: CreatedOrder[];
+  onDeleteOrder?: (orderId: string) => void;
 }
 
 type TimePeriod = "today" | "week" | "month" | "all";
 
-export function DashboardPage({ orders }: DashboardPageProps) {
+export function DashboardPage({ orders, onDeleteOrder }: DashboardPageProps) {
   const [period, setPeriod] = useState<TimePeriod>("all");
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
@@ -474,13 +475,29 @@ export function DashboardPage({ orders }: DashboardPageProps) {
                       </p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ${getStatusBg(order)} ${getStatusColor(order)}`}>
-                      {realStatus}
-                    </span>
-                    <p className="mt-1 text-xs text-gray-600">
-                      {order.runs?.length || 0} runs
-                    </p>
+                                    <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize ${getStatusBg(order)} ${getStatusColor(order)}`}>
+                        {realStatus}
+                      </span>
+                      <p className="mt-1 text-xs text-gray-600">
+                        {order.runs?.length || 0} runs
+                      </p>
+                    </div>
+                    {onDeleteOrder && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(`Delete order "${order.name || order.id}"?\n\nThis removes it from your local data only.`)) {
+                            onDeleteOrder(order.id);
+                          }
+                        }}
+                        className="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] text-red-400 hover:bg-red-500/20 transition"
+                        title="Delete this order"
+                      >
+                        🗑️
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -512,6 +529,62 @@ export function DashboardPage({ orders }: DashboardPageProps) {
           </p>
         </div>
       </div>
+
+            {/* 🔥 Individual Order Management */}
+      {onDeleteOrder && orders.length > 0 && (
+        <div className="rounded-xl border border-yellow-500/20 bg-gradient-to-br from-gray-900 to-black p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-medium text-yellow-400">🗑️ Manage Individual Orders</h3>
+            <span className="text-[10px] text-gray-600">{orders.length} total orders</span>
+          </div>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {orders.map((order) => {
+              const realStatus = getRealStatus(order);
+              return (
+                <div
+                  key={order.id}
+                  className="flex items-center justify-between rounded-lg border border-gray-800 bg-black/50 px-3 py-2 transition hover:border-yellow-500/20"
+                >
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-[10px] ${getStatusBg(order)}`}>
+                      {getStatusIcon(order)}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-white truncate">
+                        {order.name || `Mission #${order.id.slice(0, 8)}`}
+                      </p>
+                      <p className="text-[9px] text-gray-600 truncate">
+                        {order.link ? order.link.slice(0, 40) + (order.link.length > 40 ? "..." : "") : "No link"}
+                        {" · "}
+                        {new Date(order.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 ml-3 flex-shrink-0">
+                    <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium capitalize ${getStatusBg(order)} ${getStatusColor(order)}`}>
+                      {realStatus}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`Delete "${order.name || order.id}"?\n\nThis removes it from your local data only.\nBackend orders will continue running.`)) {
+                          onDeleteOrder(order.id);
+                        }
+                      }}
+                      className="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] text-red-400 hover:bg-red-500/20 hover:border-red-500/50 transition"
+                    >
+                      🗑️ Delete
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-3 text-[9px] text-gray-600">
+            ⚠️ Deleting removes the order from your browser only. Backend scheduled runs will continue executing.
+          </p>
+        </div>
+      )}
 
       {/* Clear Orders Button */}
       <div className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-5">
