@@ -149,29 +149,30 @@ export function OrdersPage({
     };
   }
 
-  function getRealStatus(order: CreatedOrder): string {
+    function getRealStatus(order: CreatedOrder): string {
     if (order.status === "cancelled") return "cancelled";
     if (order.status === "failed") return "failed";
-    
+    if (order.status === "completed") return "completed";
+    if (order.status === "paused") return "paused";
+
     const runs = order.runs || [];
     const now = Date.now();
 
-    if (runs.length > 0) {
+    // 🔥 Check if all runs are in the future (scheduled)
+    if (runs.length > 0 && order.status !== "paused") {
       const allFuture = runs.every((run) => {
         const runTime = run?.at instanceof Date ? run.at.getTime() : new Date(run?.at ?? now).getTime();
         return runTime > now;
       });
-      if (allFuture && order.status !== "paused") {
-        return "scheduled";
-      }
+      if (allFuture) return "scheduled";
     }
 
-    if (runs.length > 0) {
-      const allCompleted = runs.every((run) => {
-        const runTime = run?.at instanceof Date ? run.at.getTime() : new Date(run?.at ?? now).getTime();
-        return runTime <= now;
-      });
-      if (allCompleted) return "completed";
+    // 🔥 FIX: Use backend status for completion, NOT time-based
+    // Check if all runStatuses are completed
+    const runStatuses = order.runStatuses || [];
+    if (runStatuses.length > 0) {
+      const allStatusCompleted = runStatuses.every(s => s === "completed");
+      if (allStatusCompleted) return "completed";
     }
 
     if (order.status === "processing") return "running";
