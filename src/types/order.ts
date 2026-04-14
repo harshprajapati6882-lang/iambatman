@@ -101,15 +101,16 @@ export interface BackendRunInfo {
   id: string;
   label: string;
   quantity: number;
-  originalTime: string;
-  currentTime: string;
+  time: string;
+  status: string;
   done: boolean;
   cancelled: boolean;
-  paused: boolean;
-  isExecuting: boolean;
+  error: string | null;
+  lastError: string | null;
   retryCount: number;
   retryReason: string | null;
-  lastError: string | null;
+  originalTime: string;
+  currentTime: string;
   executedAt: string | null;
   smmOrderId: string | null;
 }
@@ -128,10 +129,11 @@ export interface CreatedOrder {
   patternType: PatternType;
   patternName: string;
   runs: RunStep[];
-  engagement: {
+    engagement: {
     likes: number;
     shares: number;
     saves: number;
+    comments: number;
   };
   serviceId: string;
   selectedAPI: string | null;
