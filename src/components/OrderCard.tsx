@@ -30,38 +30,33 @@ const statusColor: Record<OrderStatus, string> = {
 
 export function OrderCard({ order, onControl, onClone, controlBusy }: OrderCardProps) {
   const [expanded, setExpanded] = useState(false);
-  const [nowMs, setNowMs] = useState(() => Date.now());
   const safeRuns = order?.runs || [];
   const safeRunStatuses = order?.runStatuses || [];
   const safeRunErrors = order?.runErrors || [];
   const finishTime = safeRuns[safeRuns.length - 1]?.at;
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(Date.now()), 4000);
-    return () => window.clearInterval(timer);
-  }, []);
 
-  const { totalRuns, completedRuns, progressPercent } = useMemo(() => {
+    const { totalRuns, completedRuns, progressPercent } = useMemo(() => {
     const nextTotalRuns = Math.max(1, safeRuns.length);
-    const completedFromStatuses = safeRunStatuses.filter((status) => status === "completed").length;
-    const completedFromTime = safeRuns.reduce((count, run) => {
-      const runTime = run?.at instanceof Date ? run.at.getTime() : new Date(run?.at ?? Date.now()).getTime();
-      return runTime <= nowMs ? count + 1 : count;
-    }, 0);
-    const isTimeTrackedStatus = order.status === "running" || order.status === "processing" || order.status === "completed";
+
+    // 🔥 FIX: Only use actual status, not time-based
+    const completedFromStatuses = safeRunStatuses.filter(
+      (status) => status === "completed"
+    ).length;
+
     const nextCompletedRuns = Math.min(
       nextTotalRuns,
       Math.max(
         0,
         order.status === "completed" ? nextTotalRuns : 0,
         Number.isFinite(order.completedRuns) ? order.completedRuns : 0,
-        completedFromStatuses,
-        isTimeTrackedStatus ? completedFromTime : 0
+        completedFromStatuses
       )
     );
+
     const nextProgressPercent = Math.round((nextCompletedRuns / nextTotalRuns) * 100);
     return { totalRuns: nextTotalRuns, completedRuns: nextCompletedRuns, progressPercent: nextProgressPercent };
-  }, [safeRuns, safeRunStatuses, order.status, order.completedRuns, nowMs]);
+  }, [safeRuns, safeRunStatuses, order.status, order.completedRuns]);
 
   const effectiveStatus = useMemo(() => {
     const runs = order.runs || [];
