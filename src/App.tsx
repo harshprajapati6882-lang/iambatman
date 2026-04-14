@@ -367,7 +367,14 @@ export default function App() {
       );
     }
     if (activePage === "dashboard") {
-      return <DashboardPage orders={orders} />;
+            return (
+        <DashboardPage
+          orders={orders}
+          onDeleteOrder={(orderId) => {
+            persistOrders((prev) => prev.filter((order) => order.id !== orderId));
+          }}
+        />
+      );
     }
     if (activePage === "orders") {
             return (
