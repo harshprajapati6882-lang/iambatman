@@ -17,6 +17,7 @@ interface GrowthGraphProps {
   selectedPreset?: QuickPatternPreset | null;
   onApplyPreset?: (preset: QuickPatternPreset) => void;
   onGenerate?: () => void;
+  onApplyFavourite?: (plan: PatternPlan) => void;
 }
 
 type GraphMode = "smooth" | "stepped";
@@ -206,6 +207,7 @@ export function GrowthGraph({
   selectedPreset,
   onApplyPreset,
   onGenerate,
+  onApplyFavourite,
 }: GrowthGraphProps) {
   const [graphMode, setGraphMode] = useState<GraphMode>("smooth");
 
@@ -380,7 +382,7 @@ export function GrowthGraph({
             ❤️ Favourite Patterns ({favourites.length}/10)
           </h3>
           <div className="space-y-2 max-h-48 overflow-y-auto">
-            {favourites.map((fav) => (
+                        {favourites.map((fav) => (
               <div
                 key={fav.id}
                 className="flex items-center justify-between rounded-lg border border-pink-500/20 bg-black/50 px-3 py-2"
@@ -395,14 +397,43 @@ export function GrowthGraph({
                     {new Date(fav.savedAt).toLocaleDateString()}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleDeleteFavourite(fav.id)}
-                  className="ml-3 text-[10px] text-gray-600 hover:text-red-400 transition flex-shrink-0"
-                  title="Remove from favourites"
-                >
-                  🗑️
-                </button>
+                <div className="flex items-center gap-2 ml-3 flex-shrink-0">
+                  {onApplyFavourite && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const restoredPlan: PatternPlan = {
+                          patternId: Date.now() % 1000,
+                          patternName: fav.patternName,
+                          patternType: fav.patternType,
+                          totalRuns: fav.totalRuns,
+                          approximateIntervalMin: fav.approximateIntervalMin,
+                          finishTime: fav.runs.length > 0 ? new Date(fav.runs[fav.runs.length - 1].at) : new Date(),
+                          estimatedDurationHours: fav.estimatedDurationHours,
+                          risk: fav.risk,
+                          runs: fav.runs.map((r) => ({
+                            ...r,
+                            at: new Date(r.at),
+                          })),
+                        };
+                        onApplyFavourite(restoredPlan);
+                        setShowFavourites(false);
+                      }}
+                      className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300 hover:bg-emerald-500/20 transition"
+                      title="Use this pattern"
+                    >
+                      ▶️ Use
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteFavourite(fav.id)}
+                    className="text-[10px] text-gray-600 hover:text-red-400 transition"
+                    title="Remove from favourites"
+                  >
+                    🗑️
+                  </button>
+                </div>
               </div>
             ))}
           </div>
