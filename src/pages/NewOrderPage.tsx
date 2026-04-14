@@ -480,35 +480,105 @@ const commentsService = selectedApi?.services.find(
             peakHoursBoost={peakHoursBoost}
             onApplyPreset={handleApplyPreset}
             onGenerate={handleGenerate}
-            onApplyFavourite={(config) => {
-              // 🔥 Apply saved config settings — pattern regenerates automatically
-              setUseClonedPlan(false);
-              
-              // Set delivery
+                        onApplyFavourite={(config) => {
+              // 🔥 Apply saved config settings
               if (config.delivery) {
                 setDelivery(config.delivery);
                 if (config.delivery.mode === "custom") {
                   setCustomHours(config.delivery.hours);
                 }
               }
-              
-              // Set variance
+
               if (typeof config.variancePercent === "number") {
                 setVariancePercent(config.variancePercent);
               }
-              
-              // Set preset
+
               setQuickPreset(config.quickPreset || null);
-              
-              // Set engagement toggles
               setIncludeLikes(config.includeLikes ?? false);
               setIncludeShares(config.includeShares ?? false);
               setIncludeSaves(config.includeSaves ?? false);
               setIncludeComments(config.includeComments ?? false);
               setPeakHoursBoost(config.peakHoursBoost ?? false);
-              
-              // Force regenerate with new settings
-              setSeed((current) => current + 1);
+
+              // 🔥 Reconstruct exact same graph shape scaled to current totalViews
+              if (config.runProportions && config.runProportions.length > 0) {
+                const now = new Date();
+                const currentViews = totalViews;
+
+                // Calculate new totals scaled from saved proportions
+                const savedLikesTotal = config.includeLikes
+                  ? Math.max(10, Math.floor(currentViews * (config.savedTotalViews > 0 ? 0.025 : 0)))
+                  : 0;
+                const savedSharesTotal = config.includeShares
+                  ? Math.max(20, Math.floor(currentViews * 0.015))
+                  : 0;
+                const savedSavesTotal = config.includeSaves
+                  ? Math.max(10, Math.floor(currentViews * 0.0075))
+                  : 0;
+                const savedCommentsTotal = config.includeComments
+                  ? Math.max(5, Math.floor(currentViews * 0.0002))
+                  : 0;
+
+                // 🔥 Rebuild runs using saved proportions scaled to current views
+                let cumulativeViews = 0;
+                let cumulativeLikes = 0;
+                let cumulativeShares = 0;
+                let cumulativeSaves = 0;
+                let cumulativeComments = 0;
+
+                const scaledRuns = config.runProportions.map((proportion, index) => {
+                  const views = Math.max(1, Math.round(proportion.viewsFraction * currentViews));
+                  const likes = Math.round(proportion.likesFraction * savedLikesTotal);
+                  const shares = Math.round(proportion.sharesFraction * savedSharesTotal);
+                  const saves = Math.round(proportion.savesFraction * savedSavesTotal);
+                  const comments = Math.round(proportion.commentsFraction * savedCommentsTotal);
+
+                  cumulativeViews += views;
+                  cumulativeLikes += likes;
+                  cumulativeShares += shares;
+                  cumulativeSaves += saves;
+                  cumulativeComments += comments;
+
+                  const runTime = new Date(now.getTime() + proportion.minutesFromStart * 60_000);
+
+                  return {
+                    run: index + 1,
+                    at: runTime,
+                    minutesFromStart: proportion.minutesFromStart,
+                    views,
+                    likes,
+                    shares,
+                    saves,
+                    comments,
+                    cumulativeViews,
+                    cumulativeLikes,
+                    cumulativeShares,
+                    cumulativeSaves,
+                    cumulativeComments,
+                  };
+                });
+
+                // 🔥 Build the restored plan
+                const restoredPlan = {
+                  patternId: Date.now() % 1000,
+                  patternName: config.patternName,
+                  patternType: config.patternType,
+                  totalRuns: scaledRuns.length,
+                  approximateIntervalMin: config.approximateIntervalMin || 0,
+                  finishTime: scaledRuns[scaledRuns.length - 1]?.at ?? now,
+                  estimatedDurationHours: config.estimatedDurationHours,
+                  risk: config.risk,
+                  runs: scaledRuns,
+                };
+
+                setClonedPlan(restoredPlan);
+                setUseClonedPlan(true);
+              } else {
+                // Fallback: just regenerate with settings
+                setUseClonedPlan(false);
+                setSeed((current) => current + 1);
+              }
+
               setExpandedRuns(true);
             }}
           />
