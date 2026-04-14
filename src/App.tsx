@@ -289,16 +289,109 @@ export default function App() {
           }
           // If runStatuses is empty, keep existing order.status — don't override
 
+                    // 🔥 FIX: Backend returns runs for ALL service types (views, likes, shares, saves, comments)
+          // But frontend runs array only has ONE entry per time slot
+          // We need to match backend runs to frontend runs by grouping by time
+          const frontendRunCount = order.runs?.length || 0;
+
+          // 🔥 Group backend runs by scheduled time to match frontend runs
+          // Each frontend "run" = one time slot that may have views + likes + shares + saves + comments
+          // Backend creates separate Run documents for each service type
+          // So we need to determine status per TIME SLOT, not per backend run
+
+          // Get unique time slots from backend runs
+          const timeSlotMap = new Map<string, { statuses: string[]; errors: string[] }>();
+          
+          result.runs.forEach((backendRun) => {
+            // Use the run time as the key (rounded to minute to handle slight variations)
+            const timeKey = backendRun.time ? new Date(backendRun.time).toISOString().slice(0, 16) : "unknown";
+            
+            if (!timeSlotMap.has(timeKey)) {
+              timeSlotMap.set(timeKey, { statuses: [], errors: [] });
+            }
+            
+            const slot = timeSlotMap.get(timeKey)!;
+            slot.statuses.push(backendRun.status || "pending");
+            if (backendRun.error || backendRun.lastError) {
+              slot.errors.push(backendRun.error || backendRun.lastError || "");
+            }
+          });
+
+          // 🔥 Build per-time-slot status (a slot is "completed" only if ALL its services are completed)
+          const slotStatuses: RunStatus[] = [];
+          const slotErrors: string[] = [];
+
+          // Sort time slots chronologically
+          const sortedSlots = Array.from(timeSlotMap.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+
+          sortedSlots.forEach(([, slot]) => {
+            const allCompleted = slot.statuses.every(s => s === "completed");
+            const anyFailed = slot.statuses.some(s => s === "failed");
+            const anyCancelled = slot.statuses.some(s => s === "cancelled");
+
+            let slotStatus: RunStatus;
+            if (allCompleted) {
+              slotStatus = "completed";
+            } else if (anyCancelled) {
+              slotStatus = "cancelled";
+            } else if (anyFailed) {
+              slotStatus = "cancelled";
+            } else {
+              slotStatus = "pending";
+            }
+
+            slotStatuses.push(slotStatus);
+            slotErrors.push(slot.errors.length > 0 ? slot.errors[0] : "");
+          });
+
+          // 🔥 Trim to match frontend run count (in case of mismatch)
+          const trimmedStatuses = slotStatuses.slice(0, frontendRunCount);
+          const trimmedErrors = slotErrors.slice(0, frontendRunCount);
+
+          // Pad if fewer slots than frontend runs
+          while (trimmedStatuses.length < frontendRunCount) {
+            trimmedStatuses.push("pending");
+            trimmedErrors.push("");
+          }
+
+          const trimmedRetries = runRetries.slice(0, frontendRunCount);
+          const trimmedOriginalTimes = runOriginalTimes.slice(0, frontendRunCount);
+          const trimmedCurrentTimes = runCurrentTimes.slice(0, frontendRunCount);
+          const trimmedReasons = runReasons.slice(0, frontendRunCount);
+
+          while (trimmedRetries.length < frontendRunCount) trimmedRetries.push(0);
+          while (trimmedOriginalTimes.length < frontendRunCount) trimmedOriginalTimes.push("");
+          while (trimmedCurrentTimes.length < frontendRunCount) trimmedCurrentTimes.push("");
+          while (trimmedReasons.length < frontendRunCount) trimmedReasons.push("");
+
+          const slotCompletedCount = trimmedStatuses.filter(s => s === "completed").length;
+
+          // 🔥 Determine order status from trimmed slot statuses
+          let orderStatus: CreatedOrder["status"] = order.status;
+
+          if (trimmedStatuses.length > 0) {
+            const allCompleted = trimmedStatuses.every(s => s === "completed");
+            const allCancelled = trimmedStatuses.every(s => s === "cancelled");
+
+            if (allCompleted) {
+              orderStatus = "completed";
+            } else if (allCancelled) {
+              orderStatus = "cancelled";
+            } else if (order.status !== "completed" && order.status !== "cancelled" && order.status !== "failed") {
+              orderStatus = "running";
+            }
+          }
+
           updates.push({
             orderId: order.id,
             data: {
-              runRetries,
-              runOriginalTimes,
-              runCurrentTimes,
-              runReasons,
-              runStatuses,
-              runErrors,
-              completedRuns,
+              runRetries: trimmedRetries,
+              runOriginalTimes: trimmedOriginalTimes,
+              runCurrentTimes: trimmedCurrentTimes,
+              runReasons: trimmedReasons,
+              runStatuses: trimmedStatuses,
+              runErrors: trimmedErrors,
+              completedRuns: slotCompletedCount,
               status: orderStatus,
               lastUpdatedAt: new Date().toISOString(),
             },
