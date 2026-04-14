@@ -940,18 +940,19 @@ export function OrdersPage({
               <h3 className="text-lg font-semibold text-yellow-400">Mission Details</h3>
               <p className="mt-0.5 text-xs text-gray-600 font-mono">{order.id}</p>
             </div>
-            <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3">
               <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/30 px-3 py-1.5 text-center">
                 <p className="text-lg font-bold text-yellow-400">₹{calculateOrderPrice(order, apis, bundles).toFixed(0)}</p>
                 <p className="text-[9px] text-yellow-600">Order Cost</p>
               </div>
-            <button
-              type="button"
-              onClick={() => setOpenedGroupId(null)}
-              className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-sm text-yellow-300 transition hover:bg-yellow-500/20"
-            >
-              ✕ Close
-            </button>
+              <button
+                type="button"
+                onClick={() => setOpenedGroupId(null)}
+                className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-sm text-yellow-300 transition hover:bg-yellow-500/20"
+              >
+                ✕ Close
+              </button>
+            </div>
           </div>
           <OrderCard
             key={order.id}
