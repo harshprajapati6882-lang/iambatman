@@ -91,11 +91,12 @@ export function DashboardPage({ orders }: DashboardPageProps) {
   }, [filteredOrders]);
 
   // Calculate services breakdown
-  const servicesBreakdown = useMemo(() => {
+    const servicesBreakdown = useMemo(() => {
     let views = 0;
     let likes = 0;
     let shares = 0;
     let saves = 0;
+    let comments = 0;
 
     filteredOrders.forEach((order) => {
       (order.runs || []).forEach((run) => {
@@ -103,15 +104,17 @@ export function DashboardPage({ orders }: DashboardPageProps) {
         likes += run.likes || 0;
         shares += run.shares || 0;
         saves += run.saves || 0;
+        comments += run.comments || 0;
       });
     });
 
-    const total = views + likes + shares + saves;
+    const total = views + likes + shares + saves + comments;
     return {
       views: { count: views, percent: total > 0 ? Math.round((views / total) * 100) : 0 },
       likes: { count: likes, percent: total > 0 ? Math.round((likes / total) * 100) : 0 },
       shares: { count: shares, percent: total > 0 ? Math.round((shares / total) * 100) : 0 },
       saves: { count: saves, percent: total > 0 ? Math.round((saves / total) * 100) : 0 },
+      comments: { count: comments, percent: total > 0 ? Math.round((comments / total) * 100) : 0 },
       total,
     };
   }, [filteredOrders]);
@@ -406,13 +409,23 @@ export function DashboardPage({ orders }: DashboardPageProps) {
               </div>
             </div>
 
-            <div>
+                        <div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-gray-400">🔖 Saves</span>
                 <span className="text-gray-500">{servicesBreakdown.saves.count.toLocaleString()} ({servicesBreakdown.saves.percent}%)</span>
               </div>
               <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-gray-800">
                 <div className="h-full rounded-full bg-amber-600 transition-all duration-500" style={{ width: `${servicesBreakdown.saves.percent}%` }} />
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-400">💬 Comments</span>
+                <span className="text-gray-500">{servicesBreakdown.comments.count.toLocaleString()} ({servicesBreakdown.comments.percent}%)</span>
+              </div>
+              <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-gray-800">
+                <div className="h-full rounded-full bg-purple-500 transition-all duration-500" style={{ width: `${servicesBreakdown.comments.percent}%` }} />
               </div>
             </div>
 
