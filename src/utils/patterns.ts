@@ -1449,7 +1449,7 @@ if (config.includeComments) {
   }
 }
 
-    /  // 🔥 LIKES: Second run must have likes, sparse distribution, view-proportional amounts, no consecutive runs
+      // 🔥 LIKES: Second run must have likes, sparse distribution, view-proportional amounts, no consecutive runs
   const likesRuns = (() => {
     const result = Array.from({ length: provisionalRuns.length }, () => 0);
     if (!config.includeLikes || likesTotal <= 0 || provisionalRuns.length <= 1) return result;
