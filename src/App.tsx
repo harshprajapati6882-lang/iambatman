@@ -193,16 +193,14 @@ export default function App() {
 
   // 🔥 IMPROVED: Smarter sync that prevents render loops
   const syncOrdersWithBackend = useCallback(async () => {
-    // Prevent concurrent syncs
     if (isSyncingRef.current) {
       console.log('[Sync] Already syncing, skipping...');
       return;
     }
 
-    // Prevent syncing too frequently (debounce)
     const now = Date.now();
     const timeSinceLastSync = now - lastSyncTimeRef.current;
-    if (timeSinceLastSync < 10000) { // Min 10 seconds between syncs
+    if (timeSinceLastSync < 10000) {
       console.log('[Sync] Too soon since last sync, skipping...');
       return;
     }
@@ -211,7 +209,6 @@ export default function App() {
     lastSyncTimeRef.current = now;
 
     try {
-      // Get current orders from localStorage (fresh copy)
       const currentOrders = hydrateOrderDates(readStorage<CreatedOrder[]>("dev-smm-orders", []));
 
       const activeOrders = currentOrders.filter(
@@ -231,33 +228,52 @@ export default function App() {
       for (const order of activeOrders) {
         try {
           const result = await fetchOrderRuns(order.schedulerOrderId!);
-          
+
+          const runStatuses: RunStatus[] = [];
+          const runErrors: string[] = [];
           const runRetries: number[] = [];
           const runOriginalTimes: string[] = [];
           const runCurrentTimes: string[] = [];
           const runReasons: string[] = [];
-          const runStatuses: RunStatus[] = [];
-          const runErrors: string[] = [];
 
           result.runs.forEach((backendRun) => {
-            runRetries.push(backendRun.retryCount || 0);
-            runOriginalTimes.push(backendRun.originalTime);
-            runCurrentTimes.push(backendRun.currentTime);
-            runReasons.push(backendRun.retryReason || "");
-            runErrors.push(backendRun.lastError || "");
-
-            if (backendRun.cancelled) {
-              runStatuses.push("cancelled");
-            } else if (backendRun.done) {
-              runStatuses.push("completed");
-            } else if (backendRun.retryCount > 0) {
-              runStatuses.push("retrying");
+            const backendStatus = backendRun.status || "pending";
+            
+            let frontendStatus: RunStatus;
+            if (backendStatus === "cancelled") {
+              frontendStatus = "cancelled";
+            } else if (backendStatus === "completed") {
+              frontendStatus = "completed";
+            } else if (backendStatus === "failed") {
+              frontendStatus = "cancelled";
+            } else if (backendStatus === "processing" || backendStatus === "queued") {
+              frontendStatus = "pending";
             } else {
-              runStatuses.push("pending");
+              frontendStatus = "pending";
             }
+
+            runStatuses.push(frontendStatus);
+            runErrors.push(backendRun.error || backendRun.lastError || "");
+            runRetries.push(backendRun.retryCount || 0);
+            runOriginalTimes.push(backendRun.originalTime || backendRun.time || "");
+            runCurrentTimes.push(backendRun.currentTime || backendRun.time || "");
+            runReasons.push(backendRun.retryReason || "");
           });
 
           const completedRuns = runStatuses.filter(s => s === "completed").length;
+
+          let orderStatus: CreatedOrder["status"] = order.status;
+          const allCompleted = runStatuses.every(s => s === "completed");
+          const allCancelled = runStatuses.every(s => s === "cancelled");
+          const hasCompleted = runStatuses.some(s => s === "completed");
+          
+          if (allCompleted) {
+            orderStatus = "completed";
+          } else if (allCancelled) {
+            orderStatus = "cancelled";
+          } else if (hasCompleted || runStatuses.some(s => s === "pending")) {
+            orderStatus = "running";
+          }
 
           updates.push({
             orderId: order.id,
@@ -269,6 +285,7 @@ export default function App() {
               runStatuses,
               runErrors,
               completedRuns,
+              status: orderStatus,
               lastUpdatedAt: new Date().toISOString(),
             },
           });
