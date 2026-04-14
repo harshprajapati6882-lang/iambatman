@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from "react"; // Add useRef
 import { motion, AnimatePresence } from "framer-motion";
-import type { CreatedOrder } from "../types/order";
+import type { CreatedOrder, ApiPanel, Bundle } from "../types/order";
 import { OrderCard } from "../components/OrderCard";
 import { RunTable } from "../components/RunTable"; // 🔥 NEW: Import RunTable
 
@@ -8,6 +8,8 @@ interface OrdersPageProps {
   orders: CreatedOrder[];
   notice: string;
   controllingOrderId: string | null;
+  apis: ApiPanel[];
+  bundles: Bundle[];
   onControlOrder: (order: CreatedOrder, action: "pause" | "resume" | "cancel") => void;
   onCloneOrder: (order: CreatedOrder) => void;
   onDismissNotice: () => void;
@@ -40,6 +42,36 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> =
   failed: { bg: "bg-red-500/15", text: "text-red-300", dot: "bg-red-400" },
 };
 
+// 🔥 NEW: Calculate order price in INR
+function calculateOrderPrice(order: CreatedOrder, apis: ApiPanel[], bundles: Bundle[]): number {
+  const bundle = bundles.find(b => b.name === order.selectedBundle);
+  const api = apis.find(a => a.name === order.selectedAPI);
+
+  if (!bundle || !api) return 0;
+
+  const viewsService = api.services.find(s => s.id === bundle.serviceIds.views);
+  const likesService = api.services.find(s => s.id === bundle.serviceIds.likes);
+  const sharesService = api.services.find(s => s.id === bundle.serviceIds.shares);
+  const savesService = api.services.find(s => s.id === bundle.serviceIds.saves);
+  const commentsService = api.services.find(s => s.id === bundle.serviceIds.comments);
+
+  const runs = order.runs || [];
+
+  const totalViews = runs.reduce((sum, r) => sum + (r.views || 0), 0);
+  const totalLikes = runs.reduce((sum, r) => sum + (r.likes || 0), 0);
+  const totalShares = runs.reduce((sum, r) => sum + (r.shares || 0), 0);
+  const totalSaves = runs.reduce((sum, r) => sum + (r.saves || 0), 0);
+  const totalComments = runs.reduce((sum, r) => sum + (r.comments || 0), 0);
+
+  const viewsPrice = (totalViews / 1000) * parseFloat(viewsService?.rate || "0");
+  const likesPrice = (totalLikes / 1000) * parseFloat(likesService?.rate || "0");
+  const sharesPrice = (totalShares / 1000) * parseFloat(sharesService?.rate || "0");
+  const savesPrice = (totalSaves / 1000) * parseFloat(savesService?.rate || "0");
+  const commentsPrice = (totalComments / 1000) * parseFloat(commentsService?.rate || "0");
+
+  return viewsPrice + likesPrice + sharesPrice + savesPrice + commentsPrice;
+}
+
 const TABS: { key: TabType; label: string; icon: string }[] = [
   { key: "running", label: "Active", icon: "⚡" },
   { key: "scheduled", label: "Scheduled", icon: "⏱" },
@@ -51,6 +83,8 @@ export function OrdersPage({
   orders,
   notice,
   controllingOrderId,
+  apis,
+  bundles,
   onControlOrder,
   onCloneOrder,
   onDismissNotice,
@@ -565,8 +599,8 @@ export function OrdersPage({
           <ProgressBar percent={progress.percent} size="small" />
         </div>
 
-        {/* Stats */}
-        <div className="mt-3 ml-8 grid grid-cols-4 gap-2">
+                {/* Stats */}
+        <div className="mt-3 ml-8 grid grid-cols-5 gap-2">
           <div className="rounded-md bg-black/50 px-2 py-1 text-center">
             <p className="text-xs font-medium text-yellow-400">{(order.totalViews / 1000).toFixed(0)}k</p>
             <p className="text-[9px] text-gray-600">Views</p>
@@ -582,6 +616,10 @@ export function OrdersPage({
           <div className="rounded-md bg-black/50 px-2 py-1 text-center">
             <p className="text-xs font-medium text-purple-400">{order.engagement.saves}</p>
             <p className="text-[9px] text-gray-600">Saves</p>
+          </div>
+          <div className="rounded-md bg-yellow-500/10 border border-yellow-500/30 px-2 py-1 text-center">
+            <p className="text-xs font-bold text-yellow-400">₹{calculateOrderPrice(order, apis, bundles).toFixed(0)}</p>
+            <p className="text-[9px] text-yellow-600">Cost</p>
           </div>
         </div>
 
@@ -777,7 +815,7 @@ export function OrdersPage({
             </div>
 
             {/* Overall Stats - 🔥 UPDATED: Added Total Runs */}
-            <div className="mt-4 grid grid-cols-2 sm:grid-cols-5 gap-3">
+                        <div className="mt-4 grid grid-cols-2 sm:grid-cols-6 gap-3">
               <div className="rounded-lg bg-gray-900 px-3 py-2 text-center">
                 <p className="text-xl font-bold text-yellow-400">{group.linksCount}</p>
                 <p className="text-[10px] text-gray-500">Total Links</p>
@@ -786,7 +824,6 @@ export function OrdersPage({
                 <p className="text-xl font-bold text-yellow-400">{(group.totalViews / 1000).toFixed(0)}k</p>
                 <p className="text-[10px] text-gray-500">Total Views</p>
               </div>
-              {/* 🔥 NEW: Total Runs Card */}
               <div className="rounded-lg bg-gray-900 px-3 py-2 text-center">
                 <p className="text-xl font-bold text-blue-400">{totalRunsInBatch}</p>
                 <p className="text-[10px] text-gray-500">Total Runs</p>
@@ -796,6 +833,12 @@ export function OrdersPage({
                   {overallProgress.percent}%
                 </p>
                 <p className="text-[10px] text-gray-500">Progress</p>
+              </div>
+              <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/30 px-3 py-2 text-center">
+                <p className="text-xl font-bold text-yellow-400">
+                  ₹{group.orders.reduce((sum, order) => sum + calculateOrderPrice(order, apis, bundles), 0).toFixed(0)}
+                </p>
+                <p className="text-[10px] text-yellow-600">Total Cost</p>
               </div>
               <div className="rounded-lg bg-gray-900 px-3 py-2 text-center">
                 <StatusBadge status={overallStatus} />
@@ -892,11 +935,16 @@ export function OrdersPage({
           className="max-h-[92vh] w-full max-w-5xl overflow-auto rounded-2xl border border-yellow-500/30 bg-black p-5 shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="mb-4 flex items-center justify-between border-b border-gray-800 pb-4">
+                    <div className="mb-4 flex items-center justify-between border-b border-gray-800 pb-4">
             <div>
               <h3 className="text-lg font-semibold text-yellow-400">Mission Details</h3>
               <p className="mt-0.5 text-xs text-gray-600 font-mono">{order.id}</p>
             </div>
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/30 px-3 py-1.5 text-center">
+                <p className="text-lg font-bold text-yellow-400">₹{calculateOrderPrice(order, apis, bundles).toFixed(0)}</p>
+                <p className="text-[9px] text-yellow-600">Order Cost</p>
+              </div>
             <button
               type="button"
               onClick={() => setOpenedGroupId(null)}
