@@ -1594,25 +1594,37 @@ if (config.includeComments) {
     const shuffled = [...availableIndexes].sort(() => Math.random() - 0.5);
     const selectedIndexes = shuffled.slice(0, targetCount).sort((a, b) => a - b);
 
-    const minPerRun = 20;
+        const minPerRun = 20;
+
+    // 🔥 FIX: Check if we have enough total to distribute minimum to all selected runs
+    // If not, reduce the number of selected runs
+    while (selectedIndexes.length > 1 && sharesTotal < selectedIndexes.length * minPerRun) {
+      selectedIndexes.pop(); // remove last run until we can satisfy minimum
+    }
+
+    // 🔥 FIX: If even 1 run can't get minimum, return all zeros
+    if (sharesTotal < minPerRun) return result;
+
     let remaining = sharesTotal;
 
     for (let i = 0; i < selectedIndexes.length; i++) {
       const isLast = i === selectedIndexes.length - 1;
 
       if (isLast) {
-        // 🔥 DEMAND 5: Math.max(0) ensures no negative
+        // Last run gets whatever is remaining, must be >= minPerRun
         result[selectedIndexes[i]] = Math.max(minPerRun, remaining);
       } else {
         const runsLeft = selectedIndexes.length - i;
         const avgRemaining = remaining / runsLeft;
-        const value = Math.max(minPerRun, Math.round(avgRemaining * random(0.6, 1.4)));
+        // 🔥 FIX: value must be between minPerRun and (remaining - future runs * minPerRun)
         const maxAllowed = remaining - (runsLeft - 1) * minPerRun;
-        // 🔥 DEMAND 5: Math.max(0) ensures no negative
-        const finalValue = Math.max(0, Math.min(value, maxAllowed));
-        result[selectedIndexes[i]] = finalValue;
-        remaining -= finalValue;
-        // 🔥 DEMAND 5: Keep remaining non-negative
+        const value = Math.min(
+          Math.max(minPerRun, Math.round(avgRemaining * random(0.6, 1.4))),
+          maxAllowed
+        );
+        // 🔥 FIX: Always assign at least minPerRun
+        result[selectedIndexes[i]] = Math.max(minPerRun, value);
+        remaining -= result[selectedIndexes[i]];
         remaining = Math.max(0, remaining);
       }
     }
@@ -1638,7 +1650,16 @@ if (config.includeComments) {
     const shuffled = [...availableIndexes].sort(() => Math.random() - 0.5);
     const selectedIndexes = shuffled.slice(0, targetCount).sort((a, b) => a - b);
 
-    const minPerRun = 10;
+        const minPerRun = 10;
+
+    // 🔥 FIX: Reduce selected runs until total can satisfy minimum for all
+    while (selectedIndexes.length > 1 && savesTotal < selectedIndexes.length * minPerRun) {
+      selectedIndexes.pop();
+    }
+
+    // 🔥 FIX: If even 1 run can't get minimum, return all zeros
+    if (savesTotal < minPerRun) return result;
+
     let remaining = savesTotal;
 
     for (let i = 0; i < selectedIndexes.length; i++) {
@@ -1649,13 +1670,15 @@ if (config.includeComments) {
       } else {
         const runsLeft = selectedIndexes.length - i;
         const avgRemaining = remaining / runsLeft;
-        const value = Math.max(minPerRun, Math.round(avgRemaining * random(0.6, 1.4)));
+        // 🔥 FIX: value must be between minPerRun and (remaining - future runs * minPerRun)
         const maxAllowed = remaining - (runsLeft - 1) * minPerRun;
-        // 🔥 DEMAND 5: Math.max(0) ensures no negative
-        const finalValue = Math.max(0, Math.min(value, maxAllowed));
-        result[selectedIndexes[i]] = finalValue;
-        remaining -= finalValue;
-        // 🔥 DEMAND 5: Keep remaining non-negative
+        const value = Math.min(
+          Math.max(minPerRun, Math.round(avgRemaining * random(0.6, 1.4))),
+          maxAllowed
+        );
+        // 🔥 FIX: Always assign at least minPerRun
+        result[selectedIndexes[i]] = Math.max(minPerRun, value);
+        remaining -= result[selectedIndexes[i]];
         remaining = Math.max(0, remaining);
       }
     }
