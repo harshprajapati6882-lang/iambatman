@@ -201,7 +201,7 @@ export default function App() {
 
     const now = Date.now();
     const timeSinceLastSync = now - lastSyncTimeRef.current;
-  if (timeSinceLastSync < 5000) {
+    if (timeSinceLastSync < 10000) {
       console.log('[Sync] Too soon since last sync, skipping...');
       return;
     }
@@ -235,15 +235,36 @@ export default function App() {
         try {
           const result = await fetchOrderRuns(order.schedulerOrderId!);
 
-          
+          const runStatuses: RunStatus[] = [];
+          const runErrors: string[] = [];
+          const runRetries: number[] = [];
+          const runOriginalTimes: string[] = [];
+          const runCurrentTimes: string[] = [];
+          const runReasons: string[] = [];
 
+          result.runs.forEach((backendRun) => {
+            const backendStatus = backendRun.status || "pending";
+            
+            let frontendStatus: RunStatus;
+            if (backendStatus === "cancelled") {
+              frontendStatus = "cancelled";
+            } else if (backendStatus === "completed") {
+              frontendStatus = "completed";
+            } else if (backendStatus === "failed") {
+              frontendStatus = "cancelled";
+            } else if (backendStatus === "processing" || backendStatus === "queued") {
+              frontendStatus = "pending";
+            } else {
+              frontendStatus = "pending";
+            }
 
-                    // 🔥 FIX: Determine order status carefully
-          // Rule 1: If backend returned no runs, DON'T change status
-          // Rule 2: Only upgrade to completed/cancelled if ALL runs confirm it
-          // Rule 3: Never downgrade from completed/cancelled
-          
-          // If runStatuses is empty, keep existing order.status — don't override
+            runStatuses.push(frontendStatus);
+            runErrors.push(backendRun.error || backendRun.lastError || "");
+            runRetries.push(backendRun.retryCount || 0);
+            runOriginalTimes.push(backendRun.originalTime || backendRun.time || "");
+            runCurrentTimes.push(backendRun.currentTime || backendRun.time || "");
+            runReasons.push(backendRun.retryReason || "");
+          });
 
                     // 🔥 FIX: Backend returns runs for ALL service types (views, likes, shares, saves, comments)
           // But frontend runs array only has ONE entry per time slot
@@ -260,13 +281,7 @@ export default function App() {
           
           result.runs.forEach((backendRun) => {
             // Use the run time as the key (rounded to minute to handle slight variations)
-            let timeKey = "unknown";
-if (backendRun.time) {
-  const d = new Date(backendRun.time);
-  if (!isNaN(d.getTime())) {
-    timeKey = d.toISOString().slice(0, 16);
-  }
-}
+            const timeKey = backendRun.time ? new Date(backendRun.time).toISOString().slice(0, 16) : "unknown";
             
             if (!timeSlotMap.has(timeKey)) {
               timeSlotMap.set(timeKey, { statuses: [], errors: [] });
@@ -331,9 +346,7 @@ if (backendRun.time) {
           // 🔥 Determine order status from trimmed slot statuses
           let orderStatus: CreatedOrder["status"] = order.status;
 
-         if (trimmedStatuses.length === 0) {
-  orderStatus = order.status;
-} else {
+          if (trimmedStatuses.length > 0) {
             const allCompleted = trimmedStatuses.every(s => s === "completed");
             const allCancelled = trimmedStatuses.every(s => s === "cancelled");
 
