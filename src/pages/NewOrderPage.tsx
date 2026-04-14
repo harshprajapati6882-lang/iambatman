@@ -468,15 +468,47 @@ const commentsService = selectedApi?.services.find(
           </div>
 
           {/* Growth Graph - Compact */}
-                    <GrowthGraph 
+                              <GrowthGraph 
             plan={safePlan}
             selectedPreset={quickPreset}
+            variancePercent={variancePercent}
+            delivery={delivery}
+            includeLikes={includeLikes}
+            includeShares={includeShares}
+            includeSaves={includeSaves}
+            includeComments={includeComments}
+            peakHoursBoost={peakHoursBoost}
             onApplyPreset={handleApplyPreset}
             onGenerate={handleGenerate}
-            onApplyFavourite={(favouritePlan) => {
-              setClonedPlan(favouritePlan);
-              setUseClonedPlan(true);
-              setQuickPreset(null);
+            onApplyFavourite={(config) => {
+              // 🔥 Apply saved config settings — pattern regenerates automatically
+              setUseClonedPlan(false);
+              
+              // Set delivery
+              if (config.delivery) {
+                setDelivery(config.delivery);
+                if (config.delivery.mode === "custom") {
+                  setCustomHours(config.delivery.hours);
+                }
+              }
+              
+              // Set variance
+              if (typeof config.variancePercent === "number") {
+                setVariancePercent(config.variancePercent);
+              }
+              
+              // Set preset
+              setQuickPreset(config.quickPreset || null);
+              
+              // Set engagement toggles
+              setIncludeLikes(config.includeLikes ?? false);
+              setIncludeShares(config.includeShares ?? false);
+              setIncludeSaves(config.includeSaves ?? false);
+              setIncludeComments(config.includeComments ?? false);
+              setPeakHoursBoost(config.peakHoursBoost ?? false);
+              
+              // Force regenerate with new settings
+              setSeed((current) => current + 1);
               setExpandedRuns(true);
             }}
           />
