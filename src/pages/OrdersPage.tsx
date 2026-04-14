@@ -142,27 +142,28 @@ export function OrdersPage({
     };
   }
 
-      function getRealStatus(order: CreatedOrder): string {
-    // 🔥 FIX: Trust backend status FIRST — never override cancelled/failed/completed/paused
+        function getRealStatus(order: CreatedOrder): string {
+    // 🔥 RULE 1: Always trust backend order.status for terminal states
     if (order.status === "cancelled") return "cancelled";
     if (order.status === "failed") return "failed";
     if (order.status === "completed") return "completed";
     if (order.status === "paused") return "paused";
 
-    // 🔥 Only derive status for "running"/"processing"/"pending" orders
+    // 🔥 RULE 2: For non-terminal orders, check if scheduled
     const runs = order.runs || [];
     const now = Date.now();
 
-    // Check if all runs are in the future (scheduled) — only for non-terminal statuses
     if (runs.length > 0) {
       const allFuture = runs.every((run) => {
-        const runTime = run?.at instanceof Date ? run.at.getTime() : new Date(run?.at ?? now).getTime();
+        const runTime = run?.at instanceof Date
+          ? run.at.getTime()
+          : new Date(run?.at ?? now).getTime();
         return runTime > now;
       });
       if (allFuture) return "scheduled";
     }
 
-    // Check runStatuses for completion — only for non-terminal statuses
+    // 🔥 RULE 3: Check runStatuses — but ONLY if array is non-empty
     const runStatuses = order.runStatuses || [];
     if (runStatuses.length > 0) {
       const allCompleted = runStatuses.every(s => s === "completed");
@@ -172,7 +173,10 @@ export function OrdersPage({
       if (allCancelled) return "cancelled";
     }
 
-    // Default: treat as running
+    // 🔥 RULE 4: For processing/pending — show as running
+    if (order.status === "processing" || order.status === "pending") return "running";
+
+    // 🔥 RULE 5: Default to running for any other active state
     return "running";
   }
 
