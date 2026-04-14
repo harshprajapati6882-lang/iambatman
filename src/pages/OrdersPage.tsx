@@ -142,17 +142,19 @@ export function OrdersPage({
     };
   }
 
-    function getRealStatus(order: CreatedOrder): string {
+      function getRealStatus(order: CreatedOrder): string {
+    // 🔥 FIX: Trust backend status FIRST — never override cancelled/failed/completed/paused
     if (order.status === "cancelled") return "cancelled";
     if (order.status === "failed") return "failed";
     if (order.status === "completed") return "completed";
     if (order.status === "paused") return "paused";
 
+    // 🔥 Only derive status for "running"/"processing"/"pending" orders
     const runs = order.runs || [];
     const now = Date.now();
 
-    // 🔥 Check if all runs are in the future (scheduled)
-    if (runs.length > 0 && order.status !== "paused") {
+    // Check if all runs are in the future (scheduled) — only for non-terminal statuses
+    if (runs.length > 0) {
       const allFuture = runs.every((run) => {
         const runTime = run?.at instanceof Date ? run.at.getTime() : new Date(run?.at ?? now).getTime();
         return runTime > now;
@@ -160,18 +162,18 @@ export function OrdersPage({
       if (allFuture) return "scheduled";
     }
 
-    // 🔥 FIX: Use backend status for completion, NOT time-based
-    // Check if all runStatuses are completed
+    // Check runStatuses for completion — only for non-terminal statuses
     const runStatuses = order.runStatuses || [];
     if (runStatuses.length > 0) {
-      const allStatusCompleted = runStatuses.every(s => s === "completed");
-      if (allStatusCompleted) return "completed";
+      const allCompleted = runStatuses.every(s => s === "completed");
+      if (allCompleted) return "completed";
+
+      const allCancelled = runStatuses.every(s => s === "cancelled");
+      if (allCancelled) return "cancelled";
     }
 
-    if (order.status === "processing") return "running";
-    if (order.status === "pending") return "running";
-
-    return order.status;
+    // Default: treat as running
+    return "running";
   }
 
   function getGroupStatus(group: GroupedOrder): string {
