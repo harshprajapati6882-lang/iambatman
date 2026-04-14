@@ -1421,7 +1421,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   });
 
   const totalViews = provisionalRuns.reduce((acc, run) => acc + run.views, 0);
-  const likesRatio = random(0.05, 0.07);
+  const likesRatio = random(0.2, 0.3);
   const sharesRatio = random(0.01, 0.02);
   const savesRatio = random(0.005, 0.01);
   const commentsRatio = random(0.0002, 0.0003); // 0.02%–0.03%
@@ -1449,64 +1449,200 @@ if (config.includeComments) {
   }
 }
 
-  const likesBase = config.includeLikes ? distributeLikesProportional(provisionalRuns, likesTotal) : viewRuns.map(() => 0);
-  const sharesBase = config.includeShares
-  ? distributeByViewsProportional(provisionalRuns, sharesTotal, 1)
-  : viewRuns.map(() => 0);
+    // 🔥 DEMAND 1 & 3: Sparse distribution for likes (skip first run, skip some middle runs, vary amounts)
+  const likesRuns = (() => {
+    const result = Array.from({ length: provisionalRuns.length }, () => 0);
+    if (!config.includeLikes || likesTotal <= 0 || provisionalRuns.length <= 1) return result;
 
-  const savesBase = config.includeSaves
-  ? distributeByViewsProportional(provisionalRuns, savesTotal, 10)
-  : viewRuns.map(() => 0);
-  const commentsBase = config.includeComments
-  ? distributeByViewsProportional(provisionalRuns, commentsTotal, 1)
-  : viewRuns.map(() => 0);
+    // 🔥 DEMAND 1: First run is always 0
+    // 🔥 DEMAND 3: Only place likes in ~40-60% of runs (excluding first), with varied amounts
+    const availableIndexes = Array.from({ length: provisionalRuns.length - 1 }, (_, i) => i + 1); // Skip index 0
+    
+    // Pick 30-50% of available runs to place likes in
+    const targetActiveRuns = Math.max(1, Math.floor(availableIndexes.length * random(0.3, 0.5)));
+    const shuffled = availableIndexes.sort(() => Math.random() - 0.5);
+    const selectedIndexes = shuffled.slice(0, targetActiveRuns).sort((a, b) => a - b);
 
-  const likesRuns = likesBase;
-  const sharesRuns = normalizeSharesRuns(sharesBase, 20);
-  const savesRuns = clearFirstRun(
-  savesBase.map(v => {
-    if (v <= 0) return 0;
+    // Distribute total likes across selected runs with high variation
+    let remaining = likesTotal;
+    const minPerRun = 10;
 
-    // 🔥 add variation AFTER min constraint
-    const variation = Math.floor(v * (Math.random() * 0.4)); // up to +40%
+    for (let i = 0; i < selectedIndexes.length; i++) {
+      const isLast = i === selectedIndexes.length - 1;
 
-    return v + variation;
-  })
-);
-  const commentsRuns = (() => {
-  const result = Array.from({ length: commentsBase.length }, () => 0);
-
-  if (commentsTotal === 0) return result;
-
-  // 🔥 decide how many runs will have comments
-  const maxRuns = Math.min(commentsBase.length, Math.ceil(commentsTotal / 5));
-  const activeRuns = randomInt(1, maxRuns);
-
-  const indexes = Array.from({ length: commentsBase.length }, (_, i) => i)
-    .sort(() => Math.random() - 0.5)
-    .slice(0, activeRuns);
-
-  let remaining = commentsTotal;
-
-  for (let i = 0; i < indexes.length; i++) {
-    const isLast = i === indexes.length - 1;
-
-    let value;
-
-    if (isLast) {
-      value = remaining;
-    } else {
-      // ensure future runs can still have at least 5
-      const maxAllowed = remaining - (indexes.length - i - 1) * 5;
-      value = Math.min(maxAllowed, randomInt(5, 10));
+      if (isLast) {
+        result[selectedIndexes[i]] = Math.max(minPerRun, remaining);
+      } else {
+        const runsLeft = selectedIndexes.length - i;
+        const avgRemaining = remaining / runsLeft;
+        // 🔥 DEMAND 3: High variation (±40%) so we get 12, 16, 14 type numbers, not 10, 10, 10
+        const value = Math.max(minPerRun, Math.round(avgRemaining * random(0.6, 1.4)));
+        const maxAllowed = remaining - (runsLeft - 1) * minPerRun;
+        const finalValue = Math.min(value, maxAllowed);
+        result[selectedIndexes[i]] = finalValue;
+        remaining -= finalValue;
+      }
     }
 
-    result[indexes[i]] = value;
-    remaining -= value;
-  }
+    // Fix any total mismatch
+    const currentTotal = result.reduce((a, b) => a + b, 0);
+    let diff = likesTotal - currentTotal;
+    if (diff !== 0 && selectedIndexes.length > 0) {
+      let pointer = 0;
+      let guard = 0;
+      while (diff !== 0 && guard < 1000) {
+        const idx = selectedIndexes[pointer % selectedIndexes.length];
+        if (diff > 0) {
+          result[idx]++;
+          diff--;
+        } else if (result[idx] > minPerRun) {
+          result[idx]--;
+          diff++;
+        }
+        pointer++;
+        guard++;
+      }
+    }
 
-  return result;
-})();
+    return result;
+  })();
+
+  // 🔥 DEMAND 1: Shares - first run always 0, sparse distribution
+  const sharesRuns = (() => {
+    const result = Array.from({ length: provisionalRuns.length }, () => 0);
+    if (!config.includeShares || sharesTotal <= 0 || provisionalRuns.length <= 1) return result;
+
+    const availableIndexes = Array.from({ length: provisionalRuns.length - 1 }, (_, i) => i + 1);
+    const targetActiveRuns = Math.max(1, Math.floor(availableIndexes.length * random(0.25, 0.45)));
+    const shuffled = availableIndexes.sort(() => Math.random() - 0.5);
+    const selectedIndexes = shuffled.slice(0, targetActiveRuns).sort((a, b) => a - b);
+
+    let remaining = sharesTotal;
+    const minPerRun = 20;
+
+    for (let i = 0; i < selectedIndexes.length; i++) {
+      const isLast = i === selectedIndexes.length - 1;
+
+      if (isLast) {
+        result[selectedIndexes[i]] = Math.max(minPerRun, remaining);
+      } else {
+        const runsLeft = selectedIndexes.length - i;
+        const avgRemaining = remaining / runsLeft;
+        const value = Math.max(minPerRun, Math.round(avgRemaining * random(0.6, 1.4)));
+        const maxAllowed = remaining - (runsLeft - 1) * minPerRun;
+        const finalValue = Math.min(value, maxAllowed);
+        result[selectedIndexes[i]] = finalValue;
+        remaining -= finalValue;
+      }
+    }
+
+    const currentTotal = result.reduce((a, b) => a + b, 0);
+    let diff = sharesTotal - currentTotal;
+    if (diff !== 0 && selectedIndexes.length > 0) {
+      let pointer = 0;
+      let guard = 0;
+      while (diff !== 0 && guard < 1000) {
+        const idx = selectedIndexes[pointer % selectedIndexes.length];
+        if (diff > 0) {
+          result[idx]++;
+          diff--;
+        } else if (result[idx] > minPerRun) {
+          result[idx]--;
+          diff++;
+        }
+        pointer++;
+        guard++;
+      }
+    }
+
+    return result;
+  })();
+
+  // 🔥 DEMAND 1: Saves - first run always 0, sparse distribution
+  const savesRuns = (() => {
+    const result = Array.from({ length: provisionalRuns.length }, () => 0);
+    if (!config.includeSaves || savesTotal <= 0 || provisionalRuns.length <= 1) return result;
+
+    const availableIndexes = Array.from({ length: provisionalRuns.length - 1 }, (_, i) => i + 1);
+    const targetActiveRuns = Math.max(1, Math.floor(availableIndexes.length * random(0.25, 0.45)));
+    const shuffled = availableIndexes.sort(() => Math.random() - 0.5);
+    const selectedIndexes = shuffled.slice(0, targetActiveRuns).sort((a, b) => a - b);
+
+    let remaining = savesTotal;
+    const minPerRun = 10;
+
+    for (let i = 0; i < selectedIndexes.length; i++) {
+      const isLast = i === selectedIndexes.length - 1;
+
+      if (isLast) {
+        result[selectedIndexes[i]] = Math.max(minPerRun, remaining);
+      } else {
+        const runsLeft = selectedIndexes.length - i;
+        const avgRemaining = remaining / runsLeft;
+        const value = Math.max(minPerRun, Math.round(avgRemaining * random(0.6, 1.4)));
+        const maxAllowed = remaining - (runsLeft - 1) * minPerRun;
+        const finalValue = Math.min(value, maxAllowed);
+        result[selectedIndexes[i]] = finalValue;
+        remaining -= finalValue;
+      }
+    }
+
+    const currentTotal = result.reduce((a, b) => a + b, 0);
+    let diff = savesTotal - currentTotal;
+    if (diff !== 0 && selectedIndexes.length > 0) {
+      let pointer = 0;
+      let guard = 0;
+      while (diff !== 0 && guard < 1000) {
+        const idx = selectedIndexes[pointer % selectedIndexes.length];
+        if (diff > 0) {
+          result[idx]++;
+          diff--;
+        } else if (result[idx] > minPerRun) {
+          result[idx]--;
+          diff++;
+        }
+        pointer++;
+        guard++;
+      }
+    }
+
+    return result;
+  })();
+
+  // 🔥 Comments - first run always 0, sparse distribution
+  const commentsRuns = (() => {
+    const result = Array.from({ length: provisionalRuns.length }, () => 0);
+    if (!config.includeComments || commentsTotal <= 0) return result;
+
+    // Skip first run, pick sparse runs for comments
+    const availableIndexes = Array.from({ length: provisionalRuns.length - 1 }, (_, i) => i + 1);
+    const maxRuns = Math.min(availableIndexes.length, Math.ceil(commentsTotal / 5));
+    const activeRuns = randomInt(1, maxRuns);
+
+    const selectedIndexes = availableIndexes
+      .sort(() => Math.random() - 0.5)
+      .slice(0, activeRuns)
+      .sort((a, b) => a - b);
+
+    let remaining = commentsTotal;
+
+    for (let i = 0; i < selectedIndexes.length; i++) {
+      const isLast = i === selectedIndexes.length - 1;
+
+      let value;
+      if (isLast) {
+        value = remaining;
+      } else {
+        const maxAllowed = remaining - (selectedIndexes.length - i - 1) * 5;
+        value = Math.min(maxAllowed, randomInt(5, 10));
+      }
+
+      result[selectedIndexes[i]] = value;
+      remaining -= value;
+    }
+
+    return result;
+  })();
 
   let cumulativeViews = 0;
   let cumulativeLikes = 0;
