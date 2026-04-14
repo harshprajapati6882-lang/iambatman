@@ -12,34 +12,35 @@ export function DashboardPage({ orders }: DashboardPageProps) {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   // 🦇 FIX: Same logic as OrdersPage to determine REAL status
-  function getRealStatus(order: CreatedOrder): string {
+    function getRealStatus(order: CreatedOrder): string {
+    // 🔥 FIX: Trust backend status FIRST
+    if (order.status === "cancelled") return "cancelled";
+    if (order.status === "failed") return "failed";
+    if (order.status === "completed") return "completed";
+    if (order.status === "paused") return "paused";
+
     const runs = order.runs || [];
     const now = Date.now();
 
-    // Check if all runs are in the future (scheduled)
+    // Only derive status for running/processing/pending orders
     if (runs.length > 0) {
       const allFuture = runs.every((run) => {
         const runTime = run?.at instanceof Date ? run.at.getTime() : new Date(run?.at ?? now).getTime();
         return runTime > now;
       });
-      if (allFuture && order.status !== "cancelled" && order.status !== "paused") {
-        return "scheduled";
-      }
+      if (allFuture) return "scheduled";
     }
 
-    // Check if all runs are completed (by time)
-    if (runs.length > 0) {
-      const allCompleted = runs.every((run) => {
-        const runTime = run?.at instanceof Date ? run.at.getTime() : new Date(run?.at ?? now).getTime();
-        return runTime <= now;
-      });
+    const runStatuses = order.runStatuses || [];
+    if (runStatuses.length > 0) {
+      const allCompleted = runStatuses.every(s => s === "completed");
       if (allCompleted) return "completed";
+
+      const allCancelled = runStatuses.every(s => s === "cancelled");
+      if (allCancelled) return "cancelled";
     }
 
-    if (order.status === "processing") return "running";
-    if (order.status === "pending") return "running";
-
-    return order.status;
+    return "running";
   }
 
   // Filter orders by time period
