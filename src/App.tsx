@@ -212,9 +212,14 @@ export default function App() {
     try {
       const currentOrders = hydrateOrderDates(readStorage<CreatedOrder[]>("dev-smm-orders", []));
 
+            // 🔥 FIX: Only sync orders that are actually active
+      // NEVER re-sync completed, cancelled, or failed orders
       const activeOrders = currentOrders.filter(
         order => order.schedulerOrderId && 
-        (order.status === "running" || order.status === "processing" || order.status === "paused")
+        order.status !== "completed" &&
+        order.status !== "cancelled" &&
+        order.status !== "failed" &&
+        (order.status === "running" || order.status === "processing" || order.status === "paused" || order.status === "pending")
       );
 
       if (activeOrders.length === 0) {
@@ -263,18 +268,26 @@ export default function App() {
 
           const completedRuns = runStatuses.filter(s => s === "completed").length;
 
+                    // 🔥 FIX: Determine order status carefully
+          // Rule 1: If backend returned no runs, DON'T change status
+          // Rule 2: Only upgrade to completed/cancelled if ALL runs confirm it
+          // Rule 3: Never downgrade from completed/cancelled
           let orderStatus: CreatedOrder["status"] = order.status;
-          const allCompleted = runStatuses.every(s => s === "completed");
-          const allCancelled = runStatuses.every(s => s === "cancelled");
-          const hasCompleted = runStatuses.some(s => s === "completed");
-          
-          if (allCompleted) {
-            orderStatus = "completed";
-          } else if (allCancelled) {
-            orderStatus = "cancelled";
-          } else if (hasCompleted || runStatuses.some(s => s === "pending")) {
-            orderStatus = "running";
+
+          if (runStatuses.length > 0) {
+            const allCompleted = runStatuses.every(s => s === "completed");
+            const allCancelled = runStatuses.every(s => s === "cancelled");
+
+            if (allCompleted) {
+              orderStatus = "completed";
+            } else if (allCancelled) {
+              orderStatus = "cancelled";
+            } else if (order.status !== "completed" && order.status !== "cancelled" && order.status !== "failed") {
+              // Only set to running if NOT already in a terminal state
+              orderStatus = "running";
+            }
           }
+          // If runStatuses is empty, keep existing order.status — don't override
 
           updates.push({
             orderId: order.id,
