@@ -21,6 +21,8 @@ interface FavouriteConfig {
   patternType: PatternPlan["patternType"];
   totalRuns: number;
   estimatedDurationHours: number;
+  approximateIntervalMin: number;
+  finishTime: string;
   risk: PatternPlan["risk"];
   quickPreset: QuickPatternPreset | null;
   variancePercent: number;
@@ -30,6 +32,16 @@ interface FavouriteConfig {
   includeSaves: boolean;
   includeComments: boolean;
   peakHoursBoost: boolean;
+  // 🔥 Save actual runs as proportions (0-1) of total views
+  runProportions: Array<{
+    minutesFromStart: number;
+    viewsFraction: number;
+    likesFraction: number;
+    sharesFraction: number;
+    savesFraction: number;
+    commentsFraction: number;
+  }>;
+  savedTotalViews: number;
 }
 
 interface GrowthGraphProps {
@@ -237,8 +249,25 @@ export function GrowthGraph({
   const steppedData = useMemo(() => buildSteppedGraphData(safePlan), [safePlan]);
   const curveType = lineTypeForPattern(safePlan.patternType);
 
-  const handleSaveFavourite = () => {
+    const handleSaveFavourite = () => {
     const name = favouriteName.trim() || `${safePlan.patternName} · ${safePlan.totalRuns} runs`;
+
+    // 🔥 Calculate total quantities to derive fractions
+    const savedTotalViews = safePlan.runs.reduce((sum, r) => sum + (r.views || 0), 0);
+    const savedTotalLikes = safePlan.runs.reduce((sum, r) => sum + (r.likes || 0), 0);
+    const savedTotalShares = safePlan.runs.reduce((sum, r) => sum + (r.shares || 0), 0);
+    const savedTotalSaves = safePlan.runs.reduce((sum, r) => sum + (r.saves || 0), 0);
+    const savedTotalComments = safePlan.runs.reduce((sum, r) => sum + (r.comments || 0), 0);
+
+    // 🔥 Store each run as a fraction of total (so it scales to any view count)
+    const runProportions = safePlan.runs.map((r) => ({
+      minutesFromStart: r.minutesFromStart,
+      viewsFraction: savedTotalViews > 0 ? (r.views || 0) / savedTotalViews : 0,
+      likesFraction: savedTotalLikes > 0 ? (r.likes || 0) / savedTotalLikes : 0,
+      sharesFraction: savedTotalShares > 0 ? (r.shares || 0) / savedTotalShares : 0,
+      savesFraction: savedTotalSaves > 0 ? (r.saves || 0) / savedTotalSaves : 0,
+      commentsFraction: savedTotalComments > 0 ? (r.comments || 0) / savedTotalComments : 0,
+    }));
 
     const newFav: FavouriteConfig = {
       id: `fav-${Date.now()}`,
@@ -248,6 +277,8 @@ export function GrowthGraph({
       patternType: safePlan.patternType,
       totalRuns: safePlan.totalRuns,
       estimatedDurationHours: safePlan.estimatedDurationHours,
+      approximateIntervalMin: safePlan.approximateIntervalMin,
+      finishTime: safePlan.finishTime instanceof Date ? safePlan.finishTime.toISOString() : new Date().toISOString(),
       risk: safePlan.risk,
       quickPreset: selectedPreset || null,
       variancePercent,
@@ -257,6 +288,8 @@ export function GrowthGraph({
       includeSaves,
       includeComments,
       peakHoursBoost,
+      runProportions,
+      savedTotalViews,
     };
 
     const updated = [newFav, ...favourites].slice(0, 10);
