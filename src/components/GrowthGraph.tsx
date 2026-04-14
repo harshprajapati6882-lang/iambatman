@@ -1,6 +1,15 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import type { PatternPlan, QuickPatternPreset } from "../types/order";
 
 interface GrowthGraphProps {
@@ -12,7 +21,36 @@ interface GrowthGraphProps {
 
 type GraphMode = "smooth" | "stepped";
 
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+// 🔥 Favourite pattern stored in localStorage
+interface FavouritePattern {
+  id: string;
+  savedAt: string;
+  patternName: string;
+  patternType: PatternPlan["patternType"];
+  totalRuns: number;
+  estimatedDurationHours: number;
+  runs: PatternPlan["runs"];
+  approximateIntervalMin: number;
+  risk: PatternPlan["risk"];
+}
+
+const FAVOURITES_KEY = "dev-smm-favourite-graphs";
+
+function readFavourites(): FavouritePattern[] {
+  try {
+    const raw = localStorage.getItem(FAVOURITES_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveFavourites(favs: FavouritePattern[]) {
+  localStorage.setItem(FAVOURITES_KEY, JSON.stringify(favs));
+}
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
 
 const presetButtons: Array<{ label: string; value: QuickPatternPreset }> = [
   { label: "🚀 Viral Boost", value: "viral-boost" },
@@ -23,12 +61,13 @@ const presetButtons: Array<{ label: string; value: QuickPatternPreset }> = [
 
 function lineTypeForPattern(patternType: PatternPlan["patternType"]) {
   if (patternType === "sawtooth") return "stepAfter";
-  if (patternType === "viral-spike" || patternType === "micro-burst") return "linear";
+  if (patternType === "viral-spike" || patternType === "micro-burst")
+    return "linear";
   if (patternType === "heartbeat") return "natural";
   return "monotoneX";
 }
 
-// 🔥 SMOOTH MODE: Interpolated cumulative graph (original)
+// 🔥 SMOOTH MODE
 function buildSmoothGraphData(plan: PatternPlan) {
   const safeRuns = plan?.runs || [];
   const rows: Array<{
@@ -40,34 +79,41 @@ function buildSmoothGraphData(plan: PatternPlan) {
     comments: number;
   }> = [];
 
-  rows.push({
-    label: "0m",
-    views: 0,
-    likes: 0,
-    shares: 0,
-    saves: 0,
-    comments: 0,
-  });
+  rows.push({ label: "0m", views: 0, likes: 0, shares: 0, saves: 0, comments: 0 });
 
   for (let index = 0; index < safeRuns.length; index += 1) {
     const current = safeRuns[index];
-    const previous = index === 0
-      ? {
-          minutesFromStart: 0,
-          cumulativeViews: 0,
-          cumulativeLikes: 0,
-          cumulativeShares: 0,
-          cumulativeSaves: 0,
-          cumulativeComments: 0,
-        }
-      : safeRuns[index - 1];
+    const previous =
+      index === 0
+        ? {
+            minutesFromStart: 0,
+            cumulativeViews: 0,
+            cumulativeLikes: 0,
+            cumulativeShares: 0,
+            cumulativeSaves: 0,
+            cumulativeComments: 0,
+          }
+        : safeRuns[index - 1];
 
     const dt = Math.max(1, current.minutesFromStart - previous.minutesFromStart);
     const phase = index / Math.max(1, safeRuns.length - 1);
-    const segmentNoise = clamp(0.01 + (current.views / Math.max(1, safeRuns[0]?.views ?? 1)) * 0.004, 0.01, 0.03);
+    const segmentNoise = clamp(
+      0.01 + (current.views / Math.max(1, safeRuns[0]?.views ?? 1)) * 0.004,
+      0.01,
+      0.03
+    );
 
-    const pointValue = (start: number, end: number, progress: number, wobbleScale: number, preserveMonotone: boolean) => {
-      const eased = Math.pow(progress, phase < 0.2 ? 1.8 : phase > 0.8 ? 0.88 : 1.05);
+    const pointValue = (
+      start: number,
+      end: number,
+      progress: number,
+      wobbleScale: number,
+      preserveMonotone: boolean
+    ) => {
+      const eased = Math.pow(
+        progress,
+        phase < 0.2 ? 1.8 : phase > 0.8 ? 0.88 : 1.05
+      );
       const delta = end - start;
       const wobble = delta * segmentNoise * wobbleScale;
       const value = start + delta * eased + wobble;
@@ -110,10 +156,9 @@ function buildSmoothGraphData(plan: PatternPlan) {
   return rows;
 }
 
-// 🔥 STEPPED MODE: Per-run actual values with planned lines (like OrderCard)
+// 🔥 STEPPED MODE
 function buildSteppedGraphData(plan: PatternPlan) {
   const safeRuns = plan?.runs || [];
-
   return safeRuns.map((run) => ({
     time: run.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     views: run.cumulativeViews || 0,
@@ -121,16 +166,55 @@ function buildSteppedGraphData(plan: PatternPlan) {
     shares: (run.cumulativeShares || 0) * 10,
     saves: (run.cumulativeSaves || 0) * 10,
     comments: (run.cumulativeComments || 0) * 10,
-    rawViews: run.views || 0,
-    rawLikes: run.likes || 0,
-    rawShares: run.shares || 0,
-    rawSaves: run.saves || 0,
-    rawComments: run.comments || 0,
   }));
 }
 
-export function GrowthGraph({ plan, selectedPreset, onApplyPreset, onGenerate }: GrowthGraphProps) {
+// 🔥 Custom Tooltip for Stepped Mode — hides planned- entries
+const SteppedTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload || !payload.length) return null;
+
+  // Filter out any entry whose name starts with "planned-"
+  const filtered = payload.filter(
+    (entry: any) => !String(entry.name || "").startsWith("planned-")
+  );
+
+  if (filtered.length === 0) return null;
+
+  return (
+    <div
+      style={{
+        background: "#000000",
+        border: "1px solid #eab308",
+        borderRadius: "0.75rem",
+        color: "#d1d5db",
+        fontSize: "12px",
+        padding: "8px 12px",
+      }}
+    >
+      <p style={{ marginBottom: 4, color: "#9ca3af" }}>{label}</p>
+      {filtered.map((entry: any) => (
+        <p key={entry.name} style={{ color: entry.color, margin: "2px 0" }}>
+          {entry.name}: {Math.round(entry.value)}
+        </p>
+      ))}
+    </div>
+  );
+};
+
+export function GrowthGraph({
+  plan,
+  selectedPreset,
+  onApplyPreset,
+  onGenerate,
+}: GrowthGraphProps) {
   const [graphMode, setGraphMode] = useState<GraphMode>("smooth");
+
+  // 🔥 Favourites state
+  const [favourites, setFavourites] = useState<FavouritePattern[]>(() =>
+    readFavourites()
+  );
+  const [showFavourites, setShowFavourites] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
 
   const safePlan = useMemo(
     () => ({ ...plan, runs: plan?.runs || [] }),
@@ -140,14 +224,53 @@ export function GrowthGraph({ plan, selectedPreset, onApplyPreset, onGenerate }:
   const steppedData = useMemo(() => buildSteppedGraphData(safePlan), [safePlan]);
   const curveType = lineTypeForPattern(safePlan.patternType);
 
+  // 🔥 Check if current plan is already a favourite
+  const isCurrentFavourite = useMemo(() => {
+    return favourites.some(
+      (f) =>
+        f.patternName === safePlan.patternName &&
+        f.totalRuns === safePlan.totalRuns
+    );
+  }, [favourites, safePlan]);
+
+  // 🔥 Save current pattern as favourite
+  const handleSaveFavourite = () => {
+    if (isCurrentFavourite) return;
+
+    const newFav: FavouritePattern = {
+      id: `fav-${Date.now()}`,
+      savedAt: new Date().toISOString(),
+      patternName: safePlan.patternName,
+      patternType: safePlan.patternType,
+      totalRuns: safePlan.totalRuns,
+      estimatedDurationHours: safePlan.estimatedDurationHours,
+      approximateIntervalMin: safePlan.approximateIntervalMin,
+      risk: safePlan.risk,
+      runs: safePlan.runs,
+    };
+
+    const updated = [newFav, ...favourites].slice(0, 10); // max 10 favourites
+    setFavourites(updated);
+    saveFavourites(updated);
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 2000);
+  };
+
+  // 🔥 Delete a favourite
+  const handleDeleteFavourite = (id: string) => {
+    const updated = favourites.filter((f) => f.id !== id);
+    setFavourites(updated);
+    saveFavourites(updated);
+  };
+
   return (
     <section className="rounded-2xl border border-yellow-500/20 bg-gradient-to-br from-gray-900 to-black p-5">
-      {/* Header with Title, Graph Toggle, and Preset Buttons */}
+      {/* Header */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <h2 className="text-lg font-semibold text-yellow-400">📈 Growth Projection</h2>
-          
-          {/* 🔥 NEW: Graph Mode Toggle */}
+
+          {/* Graph Mode Toggle */}
           <div className="inline-flex rounded-lg border border-yellow-500/30 bg-black p-0.5">
             <button
               type="button"
@@ -169,13 +292,51 @@ export function GrowthGraph({ plan, selectedPreset, onApplyPreset, onGenerate }:
                   ? "bg-yellow-500/20 text-yellow-300"
                   : "text-gray-500 hover:text-yellow-400"
               }`}
-              title="Stepped per-run view (same as Orders page)"
+              title="Stepped per-run view"
             >
               📊 Stepped
             </button>
           </div>
+
+          {/* 🔥 Heart Favourite Button — only visible in Stepped mode */}
+          {graphMode === "stepped" && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSaveFavourite}
+                disabled={isCurrentFavourite}
+                title={
+                  isCurrentFavourite
+                    ? "Already in favourites"
+                    : "Save this pattern as favourite"
+                }
+                className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium transition ${
+                  isCurrentFavourite || justSaved
+                    ? "border-pink-500/60 bg-pink-500/20 text-pink-300 cursor-default"
+                    : "border-pink-500/30 bg-pink-500/10 text-pink-400 hover:bg-pink-500/20 hover:border-pink-500/60"
+                }`}
+              >
+                {justSaved ? "❤️ Saved!" : isCurrentFavourite ? "❤️ Saved" : "🤍 Favourite"}
+              </button>
+
+              {/* Show Favourites Toggle */}
+              {favourites.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowFavourites((prev) => !prev)}
+                  className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-medium transition ${
+                    showFavourites
+                      ? "border-pink-500/50 bg-pink-500/15 text-pink-300"
+                      : "border-gray-700 text-gray-500 hover:text-pink-400"
+                  }`}
+                >
+                  📋 {favourites.length} saved
+                </button>
+              )}
+            </div>
+          )}
         </div>
-        
+
         {/* Preset Buttons + New Pattern */}
         {onApplyPreset && onGenerate && (
           <div className="flex flex-wrap items-center gap-2">
@@ -207,6 +368,50 @@ export function GrowthGraph({ plan, selectedPreset, onApplyPreset, onGenerate }:
         )}
       </div>
 
+      {/* 🔥 Favourites Panel */}
+      {showFavourites && graphMode === "stepped" && favourites.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          exit={{ opacity: 0, height: 0 }}
+          className="mb-4 rounded-xl border border-pink-500/20 bg-pink-500/5 p-3"
+        >
+          <h3 className="text-[10px] font-semibold text-pink-400 mb-2 uppercase tracking-wider">
+            ❤️ Favourite Patterns ({favourites.length}/10)
+          </h3>
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {favourites.map((fav) => (
+              <div
+                key={fav.id}
+                className="flex items-center justify-between rounded-lg border border-pink-500/20 bg-black/50 px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-pink-300 truncate">
+                    {fav.patternName}
+                  </p>
+                  <p className="text-[9px] text-gray-600 mt-0.5">
+                    {fav.totalRuns} runs · {fav.estimatedDurationHours}h · {fav.risk}
+                    {" · "}
+                    {new Date(fav.savedAt).toLocaleDateString()}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteFavourite(fav.id)}
+                  className="ml-3 text-[10px] text-gray-600 hover:text-red-400 transition flex-shrink-0"
+                  title="Remove from favourites"
+                >
+                  🗑️
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="text-[9px] text-gray-600 mt-2">
+            ℹ️ Favourites are saved in your browser. Max 10 patterns.
+          </p>
+        </motion.div>
+      )}
+
       {/* Chart */}
       <motion.div
         key={`${safePlan.patternId}-${safePlan.totalRuns}-${graphMode}`}
@@ -216,11 +421,18 @@ export function GrowthGraph({ plan, selectedPreset, onApplyPreset, onGenerate }:
         className="h-80"
       >
         {graphMode === "smooth" ? (
-          /* 🔥 SMOOTH MODE: Original interpolated cumulative graph */
+          /* SMOOTH MODE */
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={smoothData} margin={{ top: 14, right: 20, left: 0, bottom: 4 }}>
+            <LineChart
+              data={smoothData}
+              margin={{ top: 14, right: 20, left: 0, bottom: 4 }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis dataKey="label" tick={{ fill: "#9ca3af", fontSize: 11 }} minTickGap={26} />
+              <XAxis
+                dataKey="label"
+                tick={{ fill: "#9ca3af", fontSize: 11 }}
+                minTickGap={26}
+              />
               <YAxis tick={{ fill: "#9ca3af", fontSize: 11 }} width={52} />
               <Tooltip
                 contentStyle={{
@@ -240,32 +452,34 @@ export function GrowthGraph({ plan, selectedPreset, onApplyPreset, onGenerate }:
             </LineChart>
           </ResponsiveContainer>
         ) : (
-          /* 🔥 STEPPED MODE: Same style as OrderCard chart */
+          /* STEPPED MODE */
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={steppedData} margin={{ top: 14, right: 20, left: 0, bottom: 4 }}>
+            <LineChart
+              data={steppedData}
+              margin={{ top: 14, right: 20, left: 0, bottom: 4 }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="#111" opacity={0.3} />
               <XAxis
                 dataKey="time"
                 stroke="#666"
                 tick={{ fill: "#9ca3af", fontSize: 11 }}
               />
-              <YAxis stroke="#666" tick={{ fill: "#9ca3af", fontSize: 11 }} width={52} />
-              <Tooltip
-                contentStyle={{
-                  background: "#000000",
-                  border: "1px solid #eab308",
-                  borderRadius: "0.75rem",
-                  color: "#d1d5db",
-                  fontSize: "12px",
-                }}
+              <YAxis
+                stroke="#666"
+                tick={{ fill: "#9ca3af", fontSize: 11 }}
+                width={52}
               />
+              {/* 🔥 Custom tooltip that hides planned- lines */}
+              <Tooltip content={<SteppedTooltip />} />
               <Legend wrapperStyle={{ fontSize: "12px", color: "#d1d5db" }} />
-              {/* Planned (faded dashed lines) */}
-              <Line type="monotone" dataKey="views" stroke="#3b82f6" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-views" legendType="none" />
-              <Line type="monotone" dataKey="likes" stroke="#ec4899" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-likes" legendType="none" />
-              <Line type="monotone" dataKey="shares" stroke="#22c55e" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-shares" legendType="none" />
-              <Line type="monotone" dataKey="saves" stroke="#eab308" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-saves" legendType="none" />
-              <Line type="monotone" dataKey="comments" stroke="#a855f7" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-comments" legendType="none" />
+
+              {/* Planned faded dashed lines — legendType none so they don't appear in legend */}
+              <Line type="monotone" dataKey="views" stroke="#3b82f6" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-views" legendType="none" tooltipType="none" />
+              <Line type="monotone" dataKey="likes" stroke="#ec4899" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-likes" legendType="none" tooltipType="none" />
+              <Line type="monotone" dataKey="shares" stroke="#22c55e" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-shares" legendType="none" tooltipType="none" />
+              <Line type="monotone" dataKey="saves" stroke="#eab308" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-saves" legendType="none" tooltipType="none" />
+              <Line type="monotone" dataKey="comments" stroke="#a855f7" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-comments" legendType="none" tooltipType="none" />
+
               {/* Actual solid lines */}
               <Line type="monotone" dataKey="views" stroke="#3b82f6" strokeWidth={2} dot={false} name="Views" isAnimationActive animationDuration={900} />
               <Line type="monotone" dataKey="likes" stroke="#ec4899" strokeWidth={2} dot={false} name="Likes" isAnimationActive animationDuration={900} />
@@ -277,14 +491,18 @@ export function GrowthGraph({ plan, selectedPreset, onApplyPreset, onGenerate }:
         )}
       </motion.div>
 
-      {/* 🔥 NEW: Graph mode description */}
-      <div className="mt-2 text-center">
+      {/* Graph mode description */}
+      <div className="mt-2 flex items-center justify-between">
         <p className="text-[9px] text-gray-600">
-          {graphMode === "smooth" 
-            ? "〰️ Smooth: Interpolated cumulative growth curve" 
-            : "📊 Stepped: Per-run cumulative view (same as Orders page)"
-          }
+          {graphMode === "smooth"
+            ? "〰️ Smooth: Interpolated cumulative growth curve"
+            : "📊 Stepped: Per-run cumulative view (same as Orders page)"}
         </p>
+        {graphMode === "stepped" && (
+          <p className="text-[9px] text-pink-600">
+            🤍 Heart to save pattern · Max 10 favourites
+          </p>
+        )}
       </div>
     </section>
   );
