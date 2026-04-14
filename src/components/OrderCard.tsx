@@ -36,22 +36,18 @@ export function OrderCard({ order, onControl, onClone, controlBusy }: OrderCardP
   const finishTime = safeRuns[safeRuns.length - 1]?.at;
 
   // 🔥 FIX: Only use actual backend status, not time-based
-  const { totalRuns, completedRuns, progressPercent } = useMemo(() => {
+    const { totalRuns, completedRuns, progressPercent } = useMemo(() => {
     const nextTotalRuns = Math.max(1, safeRuns.length);
 
+    // 🔥 FIX: ONLY use runStatuses as source of truth
     const completedFromStatuses = safeRunStatuses.filter(
       (status) => status === "completed"
     ).length;
 
-    const nextCompletedRuns = Math.min(
-      nextTotalRuns,
-      Math.max(
-        0,
-        order.status === "completed" ? nextTotalRuns : 0,
-        Number.isFinite(order.completedRuns) ? order.completedRuns : 0,
-        completedFromStatuses
-      )
-    );
+    // If order status is "completed" from backend, trust it
+    const nextCompletedRuns = order.status === "completed"
+      ? nextTotalRuns
+      : Math.min(nextTotalRuns, completedFromStatuses);
 
     const nextProgressPercent = Math.round((nextCompletedRuns / nextTotalRuns) * 100);
     return {
@@ -59,7 +55,7 @@ export function OrderCard({ order, onControl, onClone, controlBusy }: OrderCardP
       completedRuns: nextCompletedRuns,
       progressPercent: nextProgressPercent,
     };
-  }, [safeRuns, safeRunStatuses, order.status, order.completedRuns]);
+  }, [safeRuns, safeRunStatuses, order.status]);
 
   // 🔥 FIX: effectiveStatus no longer uses nowMs (time-based)
   const effectiveStatus = useMemo(() => {
