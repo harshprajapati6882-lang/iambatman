@@ -101,25 +101,18 @@ export function OrdersPage({
     openedGroupIdRef.current = openedGroupId;
   }, [openedGroupId]);
 
-    function getProgress(order: CreatedOrder) {
+      function getProgress(order: CreatedOrder) {
     const safeRuns = order.runs || [];
     const totalRuns = safeRuns.length;
     if (totalRuns === 0) return { percent: 0, completed: 0, total: 0 };
 
-    // 🔥 FIX: Only use actual backend status, NOT time-based completion
-    // Time-based was causing 100% even when runs hadn't actually executed
+    // 🔥 FIX: ONLY use runStatuses as source of truth
+    // Do NOT trust order.completedRuns — it may be stale from old time-based logic
     const statusCompleted = (order.runStatuses || []).filter(
       (status) => status === "completed"
     ).length;
 
-    // Use completedRuns from backend sync if available, otherwise use status count
-    const completed = Math.min(
-      totalRuns,
-      Math.max(
-        statusCompleted,
-        typeof order.completedRuns === "number" ? order.completedRuns : 0
-      )
-    );
+    const completed = Math.min(totalRuns, statusCompleted);
 
     return {
       percent: Math.round((completed / totalRuns) * 100),
