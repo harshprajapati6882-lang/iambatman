@@ -1489,18 +1489,40 @@ if (config.includeComments) {
       }
     }
 
-    // 🔥 DEMAND 2: Assign likes based on views in that run
+        // 🔥 DEMAND 2: Assign likes based on views in that run
+    // 🔥 FIX: If not enough runs to distribute, ADD MORE runs first
     let remaining = likesTotal;
+
+    // 🔥 FIX: Calculate how many runs we actually need
+    // Each run can hold max 20 likes (for views 100-500) or max 30 (for views 500+)
+    // If remaining > what selectedIndexes can hold, we need more runs
+    const maxPerRun = 20; // safe upper limit for most runs
+    const minNeededRuns = Math.ceil(likesTotal / maxPerRun);
+
+    // If we don't have enough selected runs, add more
+    if (selectedIndexes.length < minNeededRuns) {
+      for (let i = 2; i < provisionalRuns.length && selectedIndexes.length < minNeededRuns; i++) {
+        if (selectedIndexes.includes(i)) continue;
+        // Check no consecutive
+        const hasAdjacentBefore = selectedIndexes.includes(i - 1);
+        const hasAdjacentAfter = selectedIndexes.includes(i + 1);
+        if (!hasAdjacentBefore && !hasAdjacentAfter) {
+          selectedIndexes.push(i);
+          selectedIndexes.sort((a, b) => a - b);
+        }
+      }
+    }
 
     for (let i = 0; i < selectedIndexes.length; i++) {
       const idx = selectedIndexes[i];
       const isLast = i === selectedIndexes.length - 1;
+      const views = provisionalRuns[idx]?.views || 0;
 
       if (isLast) {
-        // Give remaining to last selected run (ensure minimum 10)
-        result[idx] = Math.max(10, remaining);
+        // 🔥 FIX: Even last run must respect the view-based limit
+        const maxForViews = getlikesForViews(views);
+        result[idx] = Math.max(10, Math.min(remaining, maxForViews));
       } else {
-        const views = provisionalRuns[idx]?.views || 0;
         let value = getlikesForViews(views);
 
         // Make sure we leave enough for remaining runs
@@ -1513,18 +1535,35 @@ if (config.includeComments) {
       }
     }
 
-    // Fix any rounding issues
+    // 🔥 FIX: If there's still remaining likes after all runs,
+    // spread them across selected runs without exceeding view-based limits
     const currentTotal = result.reduce((a, b) => a + b, 0);
     let diff = likesTotal - currentTotal;
-    if (diff !== 0 && selectedIndexes.length > 0) {
+
+    if (diff > 0 && selectedIndexes.length > 0) {
+      // Need to add more runs to absorb remaining likes
+      for (let i = 2; i < provisionalRuns.length && diff > 0; i++) {
+        if (result[i] > 0) continue; // already has likes
+        // Check no consecutive
+        if (result[i - 1] > 0) continue;
+        if (i + 1 < provisionalRuns.length && result[i + 1] > 0) continue;
+        if (i === 0) continue; // skip first run
+
+        const views = provisionalRuns[i]?.views || 0;
+        const maxForViews = getlikesForViews(views);
+        const toAssign = Math.min(diff, maxForViews);
+        result[i] = toAssign;
+        diff -= toAssign;
+      }
+    }
+
+    // Final correction: remove any excess
+    if (diff < 0) {
       let pointer = 0;
       let guard = 0;
-      while (diff !== 0 && guard < 1000) {
+      while (diff < 0 && guard < 1000) {
         const idx = selectedIndexes[pointer % selectedIndexes.length];
-        if (diff > 0) {
-          result[idx]++;
-          diff--;
-        } else if (result[idx] > 10) {
+        if (result[idx] > 10) {
           result[idx]--;
           diff++;
         }
