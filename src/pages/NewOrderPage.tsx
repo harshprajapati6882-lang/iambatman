@@ -86,7 +86,7 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
   const [delivery, setDelivery] = useState<DeliveryOption>({ mode: "auto", hours: 18, label: "Auto" });
   const [seed, setSeed] = useState(0);
   const [useClonedPlan, setUseClonedPlan] = useState(Boolean(prefillPlan));
-  const [clonedPlan] = useState<PatternPlan | null>(prefillPlan);
+  const [clonedPlan, setClonedPlan] = useState<PatternPlan | null>(prefillPlan);
   const [expandedRuns, setExpandedRuns] = useState(false);
   const [createError, setCreateError] = useState("");
   const [createSuccess, setCreateSuccess] = useState("");
@@ -468,11 +468,17 @@ const commentsService = selectedApi?.services.find(
           </div>
 
           {/* Growth Graph - Compact */}
-          <GrowthGraph 
+                    <GrowthGraph 
             plan={safePlan}
             selectedPreset={quickPreset}
             onApplyPreset={handleApplyPreset}
             onGenerate={handleGenerate}
+            onApplyFavourite={(favouritePlan) => {
+              setClonedPlan(favouritePlan);
+              setUseClonedPlan(true);
+              setQuickPreset(null);
+              setExpandedRuns(true);
+            }}
           />
         </div>
 
