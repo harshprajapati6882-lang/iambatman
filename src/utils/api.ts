@@ -499,3 +499,36 @@ export async function cancelMultipleOrders(schedulerOrderIds: string[]): Promise
     results,
   };
 }
+
+// 🔥 NEW: Check provider status for all runs of an order
+export interface ProviderRunStatus {
+  runId: string;
+  smmOrderId: string | number;
+  label: string;
+  providerStatus: "Completed" | "In progress" | "Cancelled" | "Partial" | "Processing" | "Pending" | "unknown" | "error";
+  remains?: number;
+  startCount?: number;
+  charge?: string;
+  currency?: string;
+  error?: string;
+}
+
+export async function checkProviderOrderStatus(schedulerOrderId: string): Promise<{
+  schedulerOrderId: string;
+  total: number;
+  results: ProviderRunStatus[];
+}> {
+  const endpoint = `${BACKEND_BASE_URL.replace(/\/$/, "")}/api/provider/check-status`;
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ schedulerOrderId }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to check provider status (HTTP ${response.status})`);
+  }
+
+  return await response.json();
+}
