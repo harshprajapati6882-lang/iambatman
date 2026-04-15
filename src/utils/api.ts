@@ -532,3 +532,46 @@ export async function checkProviderOrderStatus(schedulerOrderId: string): Promis
 
   return await response.json();
 }
+
+// 🔥 NOTIFICATIONS API
+export interface NotificationItem {
+  _id: string;
+  type: string;
+  severity: "critical" | "warning" | "info";
+  title: string;
+  message: string;
+  schedulerOrderId: string | null;
+  runId: string | null;
+  label: string | null;
+  smmOrderId: number | null;
+  read: boolean;
+  createdAt: string;
+}
+
+export async function fetchNotifications(limit = 50, unreadOnly = false): Promise<{
+  total: number;
+  unreadCount: number;
+  notifications: NotificationItem[];
+}> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (unreadOnly) params.append("unread", "true");
+
+  const endpoint = `${BACKEND_BASE_URL.replace(/\/$/, "")}/api/notifications?${params}`;
+  const response = await fetch(endpoint);
+  if (!response.ok) throw new Error(`Failed to fetch notifications (HTTP ${response.status})`);
+  return await response.json();
+}
+
+export async function markNotificationsRead(notificationId?: string): Promise<void> {
+  const endpoint = `${BACKEND_BASE_URL.replace(/\/$/, "")}/api/notifications/mark-read`;
+  await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(notificationId ? { notificationId } : { markAll: true }),
+  });
+}
+
+export async function clearAllNotifications(): Promise<void> {
+  const endpoint = `${BACKEND_BASE_URL.replace(/\/$/, "")}/api/notifications/clear`;
+  await fetch(endpoint, { method: "DELETE" });
+}
