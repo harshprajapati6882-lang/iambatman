@@ -1353,9 +1353,32 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     if (availableIndexes.length === 0) return result;
 
-    const targetCount = Math.max(1, Math.floor(availableIndexes.length * random(0.3, 0.5)));
+        const targetCount = Math.max(1, Math.floor(availableIndexes.length * random(0.3, 0.5)));
+    
+    // 🔥 Pick non-consecutive indexes
+    const selectedIndexes: number[] = [];
     const shuffled = [...availableIndexes].sort(() => Math.random() - 0.5);
-    const selectedIndexes = shuffled.slice(0, targetCount).sort((a, b) => a - b);
+    
+    for (const idx of shuffled) {
+      if (selectedIndexes.length >= targetCount) break;
+      // Check no adjacent to already selected
+      const hasAdjacent = selectedIndexes.some(s => Math.abs(s - idx) <= 1);
+      if (!hasAdjacent) {
+        selectedIndexes.push(idx);
+      }
+    }
+    
+    // If we couldn't get enough non-consecutive, fill remaining allowing adjacent
+    if (selectedIndexes.length < targetCount) {
+      for (const idx of shuffled) {
+        if (selectedIndexes.length >= targetCount) break;
+        if (!selectedIndexes.includes(idx)) {
+          selectedIndexes.push(idx);
+        }
+      }
+    }
+    
+    selectedIndexes.sort((a, b) => a - b);
 
     const minPerRun = 20;
 
@@ -1409,9 +1432,30 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     if (availableIndexes.length === 0) return result;
 
-    const targetCount = Math.max(1, Math.floor(availableIndexes.length * random(0.25, 0.45)));
+        const targetCount = Math.max(1, Math.floor(availableIndexes.length * random(0.25, 0.45)));
+    
+    // 🔥 Pick non-consecutive indexes
+    const selectedIndexes: number[] = [];
     const shuffled = [...availableIndexes].sort(() => Math.random() - 0.5);
-    const selectedIndexes = shuffled.slice(0, targetCount).sort((a, b) => a - b);
+    
+    for (const idx of shuffled) {
+      if (selectedIndexes.length >= targetCount) break;
+      const hasAdjacent = selectedIndexes.some(s => Math.abs(s - idx) <= 1);
+      if (!hasAdjacent) {
+        selectedIndexes.push(idx);
+      }
+    }
+    
+    if (selectedIndexes.length < targetCount) {
+      for (const idx of shuffled) {
+        if (selectedIndexes.length >= targetCount) break;
+        if (!selectedIndexes.includes(idx)) {
+          selectedIndexes.push(idx);
+        }
+      }
+    }
+    
+    selectedIndexes.sort((a, b) => a - b);
 
     const minPerRun = 10;
 
