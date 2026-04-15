@@ -292,24 +292,72 @@ export default function App() {
           // Backend creates separate Run documents for each service type
           // So we need to determine status per TIME SLOT, not per backend run
 
-          // Get unique time slots from backend runs
+                    // 🔥 FIX: Group backend runs by VIEWS time slots
+          // With staggered execution, likes/shares/saves have different times than views
+          // So we first collect all VIEWS times as anchors, then assign other services to nearest anchor
+
+          // Step 1: Collect all VIEWS run times as anchor slots
+          const viewsRuns = result.runs.filter(r => (r.label || "").toUpperCase() === "VIEWS");
+          const otherRuns = result.runs.filter(r => (r.label || "").toUpperCase() !== "VIEWS");
+
+          // Create slots from VIEWS runs
           const timeSlotMap = new Map<string, { statuses: string[]; errors: string[] }>();
-          
-          result.runs.forEach((backendRun) => {
-            // Use the run time as the key (rounded to minute to handle slight variations)
-            const timeKey = backendRun.time ? new Date(backendRun.time).toISOString().slice(0, 16) : "unknown";
-            
+
+          viewsRuns.forEach((vr) => {
+            const timeKey = vr.time ? new Date(vr.time).toISOString().slice(0, 16) : "unknown";
             if (!timeSlotMap.has(timeKey)) {
               timeSlotMap.set(timeKey, { statuses: [], errors: [] });
             }
-            
             const slot = timeSlotMap.get(timeKey)!;
-            slot.statuses.push(backendRun.status || "pending");
-            if (backendRun.error || backendRun.lastError) {
-              slot.errors.push(backendRun.error || backendRun.lastError || "");
+            slot.statuses.push(vr.status || "pending");
+            if (vr.error || vr.lastError) {
+              slot.errors.push(vr.error || vr.lastError || "");
             }
           });
 
+          // Step 2: For each non-VIEWS run, find the nearest VIEWS slot and attach to it
+          const slotKeys = Array.from(timeSlotMap.keys()).sort();
+
+          otherRuns.forEach((run) => {
+            const runTime = run.time ? new Date(run.time).getTime() : 0;
+
+            // Find nearest VIEWS slot (within 20 minutes before the run time)
+            let bestKey = slotKeys.length > 0 ? slotKeys[0] : "unknown";
+            let bestDiff = Infinity;
+
+            for (const key of slotKeys) {
+              const slotTime = new Date(key).getTime();
+              const diff = runTime - slotTime;
+              // The run should be AFTER the views slot (stagger adds delay)
+              // Accept runs within 0-20 minutes after views
+              if (diff >= 0 && diff < 20 * 60 * 1000 && diff < bestDiff) {
+                bestDiff = diff;
+                bestKey = key;
+              }
+            }
+
+            // If no good match found, use the closest slot overall
+            if (bestDiff === Infinity) {
+              for (const key of slotKeys) {
+                const slotTime = new Date(key).getTime();
+                const diff = Math.abs(runTime - slotTime);
+                if (diff < bestDiff) {
+                  bestDiff = diff;
+                  bestKey = key;
+                }
+              }
+            }
+
+            if (!timeSlotMap.has(bestKey)) {
+              timeSlotMap.set(bestKey, { statuses: [], errors: [] });
+            }
+
+            const slot = timeSlotMap.get(bestKey)!;
+            slot.statuses.push(run.status || "pending");
+            if (run.error || run.lastError) {
+              slot.errors.push(run.error || run.lastError || "");
+            }
+          });
           // 🔥 Build per-time-slot status (a slot is "completed" only if ALL its services are completed)
           const slotStatuses: RunStatus[] = [];
           const slotErrors: string[] = [];
