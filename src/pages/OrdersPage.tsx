@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { CreatedOrder, ApiPanel, Bundle } from "../types/order";
+import { checkProviderOrderStatus, type ProviderRunStatus } from "../utils/api";
 import { OrderCard } from "../components/OrderCard";
 import { RunTable } from "../components/RunTable";
 
@@ -438,7 +439,41 @@ export function OrdersPage({
           {!isCancelled && status === "paused" && (<button onClick={(e) => { e.stopPropagation(); onControlOrder(order, "resume"); }} disabled={isControlling} className="flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-300 hover:bg-emerald-500/20 transition disabled:opacity-50">{isControlling ? "⏳" : "▶️"} Resume</button>)}
           {!isCancelled && status !== "completed" && (<button onClick={(e) => { e.stopPropagation(); if (window.confirm(`Cancel this order?\n\nLink: ${order.link.slice(0, 50)}...`)) { onControlOrder(order, "cancel"); } }} disabled={isControlling} className="flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] font-medium text-red-300 hover:bg-red-500/20 transition disabled:opacity-50">{isControlling ? "⏳" : "❌"} Cancel</button>)}
           <button onClick={(e) => { e.stopPropagation(); onCloneOrder(order); }} className="flex items-center gap-1 rounded-md border border-gray-600 bg-black px-2 py-1 text-[10px] font-medium text-gray-400 hover:text-white hover:border-gray-500 transition">📋 Clone</button>
-          <a href={order.link} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-1 rounded-md border border-gray-600 bg-black px-2 py-1 text-[10px] font-medium text-gray-400 hover:text-white hover:border-gray-500 transition">🔗 Open</a>
+                    {/* Open Link */}
+          <a
+            href={order.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1 rounded-md border border-gray-600 bg-black px-2 py-1 text-[10px] font-medium text-gray-400 hover:text-white hover:border-gray-500 transition"
+          >
+            🔗 Open
+          </a>
+
+          {/* 🔥 NEW: Check Provider Status */}
+          {order.schedulerOrderId && (
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                try {
+                  const result = await checkProviderOrderStatus(order.schedulerOrderId!);
+                  if (result.results.length === 0) {
+                    alert("No completed runs with provider IDs found.");
+                    return;
+                  }
+                  const summary = result.results.map(r =>
+                    `${r.label} #${r.smmOrderId}: ${r.providerStatus}${r.remains ? ` (${r.remains} remaining)` : ""}`
+                  ).join("\n");
+                  alert(`Provider Status:\n\n${summary}`);
+                } catch (error) {
+                  alert("Failed to check provider status. Try again.");
+                }
+              }}
+              className="flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[10px] font-medium text-blue-400 hover:bg-blue-500/20 transition"
+            >
+              🔍 Provider
+            </button>
+          )}
           <button onClick={(e) => { e.stopPropagation(); setShowRuns(!showRuns); }} className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium transition ml-auto ${showRuns ? 'border-yellow-500/50 bg-yellow-500/20 text-yellow-300' : 'border-yellow-500/30 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'}`}>{showRuns ? "🔼 Hide Runs" : `📋 View Runs (${safeRuns.length})`}</button>
         </div>
         <AnimatePresence>
@@ -513,10 +548,46 @@ export function OrdersPage({
     );
   }
 
-  function SingleOrderPopup({ order }: { order: CreatedOrder }) {
+    function SingleOrderPopup({ order }: { order: CreatedOrder }) {
+    const [providerStatuses, setProviderStatuses] = useState<ProviderRunStatus[]>([]);
+    const [checkingProvider, setCheckingProvider] = useState(false);
+    const [providerError, setProviderError] = useState("");
+    const [providerChecked, setProviderChecked] = useState(false);
+
+    const handleCheckProvider = async () => {
+      if (!order.schedulerOrderId) return;
+      setCheckingProvider(true);
+      setProviderError("");
+      try {
+        const result = await checkProviderOrderStatus(order.schedulerOrderId);
+        setProviderStatuses(result.results);
+        setProviderChecked(true);
+      } catch (error) {
+        setProviderError(error instanceof Error ? error.message : "Failed to check provider");
+      } finally {
+        setCheckingProvider(false);
+      }
+    };
+
+    const getProviderStatusColor = (status: string) => {
+      switch (status) {
+        case "Completed": return "text-emerald-400 bg-emerald-500/20";
+        case "In progress": case "Processing": case "Pending": return "text-yellow-400 bg-yellow-500/20";
+        case "Partial": return "text-orange-400 bg-orange-500/20";
+        case "Cancelled": return "text-red-400 bg-red-500/20";
+        default: return "text-gray-400 bg-gray-500/20";
+      }
+    };
+
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm px-4 py-6" onClick={() => setOpenedGroupId(null)}>
-        <div className="max-h-[92vh] w-full max-w-5xl overflow-auto rounded-2xl border border-yellow-500/30 bg-black p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm px-4 py-6"
+        onClick={() => setOpenedGroupId(null)}
+      >
+        <div
+          className="max-h-[92vh] w-full max-w-5xl overflow-auto rounded-2xl border border-yellow-500/30 bg-black p-5 shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="mb-4 flex items-center justify-between border-b border-gray-800 pb-4">
             <div>
               <h3 className="text-lg font-semibold text-yellow-400">Mission Details</h3>
@@ -527,10 +598,92 @@ export function OrdersPage({
                 <p className="text-lg font-bold text-yellow-400">₹{calculateOrderPrice(order, apis, bundles).toFixed(0)}</p>
                 <p className="text-[9px] text-yellow-600">Order Cost</p>
               </div>
-              <button type="button" onClick={() => setOpenedGroupId(null)} className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-sm text-yellow-300 transition hover:bg-yellow-500/20">✕ Close</button>
+              {/* 🔥 NEW: Check Provider Status Button */}
+              {order.schedulerOrderId && (
+                <button
+                  type="button"
+                  onClick={handleCheckProvider}
+                  disabled={checkingProvider}
+                  className="rounded-lg border border-blue-500/40 bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-300 hover:bg-blue-500/20 transition disabled:opacity-50"
+                >
+                  {checkingProvider ? "⏳ Checking..." : "🔍 Check Provider"}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setOpenedGroupId(null)}
+                className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-sm text-yellow-300 transition hover:bg-yellow-500/20"
+              >
+                ✕ Close
+              </button>
             </div>
           </div>
-          <OrderCard key={order.id} order={order} controlBusy={controllingOrderId === order.id} onControl={onControlOrder} onClone={onCloneOrder} />
+
+          {/* 🔥 NEW: Provider Status Results */}
+          {providerChecked && providerStatuses.length > 0 && (
+            <div className="mb-4 rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
+              <h4 className="text-xs font-semibold text-blue-400 mb-3">
+                🔍 Provider Status Check ({providerStatuses.length} runs)
+              </h4>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {providerStatuses.map((ps, index) => (
+                  <div key={index} className="flex items-center justify-between rounded-lg border border-gray-800 bg-black/50 px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-medium text-gray-500">{ps.label}</span>
+                      <span className="text-[10px] text-gray-700 font-mono">#{ps.smmOrderId}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {ps.remains !== undefined && ps.remains > 0 && (
+                        <span className="text-[10px] text-orange-400">{ps.remains} remaining</span>
+                      )}
+                      {ps.charge && (
+                        <span className="text-[10px] text-gray-500">{ps.charge} {ps.currency}</span>
+                      )}
+                      {ps.error && !ps.providerStatus.includes("Cancelled") && (
+                        <span className="text-[10px] text-red-400">{ps.error}</span>
+                      )}
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getProviderStatusColor(ps.providerStatus)}`}>
+                        {ps.providerStatus}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Summary */}
+              <div className="mt-3 flex flex-wrap gap-2 text-[10px]">
+                {["Completed", "In progress", "Partial", "Cancelled"].map(status => {
+                  const count = providerStatuses.filter(p => p.providerStatus === status).length;
+                  if (count === 0) return null;
+                  return (
+                    <span key={status} className={`rounded-full px-2 py-0.5 ${getProviderStatusColor(status)}`}>
+                      {count} {status}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {providerChecked && providerStatuses.length === 0 && (
+            <div className="mb-4 rounded-xl border border-gray-700 bg-black/30 p-3 text-center">
+              <p className="text-xs text-gray-500">No completed runs with provider IDs found to check.</p>
+            </div>
+          )}
+
+          {providerError && (
+            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3">
+              <p className="text-xs text-red-400">❌ {providerError}</p>
+            </div>
+          )}
+
+          <OrderCard
+            key={order.id}
+            order={order}
+            controlBusy={controllingOrderId === order.id}
+            onControl={onControlOrder}
+            onClone={onCloneOrder}
+          />
         </div>
       </div>
     );
