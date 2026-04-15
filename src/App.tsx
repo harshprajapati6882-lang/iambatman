@@ -5,16 +5,19 @@ import { BundlesPage } from "./pages/BundlesPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { NewOrderPage } from "./pages/NewOrderPage";
 import { OrdersPage } from "./pages/OrdersPage";
+import { NotificationsPage } from "./pages/NotificationsPage";
+import { fetchNotifications } from "./utils/api";
 import type { ApiPanel, Bundle, CreatedOrder, RunStatus } from "./types/order";
 import { fetchServices, updateOrderControl, fetchOrderRuns } from "./utils/api";
 import { cn } from "./utils/cn";
 
-type NavKey = "dashboard" | "new-order" | "orders" | "apis" | "bundles";
+type NavKey = "dashboard" | "new-order" | "orders" | "notifications" | "apis" | "bundles";
 
 const NAV_ITEMS: { key: NavKey; label: string; icon: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: "📊" },
   { key: "new-order", label: "New Order", icon: "⚡" },
-  { key: "orders", label: "Orders", icon: "📦" }, 
+  { key: "orders", label: "Orders", icon: "📦" },
+  { key: "notifications", label: "Alerts", icon: "🔔" },
   { key: "apis", label: "APIs", icon: "🔗" },
   { key: "bundles", label: "Bundles", icon: "📁" },
 ];
@@ -144,7 +147,7 @@ function hydrateBundles(bundles: Bundle[]): Bundle[] {
 export default function App() {
   const [activePage, setActivePage] = useState<NavKey>(() => {
     const saved = localStorage.getItem("dev-smm-active-page");
-    if (saved === "dashboard" || saved === "new-order" || saved === "orders" || saved === "apis" || saved === "bundles") {
+  if (saved === "dashboard" || saved === "new-order" || saved === "orders" || saved === "notifications" || saved === "apis" || saved === "bundles") {
       return saved;
     }
     return "new-order";
@@ -159,10 +162,23 @@ export default function App() {
   const [controllingOrderId, setControllingOrderId] = useState<string | null>(null);
   
   const [batmanQuote] = useState(() => getRandomQuote());
+  const [notifUnreadCount, setNotifUnreadCount] = useState(0);
 
   // 🔥 NEW: Track if sync is in progress to prevent render loops
   const isSyncingRef = useRef(false);
   const lastSyncTimeRef = useRef(0);
+    // 🔥 Fetch notification count on mount and periodically
+  useEffect(() => {
+    const loadCount = async () => {
+      try {
+        const data = await fetchNotifications(1);
+        setNotifUnreadCount(data.unreadCount);
+      } catch {}
+    };
+    loadCount();
+    const interval = setInterval(loadCount, 120000); // every 2 minutes
+    return () => clearInterval(interval);
+  }, []);
 
   const navigateToPage = useCallback((page: NavKey) => {
     setActivePage(page);
@@ -519,6 +535,14 @@ export default function App() {
         />
       );
     }
+
+        if (activePage === "notifications") {
+      return (
+        <NotificationsPage
+          onUnreadCountChange={(count) => setNotifUnreadCount(count)}
+        />
+      );
+    }
     if (activePage === "apis") {
       return (
         <APIsPage
@@ -685,8 +709,13 @@ export default function App() {
                       transition={{ type: "spring", stiffness: 280, damping: 28 }}
                     />
                   )}
-                  <span className="relative text-lg">{item.icon}</span>
+                                    <span className="relative text-lg">{item.icon}</span>
                   <span className="relative">{item.label}</span>
+                  {item.key === "notifications" && notifUnreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white">
+                      {notifUnreadCount > 9 ? "9+" : notifUnreadCount}
+                    </span>
+                  )}
                 </button>
               );
             })}
