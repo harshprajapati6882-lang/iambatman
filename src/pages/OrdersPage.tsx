@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { CreatedOrder, ApiPanel, Bundle } from "../types/order";
 import { checkProviderOrderStatus, type ProviderRunStatus } from "../utils/api";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { OrderCard } from "../components/OrderCard";
 import { RunTable } from "../components/RunTable";
 
@@ -125,7 +126,50 @@ function getProgressStable(order: CreatedOrder) {
     total: totalRuns,
   };
 }
+// 🔥 Build combined graph data for bulk orders (sum all links)
+function buildBulkGraphData(orders: CreatedOrder[]) {
+  // Collect all runs across all orders, group by run index position
+  const maxRuns = Math.max(...orders.map(o => (o.runs || []).length));
+  if (maxRuns === 0) return [];
 
+  const data = [];
+
+  for (let i = 0; i < maxRuns; i++) {
+    let sumViews = 0;
+    let sumLikes = 0;
+    let sumShares = 0;
+    let sumSaves = 0;
+    let sumComments = 0;
+    let runTime: Date | null = null;
+
+    orders.forEach(order => {
+      const run = (order.runs || [])[i];
+      if (run) {
+        sumViews += run.cumulativeViews || 0;
+        sumLikes += run.cumulativeLikes || 0;
+        sumShares += run.cumulativeShares || 0;
+        sumSaves += run.cumulativeSaves || 0;
+        sumComments += run.cumulativeComments || 0;
+        if (!runTime) {
+          runTime = run.at instanceof Date ? run.at : new Date(run.at);
+        }
+      }
+    });
+
+    data.push({
+      time: runTime
+        ? (runTime as Date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : `Run ${i + 1}`,
+      views: sumViews,
+      likes: sumLikes * 10,
+      shares: sumShares * 10,
+      saves: sumSaves * 10,
+      comments: sumComments * 10,
+    });
+  }
+
+  return data;
+}
 // 🔥 Calculate delivered quantities from completed runs only
 function getDeliveredStats(order: CreatedOrder) {
   const runs = order.runs || [];
@@ -567,6 +611,8 @@ export function OrdersPage({
       return counts;
     }, [group.orders]);
     const totalRunsInBatch = useMemo(() => group.orders.reduce((sum, order) => sum + (order.runs?.length || 0), 0), [group.orders]);
+        const [showBatchGraph, setShowBatchGraph] = useState(false);
+    const batchGraphData = useMemo(() => buildBulkGraphData(group.orders), [group.orders]);
 
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm px-4 py-6" onClick={() => setOpenedGroupId(null)}>
@@ -594,6 +640,56 @@ export function OrdersPage({
             <div className="mt-3 flex flex-wrap gap-2">
               {Object.entries(statusCounts).map(([s, count]) => (<div key={s} className="flex items-center gap-1 text-xs"><span className={`h-2 w-2 rounded-full ${STATUS_COLORS[s]?.dot || 'bg-gray-500'}`} /><span className="text-gray-400">{count} {s}</span></div>))}
             </div>
+
+                        {/* 🔥 Graph Toggle Button */}
+            <div className="mt-4 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowBatchGraph(prev => !prev)}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                  showBatchGraph
+                    ? "border-yellow-500/50 bg-yellow-500/20 text-yellow-300"
+                    : "border-yellow-500/30 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20"
+                }`}
+              >
+                📈 {showBatchGraph ? "Hide Graph" : "View Combined Graph"}
+              </button>
+            </div>
+
+            {/* 🔥 Combined Batch Graph */}
+            {showBatchGraph && batchGraphData.length > 0 && (
+              <div className="mt-3 rounded-xl border border-yellow-500/20 bg-black/50 p-3">
+                <p className="text-[10px] text-gray-500 mb-2">Combined cumulative delivery across all {group.linksCount} links</p>
+                <div className="h-48">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={batchGraphData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#111" opacity={0.3} />
+                      <XAxis dataKey="time" stroke="#666" tick={{ fill: "#9ca3af", fontSize: 10 }} />
+                      <YAxis stroke="#666" tick={{ fill: "#9ca3af", fontSize: 10 }} width={40} />
+                      <Tooltip
+                        contentStyle={{
+                          background: "#000",
+                          border: "1px solid #eab308",
+                          borderRadius: "0.5rem",
+                          color: "#d1d5db",
+                          fontSize: "11px",
+                        }}
+                        formatter={(value: number, name: string) => {
+                          if (name.startsWith("planned")) return null;
+                          return [Math.round(value), name];
+                        }}
+                      />
+                      <Line type="monotone" dataKey="views" stroke="#3b82f6" strokeWidth={2} dot={false} name="Views" />
+                      <Line type="monotone" dataKey="likes" stroke="#ec4899" strokeWidth={1.5} dot={false} name="Likes" />
+                      <Line type="monotone" dataKey="shares" stroke="#22c55e" strokeWidth={1.5} dot={false} name="Shares" />
+                      <Line type="monotone" dataKey="saves" stroke="#eab308" strokeWidth={1.5} dot={false} name="Saves" />
+                      <Line type="monotone" dataKey="comments" stroke="#a855f7" strokeWidth={1.5} dot={false} name="Comments" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+            
             {!isCancelled && (
               <div className="mt-4 flex flex-wrap gap-2">
                 <button onClick={() => { const c = group.orders.filter(o => getRealStatus(o) === 'running').length; if (c > 0 && window.confirm(`Pause ALL ${c} running orders?`)) { group.orders.forEach((o) => { if (getRealStatus(o) === 'running') onControlOrder(o, 'pause'); }); } }} className="flex items-center gap-1 rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-1.5 text-xs font-medium text-orange-300 hover:bg-orange-500/20 transition">⏸️ Pause All Running</button>
