@@ -1114,6 +1114,9 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   const durationMin = durationHours * 60;
   const startDelayMin = clamp(config.startDelayHours || 0, 0, 168) * 60;
 
+    // 🔥 Calculate baseInterval BEFORE peak boost so it can be used inside
+  const baseInterval = durationMin / Math.max(1, totalRuns - 1);
+
   let viewRuns = generateViewRunsFromCurve(
     patternType,
     requestedViews,
@@ -1124,7 +1127,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     minViewsPerRun
   );
 
-    if (config.peakHoursBoost && viewRuns.length > 1 && requestedViews >= minViewsPerRun) {
+  if (config.peakHoursBoost && viewRuns.length > 1 && requestedViews >= minViewsPerRun) {
     const initialWeights = viewRuns.map((views) => Math.max(0.01, views));
 
     // 🔥 Calculate actual run times first (same logic as provisionalRuns below)
@@ -1223,8 +1226,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     }
   }
 
-  const baseInterval = durationMin / Math.max(1, viewRuns.length - 1);
-  let elapsed = startDelayMin;
+    let elapsed = startDelayMin;
   const provisionalRuns = viewRuns.map((views, index) => {
     if (index > 0) {
       const t = index / Math.max(1, viewRuns.length - 1);
