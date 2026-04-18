@@ -1347,10 +1347,13 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
         if (result[i - 1] > 0) continue;
         if (i + 1 < provisionalRuns.length && result[i + 1] > 0) continue;
         const views = provisionalRuns[i]?.views || 0;
-        const maxForViews = getLikesForViews(views, overflowLikeRunIndex);
+                const maxForViews = getLikesForViews(views, overflowLikeRunIndex);
         const toAssign = Math.min(diff, maxForViews);
-        result[i] = toAssign;
-        diff -= toAssign;
+        // 🔥 SAFETY: Only assign if >= 10 (provider minimum)
+        if (toAssign >= 10) {
+          result[i] = toAssign;
+          diff -= toAssign;
+        }
         overflowLikeRunIndex++;
       }
     }
