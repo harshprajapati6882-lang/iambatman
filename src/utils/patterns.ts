@@ -1202,11 +1202,11 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
   const totalViews = provisionalRuns.reduce((acc, run) => acc + run.views, 0);
   const likesRatio = random(0.02, 0.03);
-  const sharesRatio = random(0.01, 0.02);
+  const sharesRatio = random(0.005, 0.015);
   const savesRatio = random(0.005, 0.01);
 
   const likesTotal = config.includeLikes ? Math.max(10, Math.floor(totalViews * likesRatio)) : 0;
-  const sharesTotal = config.includeShares ? Math.max(20, Math.floor(totalViews * sharesRatio)) : 0;
+  const sharesTotal = config.includeShares ? Math.max(10, Math.floor(totalViews * sharesRatio)) : 0;
   const savesTotal = config.includeSaves ? Math.max(10, Math.floor(totalViews * savesRatio)) : 0;
 
   let commentsTotal = 0;
@@ -1380,7 +1380,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     
     selectedIndexes.sort((a, b) => a - b);
 
-    const minPerRun = 20;
+    const minPerRun = 10;
 
     while (selectedIndexes.length > 1 && sharesTotal < selectedIndexes.length * minPerRun) {
       selectedIndexes.pop();
