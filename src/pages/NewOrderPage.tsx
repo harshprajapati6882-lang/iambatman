@@ -985,8 +985,8 @@ return (viewsPrice + likesPrice + sharesPrice + savesPrice + commentsPrice).toFi
               setCreateError("Likes must be at least 10.");
               return;
             }
-            if (includeShares && totalShares < 20) {
-              setCreateError("Shares must be at least 20.");
+                        if (includeShares && totalShares < 10) {
+              setCreateError("Shares must be at least 10.");
               return;
             }
             if (includeSaves && totalSaves < 10) {
