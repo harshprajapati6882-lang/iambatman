@@ -126,6 +126,27 @@ function getProgressStable(order: CreatedOrder) {
   };
 }
 
+// 🔥 Calculate delivered quantities from completed runs only
+function getDeliveredStats(order: CreatedOrder) {
+  const runs = order.runs || [];
+  const runStatuses = order.runStatuses || [];
+
+  let views = 0, likes = 0, shares = 0, saves = 0, comments = 0;
+
+  runs.forEach((run, index) => {
+    const status = runStatuses[index];
+    if (status === "completed") {
+      views += run.views || 0;
+      likes += run.likes || 0;
+      shares += run.shares || 0;
+      saves += run.saves || 0;
+      comments += run.comments || 0;
+    }
+  });
+
+  return { views, likes, shares, saves, comments };
+}
+
 function getGroupProgressStable(group: GroupedOrder) {
   let completedCount = 0;
   let totalRunsInGroup = 0;
@@ -427,6 +448,7 @@ export function OrdersPage({
           </div>
           <ProgressBar percent={progress.percent} size="small" />
         </div>
+                {/* Planned totals */}
         <div className="mt-3 ml-8 grid grid-cols-5 gap-2">
           <div className="rounded-md bg-black/50 px-2 py-1 text-center"><p className="text-xs font-medium text-yellow-400">{(order.totalViews / 1000).toFixed(0)}k</p><p className="text-[9px] text-gray-600">Views</p></div>
           <div className="rounded-md bg-black/50 px-2 py-1 text-center"><p className="text-xs font-medium text-pink-400">{order.engagement.likes}</p><p className="text-[9px] text-gray-600">Likes</p></div>
@@ -434,6 +456,47 @@ export function OrdersPage({
           <div className="rounded-md bg-black/50 px-2 py-1 text-center"><p className="text-xs font-medium text-purple-400">{order.engagement.saves}</p><p className="text-[9px] text-gray-600">Saves</p></div>
           <div className="rounded-md bg-yellow-500/10 border border-yellow-500/30 px-2 py-1 text-center"><p className="text-xs font-bold text-yellow-400">₹{calculateOrderPrice(order, apis, bundles).toFixed(0)}</p><p className="text-[9px] text-yellow-600">Cost</p></div>
         </div>
+
+        {/* 🔥 Delivered So Far — only show if order is running and has some completed runs */}
+        {(() => {
+          const delivered = getDeliveredStats(order);
+          const hasDelivered = delivered.views > 0 || delivered.likes > 0 || delivered.shares > 0 || delivered.saves > 0 || delivered.comments > 0;
+          const isActive = status === "running" || status === "paused";
+          if (!hasDelivered || !isActive) return null;
+
+          return (
+            <div className="mt-2 ml-8 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
+              <p className="text-[9px] font-medium text-emerald-500 mb-1.5 uppercase tracking-wider">✅ Delivered So Far</p>
+              <div className="flex flex-wrap gap-2">
+                {delivered.views > 0 && (
+                  <span className="text-[10px] text-emerald-400">
+                    👁️ {delivered.views.toLocaleString()} views
+                  </span>
+                )}
+                {delivered.likes > 0 && (
+                  <span className="text-[10px] text-emerald-400">
+                    ❤️ {delivered.likes.toLocaleString()} likes
+                  </span>
+                )}
+                {delivered.shares > 0 && (
+                  <span className="text-[10px] text-emerald-400">
+                    🔄 {delivered.shares.toLocaleString()} shares
+                  </span>
+                )}
+                {delivered.saves > 0 && (
+                  <span className="text-[10px] text-emerald-400">
+                    💾 {delivered.saves.toLocaleString()} saves
+                  </span>
+                )}
+                {delivered.comments > 0 && (
+                  <span className="text-[10px] text-emerald-400">
+                    💬 {delivered.comments.toLocaleString()} comments
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })()}
         <div className="mt-3 ml-8 flex items-center gap-2 flex-wrap">
           {!isCancelled && status === "running" && (<button onClick={(e) => { e.stopPropagation(); onControlOrder(order, "pause"); }} disabled={isControlling} className="flex items-center gap-1 rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-[10px] font-medium text-orange-300 hover:bg-orange-500/20 transition disabled:opacity-50">{isControlling ? "⏳" : "⏸️"} Pause</button>)}
           {!isCancelled && status === "paused" && (<button onClick={(e) => { e.stopPropagation(); onControlOrder(order, "resume"); }} disabled={isControlling} className="flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-300 hover:bg-emerald-500/20 transition disabled:opacity-50">{isControlling ? "⏳" : "▶️"} Resume</button>)}
@@ -677,6 +740,54 @@ export function OrdersPage({
             </div>
           )}
 
+                    {/* 🔥 Delivered So Far */}
+          {(() => {
+            const delivered = getDeliveredStats(order);
+            const hasDelivered = delivered.views > 0 || delivered.likes > 0 || delivered.shares > 0 || delivered.saves > 0 || delivered.comments > 0;
+            if (!hasDelivered) return null;
+
+            const totalViews = (order.runs || []).reduce((s, r) => s + (r.views || 0), 0);
+            const viewsPercent = totalViews > 0 ? Math.round((delivered.views / totalViews) * 100) : 0;
+
+            return (
+              <div className="mb-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                <h4 className="text-xs font-semibold text-emerald-400 mb-3">✅ Delivered So Far</h4>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  {delivered.views > 0 && (
+                    <div className="rounded-lg bg-black/50 px-3 py-2 text-center">
+                      <p className="text-sm font-bold text-emerald-400">{delivered.views.toLocaleString()}</p>
+                      <p className="text-[9px] text-gray-500">👁️ Views ({viewsPercent}%)</p>
+                    </div>
+                  )}
+                  {delivered.likes > 0 && (
+                    <div className="rounded-lg bg-black/50 px-3 py-2 text-center">
+                      <p className="text-sm font-bold text-emerald-400">{delivered.likes.toLocaleString()}</p>
+                      <p className="text-[9px] text-gray-500">❤️ Likes</p>
+                    </div>
+                  )}
+                  {delivered.shares > 0 && (
+                    <div className="rounded-lg bg-black/50 px-3 py-2 text-center">
+                      <p className="text-sm font-bold text-emerald-400">{delivered.shares.toLocaleString()}</p>
+                      <p className="text-[9px] text-gray-500">🔄 Shares</p>
+                    </div>
+                  )}
+                  {delivered.saves > 0 && (
+                    <div className="rounded-lg bg-black/50 px-3 py-2 text-center">
+                      <p className="text-sm font-bold text-emerald-400">{delivered.saves.toLocaleString()}</p>
+                      <p className="text-[9px] text-gray-500">💾 Saves</p>
+                    </div>
+                  )}
+                  {delivered.comments > 0 && (
+                    <div className="rounded-lg bg-black/50 px-3 py-2 text-center">
+                      <p className="text-sm font-bold text-emerald-400">{delivered.comments.toLocaleString()}</p>
+                      <p className="text-[9px] text-gray-500">💬 Comments</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+          
           <OrderCard
             key={order.id}
             order={order}
