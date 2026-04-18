@@ -126,50 +126,7 @@ function getProgressStable(order: CreatedOrder) {
     total: totalRuns,
   };
 }
-// 🔥 Build combined graph data for bulk orders (sum all links)
-function buildBulkGraphData(orders: CreatedOrder[]) {
-  // Collect all runs across all orders, group by run index position
-  const maxRuns = Math.max(...orders.map(o => (o.runs || []).length));
-  if (maxRuns === 0) return [];
 
-  const data = [];
-
-  for (let i = 0; i < maxRuns; i++) {
-    let sumViews = 0;
-    let sumLikes = 0;
-    let sumShares = 0;
-    let sumSaves = 0;
-    let sumComments = 0;
-    let runTime: Date | null = null;
-
-    orders.forEach(order => {
-      const run = (order.runs || [])[i];
-      if (run) {
-        sumViews += run.cumulativeViews || 0;
-        sumLikes += run.cumulativeLikes || 0;
-        sumShares += run.cumulativeShares || 0;
-        sumSaves += run.cumulativeSaves || 0;
-        sumComments += run.cumulativeComments || 0;
-        if (!runTime) {
-          runTime = run.at instanceof Date ? run.at : new Date(run.at);
-        }
-      }
-    });
-
-    data.push({
-      time: runTime
-        ? (runTime as Date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-        : `Run ${i + 1}`,
-      views: sumViews,
-      likes: sumLikes * 10,
-      shares: sumShares * 10,
-      saves: sumSaves * 10,
-      comments: sumComments * 10,
-    });
-  }
-
-  return data;
-}
 // 🔥 Calculate delivered quantities from completed runs only
 function getDeliveredStats(order: CreatedOrder) {
   const runs = order.runs || [];
@@ -611,8 +568,23 @@ export function OrdersPage({
       return counts;
     }, [group.orders]);
     const totalRunsInBatch = useMemo(() => group.orders.reduce((sum, order) => sum + (order.runs?.length || 0), 0), [group.orders]);
-        const [showBatchGraph, setShowBatchGraph] = useState(false);
-    const batchGraphData = useMemo(() => buildBulkGraphData(group.orders), [group.orders]);
+            const [showBatchGraph, setShowBatchGraph] = useState(false);
+
+    // 🔥 Use first order's runs as the pattern (all links have same schedule)
+    const batchGraphData = useMemo(() => {
+      const firstOrder = group.orders[0];
+      if (!firstOrder) return [];
+      const runs = firstOrder.runs || [];
+      return runs.map((run) => ({
+        time: (run.at instanceof Date ? run.at : new Date(run.at))
+          .toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        views: run.cumulativeViews || 0,
+        likes: (run.cumulativeLikes || 0) * 10,
+        shares: (run.cumulativeShares || 0) * 10,
+        saves: (run.cumulativeSaves || 0) * 10,
+        comments: (run.cumulativeComments || 0) * 10,
+      }));
+    }, [group.orders]);
 
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm px-4 py-6" onClick={() => setOpenedGroupId(null)}>
@@ -659,7 +631,7 @@ export function OrdersPage({
             {/* 🔥 Combined Batch Graph */}
             {showBatchGraph && batchGraphData.length > 0 && (
               <div className="mt-3 rounded-xl border border-yellow-500/20 bg-black/50 p-3">
-                <p className="text-[10px] text-gray-500 mb-2">Combined cumulative delivery across all {group.linksCount} links</p>
+               <p className="text-[10px] text-gray-500 mb-2">Scheduled delivery pattern (same for all {group.linksCount} links)</p>
                 <div className="h-48">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={batchGraphData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
