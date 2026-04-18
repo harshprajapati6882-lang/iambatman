@@ -1124,16 +1124,53 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     minViewsPerRun
   );
 
-  if (config.peakHoursBoost && viewRuns.length > 1 && requestedViews >= minViewsPerRun) {
+    if (config.peakHoursBoost && viewRuns.length > 1 && requestedViews >= minViewsPerRun) {
     const initialWeights = viewRuns.map((views) => Math.max(0.01, views));
+
+    // 🔥 Calculate actual run times first (same logic as provisionalRuns below)
+    const tempElapsed = startDelayMin;
+    const runTimes: Date[] = [];
+    let tempElapsedMs = tempElapsed * 60_000;
+    for (let i = 0; i < viewRuns.length; i++) {
+      runTimes.push(new Date(now.getTime() + tempElapsedMs));
+      if (i < viewRuns.length - 1) {
+        const t = (i + 1) / Math.max(1, viewRuns.length - 1);
+        const jitter = random(0.78, 1.24);
+        const intervalMs = Math.max(
+          1,
+          (baseInterval * jitter * intervalPresetFactor(config.quickPreset, t) * intervalPatternFactor(patternType, t)) * 60_000
+        );
+        tempElapsedMs += intervalMs;
+      }
+    }
+
     const boostedWeights = initialWeights.map((weight, index) => {
-      const t = index / Math.max(1, initialWeights.length - 1);
-      const pseudoHour = Math.floor((t * durationHours) % 24);
-      const inPeakWindow = pseudoHour >= 18 && pseudoHour <= 23;
-      const boostChance = inPeakWindow ? 0.78 : 0.18;
-      const boost = Math.random() < boostChance ? random(1.14, inPeakWindow ? 1.52 : 1.2) : random(0.94, 1.06);
+      const runTime = runTimes[index];
+
+      // 🔥 Convert run time to USA Eastern Time hour
+      // EST = UTC - 5, EDT = UTC - 4 (daylight saving March-November)
+      const utcHour = runTime.getUTCHours();
+      const month = runTime.getUTCMonth() + 1; // 1-12
+      const isDST = month >= 3 && month <= 11; // approximate DST period
+      const estOffset = isDST ? -4 : -5;
+      const estHour = ((utcHour + estOffset) + 24) % 24;
+
+      // 🔥 USA Peak Evening: 6 PM to 11 PM EST (18 to 23)
+      const inPeakWindow = estHour >= 18 && estHour <= 23;
+
+      // 🔥 Also boost lunch time (12 PM to 2 PM EST) — secondary peak
+      const inLunchPeak = estHour >= 12 && estHour <= 14;
+
+      const isPeak = inPeakWindow || inLunchPeak;
+
+      const boostChance = inPeakWindow ? 0.80 : inLunchPeak ? 0.55 : 0.15;
+      const boost = Math.random() < boostChance
+        ? random(1.14, inPeakWindow ? 1.52 : 1.25)
+        : random(0.92, 1.05);
+
       return weight * boost;
     });
+
     viewRuns = distributeWithMinimum(boostedWeights, requestedViews, minViewsPerRun);
   }
 
