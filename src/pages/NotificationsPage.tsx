@@ -48,15 +48,36 @@ const TYPE_ICONS: Record<string, string> = {
 
 type FilterType = "all" | "critical" | "warning" | "info";
 
+// Cache for order links to avoid repeated fetches
+const orderLinkCache = new Map<string, string>();
+
+async function fetchOrderLink(schedulerOrderId: string): Promise<string> {
+  if (orderLinkCache.has(schedulerOrderId)) {
+    return orderLinkCache.get(schedulerOrderId)!;
+  }
+  try {
+    const BACKEND_BASE_URL = (import.meta.env.VITE_BACKEND_URL as string | undefined)?.trim() || "https://backend-new-6tzb.onrender.com";
+    const response = await fetch(`${BACKEND_BASE_URL}/api/order/status/${schedulerOrderId}`);
+    if (response.ok) {
+      const data = await response.json();
+      const link = data.link || schedulerOrderId;
+      orderLinkCache.set(schedulerOrderId, link);
+      return link;
+    }
+  } catch {}
+  return schedulerOrderId;
+}
+
 export function NotificationsPage({ onUnreadCountChange }: NotificationsPageProps) {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<FilterType>("all");
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
+    const [unreadCount, setUnreadCount] = useState(0);
+  const [orderLinks, setOrderLinks] = useState<Record<string, string>>({});
 
-  const loadNotifications = async () => {
+    const loadNotifications = async () => {
     setLoading(true);
     setError("");
     try {
@@ -64,6 +85,21 @@ export function NotificationsPage({ onUnreadCountChange }: NotificationsPageProp
       setNotifications(data.notifications);
       setUnreadCount(data.unreadCount);
       onUnreadCountChange?.(data.unreadCount);
+
+      // 🔥 Fetch links for all unique schedulerOrderIds
+      const uniqueIds = [...new Set(
+        data.notifications
+          .filter(n => n.schedulerOrderId)
+          .map(n => n.schedulerOrderId!)
+      )];
+
+      const linkMap: Record<string, string> = {};
+      await Promise.all(
+        uniqueIds.map(async (id) => {
+          linkMap[id] = await fetchOrderLink(id);
+        })
+      );
+      setOrderLinks(linkMap);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load notifications");
     } finally {
@@ -246,13 +282,39 @@ export function NotificationsPage({ onUnreadCountChange }: NotificationsPageProp
                         )}
                       </div>
                       <p className="mt-1 text-xs text-gray-400 leading-relaxed">{notif.message}</p>
-                      <div className="mt-2 flex items-center gap-3 text-[10px] text-gray-600">
-                        <span>{formatTime(notif.createdAt)}</span>
+                                            <div className="mt-2 flex flex-col gap-1">
+                        <div className="flex items-center gap-3 text-[10px] text-gray-600">
+                          <span>{formatTime(notif.createdAt)}</span>
+                          {notif.label && (
+                            <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[9px] text-gray-400">
+                              {notif.label}
+                            </span>
+                          )}
+                          {notif.smmOrderId && (
+                            <span className="text-gray-600">SMM #{notif.smmOrderId}</span>
+                          )}
+                        </div>
                         {notif.schedulerOrderId && (
-                          <span className="font-mono">{notif.schedulerOrderId.slice(0, 20)}...</span>
+                          <div className="flex items-center gap-2">
+                            {orderLinks[notif.schedulerOrderId] && orderLinks[notif.schedulerOrderId] !== notif.schedulerOrderId ? (
+                              <a
+                                href={orderLinks[notif.schedulerOrderId]}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-blue-400 hover:text-blue-300 hover:underline truncate max-w-xs"
+                                title={orderLinks[notif.schedulerOrderId]}
+                              >
+                                🔗 {orderLinks[notif.schedulerOrderId].length > 50
+                                  ? orderLinks[notif.schedulerOrderId].slice(0, 50) + "..."
+                                  : orderLinks[notif.schedulerOrderId]}
+                              </a>
+                            ) : (
+                              <span className="text-[9px] text-gray-700 font-mono">
+                                {notif.schedulerOrderId.slice(0, 25)}...
+                              </span>
+                            )}
+                          </div>
                         )}
-                        {notif.label && <span>{notif.label}</span>}
-                        {notif.smmOrderId && <span>#{notif.smmOrderId}</span>}
                       </div>
                     </div>
                   </div>
