@@ -37,11 +37,13 @@ const TYPE_ICONS: Record<string, string> = {
   run_error: "💥",
   run_stuck: "⏳",
   run_stuck_queued: "📥",
-  order_cancelled: "🚫",
   order_partial_failure: "⚠️",
   server_restart: "🔄",
   duplicate_blocked: "🔗",
   scheduler_skipped: "⏭️",
+  run_waiting: "⏸️",
+  run_skipped: "⏭️",
+  provider_auto_cancelled: "🛠️",
 };
 
 type FilterType = "all" | "critical" | "warning" | "info";
@@ -75,9 +77,11 @@ export function NotificationsPage({ onUnreadCountChange }: NotificationsPageProp
     return () => clearInterval(interval);
   }, []);
 
-  const filteredNotifications = useMemo(() => {
-    if (filter === "all") return notifications;
-    return notifications.filter((n) => n.severity === filter);
+    const filteredNotifications = useMemo(() => {
+    // 🔥 Always hide manual order cancellation notifications
+    const visible = notifications.filter((n) => n.type !== "order_cancelled");
+    if (filter === "all") return visible;
+    return visible.filter((n) => n.severity === filter);
   }, [notifications, filter]);
 
   const stats = useMemo(() => ({
