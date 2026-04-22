@@ -9,9 +9,25 @@ interface DashboardPageProps {
 type TimePeriod = "today" | "week" | "month" | "all";
 
 export function DashboardPage({ orders, onDeleteOrder }: DashboardPageProps) {
-  const [period, setPeriod] = useState<TimePeriod>("all");
+    const [period, setPeriod] = useState<TimePeriod>("all");
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [memory, setMemory] = useState<{ usedMB: number; totalMB: number; usagePercent: number; heapUsedMB: number; status: string } | null>(null);
 
+    useEffect(() => {
+    const BACKEND_BASE_URL = (import.meta.env.VITE_BACKEND_URL as string | undefined)?.trim() || "https://backend-new-6tzb.onrender.com";
+    
+    const fetchMemory = async () => {
+      try {
+        const res = await fetch(`${BACKEND_BASE_URL}/api/memory-usage`);
+        const data = await res.json();
+        setMemory(data);
+      } catch {}
+    };
+
+    fetchMemory();
+    const interval = setInterval(fetchMemory, 30000); // every 30 seconds
+    return () => clearInterval(interval);
+  }, []);
   // 🦇 FIX: Same logic as OrdersPage to determine REAL status
     function getRealStatus(order: CreatedOrder): string {
     // 🔥 FIX: Trust backend status FIRST
@@ -505,7 +521,50 @@ export function DashboardPage({ orders, onDeleteOrder }: DashboardPageProps) {
           </div>
         )}
       </div>
+      {/* 🔥 Server Memory Usage */}
+      {memory && (
+        <div className="rounded-xl border border-yellow-500/20 bg-gradient-to-br from-gray-900 to-black p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-yellow-400">🖥️ Server Memory</h3>
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+              memory.status === 'critical' ? 'bg-red-500/20 text-red-300' :
+              memory.status === 'warning' ? 'bg-yellow-500/20 text-yellow-300' :
+              'bg-emerald-500/20 text-emerald-300'
+            }`}>
+              {memory.status}
+            </span>
+          </div>
 
+          <div className="flex items-end justify-between mb-2">
+            <span className={`text-2xl font-bold ${
+              memory.status === 'critical' ? 'text-red-400' :
+              memory.status === 'warning' ? 'text-yellow-400' :
+              'text-emerald-400'
+            }`}>
+              {memory.usagePercent}%
+            </span>
+            <span className="text-xs text-gray-500">
+              {memory.usedMB} MB / {memory.totalMB} MB
+            </span>
+          </div>
+
+          <div className="h-2 w-full overflow-hidden rounded-full bg-gray-800">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                memory.status === 'critical' ? 'bg-red-500' :
+                memory.status === 'warning' ? 'bg-yellow-500' :
+                'bg-emerald-500'
+              }`}
+              style={{ width: `${memory.usagePercent}%` }}
+            />
+          </div>
+
+          <div className="mt-2 flex justify-between text-[10px] text-gray-600">
+            <span>Heap: {memory.heapUsedMB} MB used</span>
+            <span>Updates every 30s</span>
+          </div>
+        </div>
+      )}
       {/* Quick Stats Footer */}
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-xl border border-yellow-500/20 bg-black p-4 text-center">
