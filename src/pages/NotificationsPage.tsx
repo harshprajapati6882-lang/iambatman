@@ -44,6 +44,7 @@ const TYPE_ICONS: Record<string, string> = {
   run_waiting: "⏸️",
   run_skipped: "⏭️",
   provider_auto_cancelled: "🛠️",
+  run_overlap_info: "ℹ️",
 };
 
 type FilterType = "all" | "critical" | "warning" | "info";
