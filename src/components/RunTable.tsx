@@ -12,6 +12,7 @@ interface RunTableProps {
   runOriginalTimes?: string[];
   runCurrentTimes?: string[];
   runReasons?: string[];
+  runActualExecutedTimes?: string[];
   mode?: "schedule" | "logs";
 }
 
@@ -33,6 +34,7 @@ export function RunTable({
   runOriginalTimes = [],
   runCurrentTimes = [],
   runReasons = [],
+  runActualExecutedTimes = [],
   mode = "logs" 
 }: RunTableProps) {
   const safeRuns = runs || [];
@@ -41,7 +43,8 @@ export function RunTable({
   const safeRunRetries = runRetries || [];
   const safeRunOriginalTimes = runOriginalTimes || [];
   const safeRunCurrentTimes = runCurrentTimes || [];
-  const safeRunReasons = runReasons || [];
+    const safeRunReasons = runReasons || [];
+  const safeRunActualExecutedTimes = runActualExecutedTimes || [];
 
   // 🔥 Calculate if time was rescheduled
   const getTimeDisplay = (index: number, originalRunTime: Date) => {
@@ -207,7 +210,7 @@ export function RunTable({
               <th className="px-3 py-2 w-14">Saves</th>
               <th className="px-3 py-2 w-14">Comments</th>
               <th className="px-3 py-2 w-24">Status</th>
-              <th className="px-3 py-2 w-14">Retry</th>
+              <th className="px-3 py-2 w-32">Placed At</th>
               <th className="px-3 py-2">Info</th>
             </tr>
           </thead>
@@ -269,15 +272,42 @@ export function RunTable({
                     </span>
                   </td>
                   
-                  {/* Retry Count */}
+                                    {/* Placed At — shows actual execution time, especially useful when run was rescheduled */}
                   <td className="px-3 py-2">
-                    {retryCount > 0 ? (
-                      <span className="inline-flex items-center gap-0.5 rounded-full bg-yellow-500/20 px-2 py-0.5 text-[10px] font-medium text-yellow-400">
-                        ↻ {retryCount}
-                      </span>
-                    ) : (
-                      <span className="text-slate-700">-</span>
-                    )}
+                    {(() => {
+                      const actualTime = safeRunActualExecutedTimes[index];
+                      if (actualTime) {
+                        const actualDate = new Date(actualTime);
+                        const scheduledDate = timeData.original;
+                        const delayMs = actualDate.getTime() - scheduledDate.getTime();
+                        const delayMin = Math.round(delayMs / 60000);
+                        const wasDelayed = delayMin > 2; // More than 2 min = was rescheduled
+
+                        return (
+                          <div className="space-y-0.5">
+                            <p className={`text-[10px] font-medium ${wasDelayed ? 'text-yellow-400' : 'text-emerald-400'}`}>
+                              {actualDate.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                            {wasDelayed && (
+                              <p className="text-[9px] text-yellow-600">
+                                +{delayMin}m delay {retryCount > 0 ? `(${retryCount} retries)` : ''}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      // Run not yet placed
+                      if (retryCount > 0) {
+                        return (
+                          <span className="inline-flex items-center gap-0.5 rounded-full bg-yellow-500/20 px-2 py-0.5 text-[10px] font-medium text-yellow-400">
+                            ↻ retry {retryCount}
+                          </span>
+                        );
+                      }
+
+                      return <span className="text-slate-700">-</span>;
+                    })()}
                   </td>
                   
                   {/* Error/Reason */}
@@ -326,8 +356,11 @@ export function RunTable({
         <span className="flex items-center gap-1">
           <span className="h-2 w-2 rounded-full bg-red-500"></span> Cancelled
         </span>
-        <span className="flex items-center gap-1">
+                <span className="flex items-center gap-1">
           <span className="text-yellow-400">Yellow time</span> = Rescheduled
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="text-yellow-400">Placed At</span> = Actual order time (yellow = delayed)
         </span>
       </div>
     </div>
