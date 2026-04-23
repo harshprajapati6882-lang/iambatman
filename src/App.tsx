@@ -121,7 +121,8 @@ function hydrateOrderDates(orders: CreatedOrder[]): CreatedOrder[] {
       runRetries: order?.runRetries || [],
       runOriginalTimes: order?.runOriginalTimes || [],
       runCurrentTimes: order?.runCurrentTimes || [],
-      runReasons: order?.runReasons || [],
+            runReasons: order?.runReasons || [],
+      runActualExecutedTimes: order?.runActualExecutedTimes || [],
       lastUpdatedAt: order?.lastUpdatedAt ?? order?.createdAt ?? new Date().toISOString(),
       runs: safeRuns,
     };
@@ -400,10 +401,21 @@ export default function App() {
           const trimmedCurrentTimes = runCurrentTimes.slice(0, frontendRunCount);
           const trimmedReasons = runReasons.slice(0, frontendRunCount);
 
-          while (trimmedRetries.length < frontendRunCount) trimmedRetries.push(0);
+                    while (trimmedRetries.length < frontendRunCount) trimmedRetries.push(0);
           while (trimmedOriginalTimes.length < frontendRunCount) trimmedOriginalTimes.push("");
           while (trimmedCurrentTimes.length < frontendRunCount) trimmedCurrentTimes.push("");
           while (trimmedReasons.length < frontendRunCount) trimmedReasons.push("");
+
+          // 🔥 Build actualExecutedTimes per time slot (from VIEWS runs)
+          const trimmedActualExecutedTimes: string[] = sortedSlots.map(([key]) => {
+            const viewsRun = viewsRuns.find(vr => {
+              const timeKey = vr.time ? new Date(vr.time).toISOString().slice(0, 16) : "unknown";
+              return timeKey === key;
+            });
+            return (viewsRun as any)?.actualExecutedAt || "";
+          }).slice(0, frontendRunCount);
+
+          while (trimmedActualExecutedTimes.length < frontendRunCount) trimmedActualExecutedTimes.push("");
 
           const slotCompletedCount = trimmedStatuses.filter(s => s === "completed").length;
 
@@ -430,8 +442,9 @@ export default function App() {
               runOriginalTimes: trimmedOriginalTimes,
               runCurrentTimes: trimmedCurrentTimes,
               runReasons: trimmedReasons,
-              runStatuses: trimmedStatuses,
+                            runStatuses: trimmedStatuses,
               runErrors: trimmedErrors,
+              runActualExecutedTimes: trimmedActualExecutedTimes,
               completedRuns: slotCompletedCount,
               status: orderStatus,
               lastUpdatedAt: new Date().toISOString(),
