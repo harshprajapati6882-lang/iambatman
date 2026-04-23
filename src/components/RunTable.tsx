@@ -235,28 +235,15 @@ export function RunTable({
                   {/* Run Number */}
                   <td className="px-3 py-2 font-medium">#{run.run}</td>
                   
-                  {/* Time - Original + Current */}
+                                    {/* Time */}
                   <td className="px-3 py-2">
-                    <div className="space-y-0.5">
-                      {/* Current/Scheduled Time */}
-                      <div className={`font-medium ${
-                        timeData.isRescheduled ? "text-yellow-400" : "text-slate-300"
-                      }`}>
-                        {formatTime(timeData.current)}
-                        <span className="ml-1 text-slate-600 text-[10px]">
-                          ({formatRelativeTime(timeData.current)})
-                        </span>
-                      </div>
-                      
-                      {/* Original Time (if rescheduled) */}
-                      {timeData.isRescheduled && (
-                        <div className="text-[10px] text-slate-600 line-through">
-                          Original: {formatTime(timeData.original)}
-                        </div>
-                      )}
+                    <div className="font-medium text-slate-300">
+                      {formatTime(run.at)}
+                      <span className="ml-1 text-slate-600 text-[10px]">
+                        ({formatRelativeTime(run.at)})
+                      </span>
                     </div>
-                  </td>
-                  
+                  </td>                  
                   {/* Quantities */}
                   <td className="px-3 py-2 text-slate-400">{run.views}</td>
                   <td className="px-3 py-2 text-slate-400">{run.likes}</td>
