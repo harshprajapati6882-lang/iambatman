@@ -146,6 +146,7 @@ export interface CreatedOrder {
   runOriginalTimes?: string[];
   runCurrentTimes?: string[];
   runReasons?: string[];
+  runActualExecutedTimes?: string[];
   errorMessage?: string;
   createdAt: string;
   lastUpdatedAt?: string;
