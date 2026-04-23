@@ -548,7 +548,7 @@ export function OrdersPage({
                   <h4 className="text-xs font-semibold text-yellow-400">📋 Run Schedule ({safeRuns.length} runs)</h4>
                   <span className="text-[10px] text-gray-600">{progress.completed} completed</span>
                 </div>
-                <RunTable runs={safeRuns} runStatuses={safeRunStatuses} runErrors={safeRunErrors} runRetries={order.runRetries || []} runOriginalTimes={order.runOriginalTimes || []} runCurrentTimes={order.runCurrentTimes || []} runReasons={order.runReasons || []} mode="logs" />
+                <RunTable runs={safeRuns} runStatuses={safeRunStatuses} runErrors={safeRunErrors} runRetries={order.runRetries || []} runOriginalTimes={order.runOriginalTimes || []} runCurrentTimes={order.runCurrentTimes || []} runReasons={order.runReasons || []} runActualExecutedTimes={order.runActualExecutedTimes || []} mode="logs" />
               </div>
             </motion.div>
           )}
