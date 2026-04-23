@@ -261,7 +261,7 @@ export function OrderCard({ order, onControl, onClone, controlBusy }: OrderCardP
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
           >
-            <RunTable
+             <RunTable
               runs={safeRuns}
               runStatuses={safeRunStatuses}
               runErrors={safeRunErrors}
@@ -269,6 +269,7 @@ export function OrderCard({ order, onControl, onClone, controlBusy }: OrderCardP
               runOriginalTimes={order.runOriginalTimes || []}
               runCurrentTimes={order.runCurrentTimes || []}
               runReasons={order.runReasons || []}
+              runActualExecutedTimes={order.runActualExecutedTimes || []}
               mode="logs"
             />
           </motion.div>
