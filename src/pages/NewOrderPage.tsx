@@ -635,7 +635,9 @@ const commentsService = selectedApi?.services.find(
               <span className="text-xs font-medium text-yellow-400">Risk:</span>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-[10px] text-gray-500">{safePlan.estimatedDurationHours}h duration</span>
+                            <span className="rounded-md border border-gray-700 bg-black px-2 py-0.5 text-[10px] font-semibold text-white">
+                ⏱ {safePlan.estimatedDurationHours}h
+              </span>
               <span className="text-[10px] text-gray-500">{estimatedRunCount} runs</span>
               <span className={`rounded-md border px-2 py-0.5 text-xs font-semibold ${
                 safePlan.risk === "Safe"
