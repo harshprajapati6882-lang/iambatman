@@ -351,22 +351,22 @@ const commentsService = selectedApi?.services.find(
         {/* LEFT COLUMN - Basic Order Info */}
         <div className="space-y-2">
           <div className="rounded-xl border border-yellow-500/20 bg-gradient-to-br from-gray-900 to-black p-3">
-            <h3 className="text-xs font-semibold text-yellow-400 mb-2">📋 Order Details</h3>
+                        <h3 className="text-xs font-bold text-yellow-300 mb-2 tracking-wide">📋 Order Details</h3>
             
             {/* Order Name & URL */}
             <div className="grid grid-cols-2 gap-2 mb-2">
               <div>
-                <label className="text-[10px] text-gray-500 mb-1 block">Order Name</label>
+                <label className="text-[10px] text-gray-300 mb-1 block font-medium">Order Name</label>
                 <input
                   type="text"
                   value={orderName}
                   onChange={(e) => setOrderName(e.target.value)}
                   placeholder="Mission name..."
-                  className="w-full rounded-lg border border-yellow-500/20 bg-black px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-yellow-500/50 focus:outline-none"
+                  className="w-full rounded-lg border border-yellow-500/30 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-yellow-500/50 focus:outline-none"
                 />
               </div>
               <div>
-                <label className="text-[10px] text-gray-500 mb-1 block">Total Views</label>
+                <label className="text-[10px] text-gray-300 mb-1 block font-medium">Total Views</label>
                                 <input
                   type="number"
                   value={totalViews}
@@ -382,46 +382,46 @@ const commentsService = selectedApi?.services.find(
                     setTotalViews(Math.max(0, safeValue));
                   }}
                   min={0}
-                  className="w-full rounded-lg border border-yellow-500/20 bg-black px-2 py-1.5 text-xs text-white focus:border-yellow-500/50 focus:outline-none"
+                  className="w-full rounded-lg border border-yellow-500/30 bg-gray-950 px-2 py-1.5 text-xs text-white focus:border-yellow-500/50 focus:outline-none"
                 />
               </div>
             </div>
 
             {/* Post URL */}
             <div className="mb-2">
-              <label className="text-[10px] text-gray-500 mb-1 block">Post URL</label>
+              <label className="text-[10px] text-gray-300 mb-1 block font-medium">Post URL</label>
               <input
                 type="text"
                 value={postUrl}
                 onChange={(e) => setPostUrl(e.target.value)}
                 placeholder="https://instagram.com/reel/..."
-                className="w-full rounded-lg border border-yellow-500/20 bg-black px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-yellow-500/50 focus:outline-none"
+                className="w-full rounded-lg border border-yellow-500/30 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-yellow-500/50 focus:outline-none"
               />
             </div>
 
             {/* Bulk Links */}
             <div className="mb-2">
-              <label className="text-[10px] text-gray-500 mb-1 block">Bulk Links (one per line)</label>
+              <label className="text-[10px] text-gray-300 mb-1 block font-medium">Bulk Links (one per line)</label>
               <textarea
                 value={bulkLinks}
                 onChange={(e) => setBulkLinks(e.target.value)}
                 placeholder="Paste multiple URLs..."
                 rows={2}
-                className="w-full rounded-lg border border-yellow-500/20 bg-black px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-yellow-500/50 focus:outline-none resize-none"
+                className="w-full rounded-lg border border-yellow-500/30 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-yellow-500/50 focus:outline-none resize-none"
               />
             </div>
 
             {/* API & Bundle Selection */}
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-[10px] text-gray-500 mb-1 block">API Panel</label>
+                <label className="text-[10px] text-gray-300 mb-1 block font-medium">API Panel</label>
                 <select
                   value={selectedApiId}
                   onChange={(e) => {
                     setSelectedApiId(e.target.value);
                     setSelectedBundleId("");
                   }}
-                  className="w-full rounded-lg border border-yellow-500/20 bg-black px-2 py-1.5 text-xs text-white focus:border-yellow-500/50 focus:outline-none"
+                  className="w-full rounded-lg border border-yellow-500/30 bg-gray-950 px-2 py-1.5 text-xs text-white focus:border-yellow-500/50 focus:outline-none"
                 >
                   <option value="">Select API</option>
                   {apis.map((api) => (
@@ -430,11 +430,11 @@ const commentsService = selectedApi?.services.find(
                 </select>
               </div>
               <div>
-                <label className="text-[10px] text-gray-500 mb-1 block">Bundle</label>
+                <label className="text-[10px] text-gray-300 mb-1 block font-medium">Bundle</label>
                 <select
                   value={selectedBundleId}
                   onChange={(e) => setSelectedBundleId(e.target.value)}
-                  className="w-full rounded-lg border border-yellow-500/20 bg-black px-2 py-1.5 text-xs text-white focus:border-yellow-500/50 focus:outline-none"
+                  className="w-full rounded-lg border border-yellow-500/30 bg-gray-950 px-2 py-1.5 text-xs text-white focus:border-yellow-500/50 focus:outline-none"
                 >
                   <option value="">Select Bundle</option>
                   {bundleOptions.map((bundle) => (
@@ -447,7 +447,7 @@ const commentsService = selectedApi?.services.find(
 
           {/* 🔥 NEW: Minimum Views Per Run Settings Block */}
           <div className="rounded-xl border border-blue-500/30 bg-gradient-to-br from-blue-900/20 to-black p-3">
-            <h3 className="text-xs font-semibold text-blue-400 mb-2 flex items-center gap-2">
+                        <h3 className="text-xs font-bold text-blue-300 mb-2 flex items-center gap-2 tracking-wide">
               <span>⚙️</span> Global Run Settings
             </h3>
             
@@ -489,15 +489,15 @@ const commentsService = selectedApi?.services.find(
               {/* Live calculation display */}
               <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-2 py-2">
                 <div className="flex items-center justify-between text-[10px]">
-                  <span className="text-gray-400">Estimated Runs:</span>
+                                    <span className="text-gray-300 font-medium">Estimated Runs:</span>
                   <span className="text-blue-300 font-semibold">{estimatedRunCount}</span>
                 </div>
                 <div className="flex items-center justify-between text-[10px] mt-1">
-                  <span className="text-gray-400">Avg Views/Run:</span>
+                                    <span className="text-gray-300 font-medium">Avg Views/Run:</span>
                   <span className="text-blue-300 font-semibold">{averageViewsPerRun.toLocaleString()}</span>
                 </div>
                 <div className="flex items-center justify-between text-[10px] mt-1">
-                  <span className="text-gray-400">Max Possible Runs:</span>
+                                   <span className="text-gray-300 font-medium">Max Possible Runs:</span>
                   <span className="text-gray-500">{Math.floor(totalViews / minViewsPerRun)}</span>
                 </div>
               </div>
@@ -629,22 +629,24 @@ const commentsService = selectedApi?.services.find(
         <div className="space-y-2">
           
           {/* Detection Risk - Inline */}
-          <div className="flex items-center justify-between rounded-lg border border-yellow-500/20 bg-gradient-to-br from-gray-900 to-black px-3 py-2">
+                    <div className="flex items-center justify-between rounded-lg border border-yellow-500/30 bg-gradient-to-r from-yellow-500/5 via-black to-black px-3 py-2.5">
             <div className="flex items-center gap-2">
               <span className="text-sm">🎯</span>
-              <span className="text-xs font-medium text-yellow-400">Risk:</span>
+              <span className="text-xs font-bold text-yellow-300">Risk:</span>
             </div>
             <div className="flex items-center gap-3">
-                                          <span className="rounded-md border border-yellow-500/40 bg-yellow-500/15 px-2.5 py-1 text-xs font-bold text-yellow-300">
+              <span className="rounded-md border border-yellow-400/50 bg-yellow-500/20 px-3 py-1 text-xs font-bold text-yellow-200 shadow-sm shadow-yellow-500/10">
                 ⏱ {safePlan.estimatedDurationHours}h
               </span>
-              <span className="text-[10px] text-gray-500">{estimatedRunCount} runs</span>
-              <span className={`rounded-md border px-2 py-0.5 text-xs font-semibold ${
+              <span className="rounded-md border border-gray-600 bg-gray-800 px-2 py-0.5 text-[10px] font-semibold text-gray-200">
+                {estimatedRunCount} runs
+              </span>
+              <span className={`rounded-md border px-2.5 py-1 text-xs font-bold shadow-sm ${
                 safePlan.risk === "Safe"
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                  ? "border-emerald-400/50 bg-emerald-500/20 text-emerald-300 shadow-emerald-500/10"
                   : safePlan.risk === "Medium"
-                    ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
-                    : "border-red-500/30 bg-red-500/10 text-red-400"
+                    ? "border-yellow-400/50 bg-yellow-500/20 text-yellow-300 shadow-yellow-500/10"
+                    : "border-red-400/50 bg-red-500/20 text-red-300 shadow-red-500/10"
               }`}>
                 {safePlan.risk}
               </span>
@@ -660,12 +662,12 @@ const commentsService = selectedApi?.services.find(
 
           {/* Advanced Controls - Below Schedule Preview */}
           <div className="rounded-xl border border-yellow-500/20 bg-gradient-to-br from-gray-900 to-black p-3">
-            <h3 className="text-xs font-semibold text-yellow-400 mb-2">⚙️ Advanced Controls</h3>
+                       <h3 className="text-xs font-bold text-yellow-300 mb-2 tracking-wide">⚙️ Advanced Controls</h3>
             
             {/* Row 1: Start Delay & Variance */}
             <div className="grid grid-cols-2 gap-2 mb-2">
               <div>
-                <label className="text-[10px] text-gray-500 mb-1 block">Start Delay (hours)</label>
+                <label className="text-[10px] text-gray-300 mb-1 block font-medium">Start Delay (hours)</label>
                 <input
                   type="number"
                   value={startDelayHours}
@@ -676,11 +678,11 @@ const commentsService = selectedApi?.services.find(
                   }}
                   min={0}
                   max={168}
-                  className="w-full rounded-lg border border-yellow-500/20 bg-black px-2 py-1.5 text-xs text-white focus:border-yellow-500/50 focus:outline-none"
+                  className="w-full rounded-lg border border-yellow-500/30 bg-gray-950 px-2 py-1.5 text-xs text-white focus:border-yellow-500/50 focus:outline-none"
                 />
               </div>
               <div>
-                <label className="text-[10px] text-gray-500 mb-1 block">Variance: {variancePercent}%</label>
+                <label className="text-[10px] text-gray-300 mb-1 block font-medium">Variance: {variancePercent}%</label>
                 <input
                   type="range"
                   value={variancePercent}
@@ -697,7 +699,7 @@ const commentsService = selectedApi?.services.find(
 
             {/* Row 2: Delivery Speed */}
             <div className="mb-2">
-              <label className="text-[10px] text-gray-500 mb-1 block">Delivery Speed</label>
+              <label className="text-[10px] text-gray-300 mb-1 block font-medium">Delivery Speed</label>
               <div className="flex gap-1 flex-wrap">
                 {deliveryOptions.map((option) => (
                   <button
@@ -710,7 +712,7 @@ const commentsService = selectedApi?.services.find(
                     className={`rounded-md px-2 py-1 text-[10px] font-medium transition ${
                       delivery.label === option.label
                         ? "border border-yellow-500 bg-yellow-500/20 text-yellow-300"
-                        : "border border-yellow-500/20 bg-black text-gray-400 hover:text-yellow-300"
+                        : "border border-yellow-500/30 bg-gray-950 text-gray-400 hover:text-yellow-300"
                     }`}
                   >
                     {option.label}
@@ -731,14 +733,14 @@ const commentsService = selectedApi?.services.find(
                   min={1}
                   max={96}
                   placeholder="Hours"
-                  className="mt-1 w-20 rounded-lg border border-yellow-500/20 bg-black px-2 py-1 text-xs text-white focus:border-yellow-500/50 focus:outline-none"
+                  className="mt-1 w-20 rounded-lg border border-yellow-500/30 bg-gray-950 px-2 py-1 text-xs text-white focus:border-yellow-500/50 focus:outline-none"
                 />
               )}
             </div>
 
             {/* Row 3: Engagement Toggles + Peak Hours */}
             <div className="flex flex-wrap items-center gap-2">
-              <label className="text-[10px] text-gray-500">Engagement:</label>
+             <label className="text-[10px] text-gray-300 font-semibold">Engagement:</label>
               
               <button
                 type="button"
@@ -804,7 +806,7 @@ const commentsService = selectedApi?.services.find(
             </div>
           </div>
 <div className="mt-2">
-  <label className="text-[10px] text-gray-500 mb-1 block">
+  <label className="text-[10px] text-gray-300 mb-1 block font-medium">
     💬 Custom Comments (one per line)
   </label>
   <textarea
@@ -812,7 +814,7 @@ const commentsService = selectedApi?.services.find(
     onChange={(e) => setCustomComments(e.target.value)}
     rows={3}
     placeholder={"Nice post!\n🔥🔥\nAmazing"}
-    className="w-full rounded-lg border border-yellow-500/20 bg-black px-2 py-1.5 text-xs text-white"
+    className="w-full rounded-lg border border-yellow-500/30 bg-gray-950 px-2 py-1.5 text-xs text-white"
   />
 </div>
           {/* Price Calculator - Compact Horizontal */}
@@ -877,8 +879,8 @@ const commentsService = selectedApi?.services.find(
                 </div>
                 
                 {/* Total */}
-                <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 px-2 py-1">
-                  <span className="text-sm font-bold text-yellow-400">
+                                <div className="rounded-md border border-yellow-400/60 bg-yellow-500/20 px-3 py-1.5 shadow-sm shadow-yellow-500/10">
+                  <span className="text-sm font-bold text-yellow-200">
                     ₹{(() => {
                       const selectedBundle = bundles.find(b => b.id === selectedBundleId);
                       const selectedApi = apis.find(a => a.id === selectedApiId);
@@ -954,8 +956,8 @@ return (viewsPrice + likesPrice + sharesPrice + savesPrice + commentsPrice).toFi
           <div className="flex items-center gap-2 min-w-0 flex-1">
             {createError && <span className="text-[10px] text-red-400">❌ {createError}</span>}
             {createSuccess && <span className="text-[10px] text-emerald-400">✅ {createSuccess}</span>}
-            {!createError && !createSuccess && deployCountdown === null && (
-              <span className="text-[10px] text-gray-500">
+                       {!createError && !createSuccess && deployCountdown === null && (
+              <span className="text-[10px] text-gray-300 font-medium">
                 Ready to deploy • {estimatedRunCount} runs • ~{averageViewsPerRun} views/run
               </span>
             )}
