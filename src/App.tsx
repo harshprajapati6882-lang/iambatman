@@ -599,8 +599,9 @@ export default function App() {
 
         if (activePage === "notifications") {
       return (
-        <NotificationsPage
+                <NotificationsPage
           onUnreadCountChange={(count) => setNotifUnreadCount(count)}
+          onNavigateToOrders={() => navigateToPage("orders")}
         />
       );
     }
