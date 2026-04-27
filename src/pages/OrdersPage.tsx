@@ -85,10 +85,16 @@ function getRealStatus(order: CreatedOrder): string {
     if (allFuture) return "scheduled";
   }
 
-  const rs = order.runStatuses || [];
+    const rs = order.runStatuses || [];
   if (rs.length > 0) {
     if (rs.every(s => s === "completed")) return "completed";
     if (rs.every(s => s === "cancelled")) return "cancelled";
+    // 🔥 FIX: If all runs are done (mix of completed + cancelled/failed)
+    // and at least some completed → treat as completed, not running
+    const allDone = rs.every(s => s === "completed" || s === "cancelled");
+    if (allDone && rs.some(s => s === "completed")) return "completed";
+    // If all done but none completed → cancelled
+    if (allDone) return "cancelled";
   }
 
   if (order.status === "processing" || order.status === "pending") return "running";
@@ -100,6 +106,10 @@ function getGroupStatusStable(group: GroupedOrder): string {
   if (statuses.every(s => s === "cancelled" || s === "failed")) return "cancelled";
   if (statuses.every(s => s === "completed")) return "completed";
   if (statuses.every(s => s === "scheduled")) return "scheduled";
+  // 🔥 FIX: If all orders are done (mix of completed + cancelled)
+  // and at least some completed → treat whole group as completed
+  const allDone = statuses.every(s => s === "completed" || s === "cancelled" || s === "failed");
+  if (allDone && statuses.some(s => s === "completed")) return "completed";
   if (statuses.some(s => s === "failed")) return "failed";
   if (statuses.some(s => s === "paused")) return "paused";
   if (statuses.some(s => s === "running")) return "running";
@@ -662,14 +672,29 @@ export function OrdersPage({
               </div>
             )}
             
-            {!isCancelled && (
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button onClick={() => { const c = group.orders.filter(o => getRealStatus(o) === 'running').length; if (c > 0 && window.confirm(`Pause ALL ${c} running orders?`)) { group.orders.forEach((o) => { if (getRealStatus(o) === 'running') onControlOrder(o, 'pause'); }); } }} className="flex items-center gap-1 rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-1.5 text-xs font-medium text-orange-300 hover:bg-orange-500/20 transition">⏸️ Pause All Running</button>
-                <button onClick={() => { const c = group.orders.filter(o => getRealStatus(o) === 'paused').length; if (c > 0 && window.confirm(`Resume ALL ${c} paused orders?`)) { group.orders.forEach((o) => { if (getRealStatus(o) === 'paused') onControlOrder(o, 'resume'); }); } }} className="flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 transition">▶️ Resume All Paused</button>
-                <button onClick={() => { const c = group.orders.filter(o => !['completed','cancelled','failed'].includes(getRealStatus(o))).length; if (c > 0 && window.confirm(`⚠️ Cancel ALL ${c} active orders?\n\nThis cannot be undone!`)) { group.orders.forEach((o) => { const st = getRealStatus(o); if (st !== 'completed' && st !== 'cancelled' && st !== 'failed') onControlOrder(o, 'cancel'); }); } }} className="flex items-center gap-1 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-500/20 transition">❌ Cancel All Active</button>
-              </div>
-            )}
-          </div>
+                        <div className="mt-4 flex flex-wrap gap-2">
+              {/* 🔥 Clone Bulk Order — always available */}
+              <button
+                onClick={() => {
+                  setOpenedGroupId(null);
+                  // Clone the first order as template (all links have same pattern)
+                  if (group.orders[0]) {
+                    onCloneOrder(group.orders[0]);
+                  }
+                }}
+                className="flex items-center gap-1 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-xs font-medium text-yellow-300 hover:bg-yellow-500/20 transition"
+              >
+                📋 Clone This Bulk Order
+              </button>
+
+              {!isCancelled && (
+                <>
+                  <button onClick={() => { const c = group.orders.filter(o => getRealStatus(o) === 'running').length; if (c > 0 && window.confirm(`Pause ALL ${c} running orders?`)) { group.orders.forEach((o) => { if (getRealStatus(o) === 'running') onControlOrder(o, 'pause'); }); } }} className="flex items-center gap-1 rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-1.5 text-xs font-medium text-orange-300 hover:bg-orange-500/20 transition">⏸️ Pause All Running</button>
+                  <button onClick={() => { const c = group.orders.filter(o => getRealStatus(o) === 'paused').length; if (c > 0 && window.confirm(`Resume ALL ${c} paused orders?`)) { group.orders.forEach((o) => { if (getRealStatus(o) === 'paused') onControlOrder(o, 'resume'); }); } }} className="flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20 transition">▶️ Resume All Paused</button>
+                  <button onClick={() => { const c = group.orders.filter(o => !['completed','cancelled','failed'].includes(getRealStatus(o))).length; if (c > 0 && window.confirm(`⚠️ Cancel ALL ${c} active orders?\n\nThis cannot be undone!`)) { group.orders.forEach((o) => { const st = getRealStatus(o); if (st !== 'completed' && st !== 'cancelled' && st !== 'failed') onControlOrder(o, 'cancel'); }); } }} className="flex items-center gap-1 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-500/20 transition">❌ Cancel All Active</button>
+                </>
+              )}
+            </div>          </div>
           <div className="flex-1 overflow-y-auto p-5">
             <h4 className="text-sm font-semibold text-gray-400 mb-3">📋 Individual Links ({group.orders.length}) - Click "View Runs" to see run schedule</h4>
             <div className="space-y-3">{group.orders.map((order, index) => (<IndividualLinkCard key={order.id} order={order} index={index} />))}</div>
