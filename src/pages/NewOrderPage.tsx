@@ -1118,12 +1118,13 @@ const commentsRuns = (safePlan?.runs || []).map((run) => {
                     services: servicesPayload,
                   });
 
-                  const order: CreatedOrder = {
+                                   const order: CreatedOrder = {
                     id: createOrderId(),
                     name: orderName.trim() || `Mission #${createOrderId()}`,
                     batchId,
                     batchIndex: index + 1,
                     batchTotal: targets.length,
+                    batchLinks: targets.length > 1 ? targets : undefined,
                     schedulerOrderId: result.schedulerOrderId,
                     smmOrderId: result.orderId ?? "Scheduled",
                     link: trimmedUrl,
