@@ -12,6 +12,8 @@ export function DashboardPage({ orders, onDeleteOrder }: DashboardPageProps) {
     const [period, setPeriod] = useState<TimePeriod>("all");
   const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [memory, setMemory] = useState<{ usedMB: number; totalMB: number; usagePercent: number; heapUsedMB: number; status: string } | null>(null);
+    const [duplicateData, setDuplicateData] = useState<{ hasDuplicates: boolean; duplicatesFound: number; duplicates: any[] } | null>(null);
+  const [duplicateLoading, setDuplicateLoading] = useState(false);
   const [dbStats, setDbStats] = useState<{ totalUsedMB: number; totalLimitMB: number; usagePercent: number; status: string; collections: { runs: number; orders: number; notifications: number } } | null>(null);
 
     useEffect(() => {
@@ -33,12 +35,24 @@ export function DashboardPage({ orders, onDeleteOrder }: DashboardPageProps) {
       } catch {}
     };
 
-    fetchMemory();
+          const fetchDuplicates = async () => {
+      setDuplicateLoading(true);
+      try {
+        const res = await fetch(`${BACKEND_BASE_URL}/api/check-duplicates`);
+        const data = await res.json();
+        setDuplicateData(data);
+      } catch {}
+      setDuplicateLoading(false);
+    };
+
+        fetchMemory();
     fetchDbStats();
+    fetchDuplicates();
     const interval = setInterval(() => {
       fetchMemory();
       fetchDbStats();
-    }, 30000);
+      fetchDuplicates();
+    }, 60000);
     return () => clearInterval(interval);
   }, []);
   // 🦇 FIX: Same logic as OrdersPage to determine REAL status
@@ -534,6 +548,61 @@ export function DashboardPage({ orders, onDeleteOrder }: DashboardPageProps) {
           </div>
         )}
       </div>
+
+            {/* 🔥 Duplicate Detection Alert */}
+      {duplicateData && duplicateData.hasDuplicates && (
+        <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">⚠️</span>
+              <h3 className="text-sm font-semibold text-red-400">Duplicate Runs Detected!</h3>
+              <span className="rounded-full bg-red-500/30 px-2 py-0.5 text-[10px] font-bold text-red-200">
+                {duplicateData.duplicatesFound} found
+              </span>
+            </div>
+          </div>
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {duplicateData.duplicates.map((dup: any, index: number) => (
+              <div key={index} className="rounded-lg border border-red-500/20 bg-black/50 px-3 py-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] font-semibold text-red-300">
+                    {dup.type === 'over_completed' && `${dup.label}: ${dup.actualCompleted} completed but only ${dup.expectedRuns} expected`}
+                    {dup.type === 'duplicate_smm_id' && `${dup.label}: Same SMM Order ID placed twice`}
+                    {dup.type === 'rapid_double_execution' && `${dup.label}: Two orders placed ${dup.timeBetweenMin} min apart`}
+                  </span>
+                </div>
+                <p className="text-[9px] text-gray-500 mt-1 truncate">
+                  {dup.orderName} · {dup.link ? dup.link.slice(0, 50) : dup.schedulerOrderId}
+                </p>
+                {dup.type === 'rapid_double_execution' && dup.run1 && dup.run2 && (
+                  <p className="text-[9px] text-red-400 mt-0.5">
+                    SMM #{dup.run1.smmOrderId} (qty:{dup.run1.quantity}) → SMM #{dup.run2.smmOrderId} (qty:{dup.run2.quantity}) — {dup.timeBetweenMin} min gap
+                  </p>
+                )}
+                {dup.type === 'duplicate_smm_id' && dup.duplicatedSmmOrderIds && (
+                  <p className="text-[9px] text-red-400 mt-0.5">
+                    Duplicated: {dup.duplicatedSmmOrderIds.map((id: number) => `#${id}`).join(', ')}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-[9px] text-red-400/60">
+            Scanned {duplicateData.scannedOrders} orders · Updates every 60s
+          </p>
+        </div>
+      )}
+
+      {/* 🔥 No Duplicates — small green indicator */}
+      {duplicateData && !duplicateData.hasDuplicates && (
+        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-4 py-2 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-sm">✅</span>
+            <span className="text-xs text-emerald-400">No duplicate runs detected</span>
+          </div>
+          <span className="text-[9px] text-gray-600">{duplicateData.scannedOrders} orders scanned</span>
+        </div>
+      )}
       {/* 🔥 Server Memory Usage */}
       {memory && (
         <div className="rounded-xl border border-yellow-500/20 bg-gradient-to-br from-gray-900 to-black p-5">
