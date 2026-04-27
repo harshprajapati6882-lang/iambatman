@@ -193,8 +193,12 @@ export function OrdersPage({
   const [query, setQuery] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("rows");
   const [activeTab, setActiveTab] = useState<TabType>("running");
-  const [openedGroupId, setOpenedGroupId] = useState<string | null>(null);
+    const [openedGroupId, setOpenedGroupId] = useState<string | null>(null);
   const openedGroupIdRef = useRef<string | null>(null);
+  const [showBulkCancel, setShowBulkCancel] = useState(false);
+  const [bulkCancelLinks, setBulkCancelLinks] = useState("");
+  const [bulkCancelResults, setBulkCancelResults] = useState<Array<{ link: string; found: boolean; orderName?: string; cancelled?: boolean; error?: string }> | null>(null);
+  const [bulkCancelBusy, setBulkCancelBusy] = useState(false);
 
   useEffect(() => {
     openedGroupIdRef.current = openedGroupId;
@@ -273,7 +277,50 @@ export function OrdersPage({
     const stillExists = groupedOrders.some((group) => group.id === openedGroupId);
     if (!stillExists) setOpenedGroupId(null);
   }, [groupedOrders, openedGroupId]);
+  const handleBulkCancel = async () => {
+    const links = bulkCancelLinks.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (!links.length) return;
 
+    setBulkCancelBusy(true);
+    setBulkCancelResults(null);
+
+    const normalize = (url: string) => url.replace(/\/+$/, "").toLowerCase().replace(/^https?:\/\/(www\.)?/, "https://");
+    const normalizedTargets = links.map(l => normalize(l));
+
+    const results: Array<{ link: string; found: boolean; orderName?: string; cancelled?: boolean; error?: string }> = [];
+
+    for (const rawLink of links) {
+      const normalized = normalize(rawLink);
+      const matchingOrders = orders.filter(o => normalize(o.link) === normalized);
+
+      if (matchingOrders.length === 0) {
+        results.push({ link: rawLink, found: false });
+        continue;
+      }
+
+      for (const order of matchingOrders) {
+        const status = getRealStatus(order);
+        if (status === "cancelled" || status === "failed" || status === "completed") {
+          results.push({ link: rawLink, found: true, orderName: order.name, cancelled: false, error: `Already ${status}` });
+          continue;
+        }
+
+        try {
+          await new Promise<void>((resolve) => {
+            onControlOrder(order, "cancel");
+            // Small delay to let the state update
+            setTimeout(resolve, 300);
+          });
+          results.push({ link: rawLink, found: true, orderName: order.name, cancelled: true });
+        } catch (error) {
+          results.push({ link: rawLink, found: true, orderName: order.name, cancelled: false, error: "Failed to cancel" });
+        }
+      }
+    }
+
+    setBulkCancelResults(results);
+    setBulkCancelBusy(false);
+  };
   function toShortLink(link: string) {
     if (!link) return "-";
     return link.length > 48 ? `${link.slice(0, 30)}...${link.slice(-12)}` : link;
@@ -907,9 +954,18 @@ export function OrdersPage({
           </div>
           <p className="mt-1 text-sm text-gray-600">Track and manage all your operations</p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-gray-600">
-          <span className="inline-flex h-2 w-2 rounded-full bg-yellow-400 animate-pulse" />
-          <span>Live monitoring</span>
+                <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => { setShowBulkCancel(true); setBulkCancelResults(null); setBulkCancelLinks(""); }}
+            className="flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-500/20 transition"
+          >
+            🗑️ Bulk Cancel
+          </button>
+          <div className="flex items-center gap-2 text-xs text-gray-600">
+            <span className="inline-flex h-2 w-2 rounded-full bg-yellow-400 animate-pulse" />
+            <span>Live monitoring</span>
+          </div>
         </div>
       </div>
       <StatsSummary />
@@ -971,6 +1027,123 @@ export function OrdersPage({
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{filteredGroups.map((group) => (<GroupCardItem key={group.id} group={group} />))}</div>
       )}
+
+            {/* 🔥 Bulk Cancel Modal */}
+      <AnimatePresence>
+        {showBulkCancel && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm px-4 py-6"
+            onClick={() => setShowBulkCancel(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-xl rounded-2xl border border-red-500/30 bg-black p-5 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">🗑️</span>
+                  <h3 className="text-lg font-semibold text-red-400">Bulk Cancel by Link</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowBulkCancel(false)}
+                  className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700 transition"
+                >
+                  ✕ Close
+                </button>
+              </div>
+
+              <p className="text-[10px] text-gray-500 mb-3">
+                Paste Instagram links (one per line). All active orders matching these links will be cancelled.
+              </p>
+
+              <textarea
+                value={bulkCancelLinks}
+                onChange={(e) => setBulkCancelLinks(e.target.value)}
+                placeholder={"https://instagram.com/reel/abc123/\nhttps://instagram.com/reel/def456/\nhttps://instagram.com/reel/ghi789/"}
+                rows={6}
+                disabled={bulkCancelBusy}
+                className="w-full rounded-lg border border-red-500/30 bg-gray-950 px-3 py-2.5 text-xs text-white placeholder-gray-700 focus:border-red-500/50 focus:outline-none resize-none disabled:opacity-50 font-mono"
+              />
+
+              <div className="mt-3 flex items-center justify-between">
+                <span className="text-[10px] text-gray-600">
+                  {bulkCancelLinks.split(/\r?\n/).filter(l => l.trim()).length} links entered
+                </span>
+                <div className="flex items-center gap-2">
+                  {bulkCancelLinks.trim() && !bulkCancelBusy && (
+                    <button
+                      type="button"
+                      onClick={() => { setBulkCancelLinks(""); setBulkCancelResults(null); }}
+                      className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-700 transition"
+                    >
+                      Clear
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleBulkCancel}
+                    disabled={bulkCancelBusy || !bulkCancelLinks.trim()}
+                    className="rounded-lg border border-red-500/50 bg-red-500/20 px-4 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/30 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {bulkCancelBusy ? "⏳ Cancelling..." : "🗑️ Find & Cancel"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Results */}
+              {bulkCancelResults && (
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center gap-3 text-[10px]">
+                    <span className="text-emerald-400">✅ {bulkCancelResults.filter(r => r.cancelled).length} cancelled</span>
+                    <span className="text-yellow-400">⚠️ {bulkCancelResults.filter(r => r.found && !r.cancelled && r.error !== "Already completed").length} skipped</span>
+                    <span className="text-gray-500">❓ {bulkCancelResults.filter(r => !r.found).length} not found</span>
+                  </div>
+
+                  <div className="max-h-60 overflow-y-auto space-y-1.5">
+                    {bulkCancelResults.map((result, index) => (
+                      <div
+                        key={index}
+                        className={`rounded-lg border px-3 py-2 text-[10px] ${
+                          result.cancelled
+                            ? "border-emerald-500/20 bg-emerald-500/5"
+                            : !result.found
+                              ? "border-gray-700 bg-gray-900/50"
+                              : "border-yellow-500/20 bg-yellow-500/5"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`truncate flex-1 ${result.cancelled ? "text-emerald-300" : !result.found ? "text-gray-500" : "text-yellow-300"}`}>
+                            {result.link.length > 55 ? result.link.slice(0, 40) + "..." + result.link.slice(-12) : result.link}
+                          </span>
+                          <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[9px] font-medium ${
+                            result.cancelled
+                              ? "bg-emerald-500/20 text-emerald-300"
+                              : !result.found
+                                ? "bg-gray-700 text-gray-400"
+                                : "bg-yellow-500/20 text-yellow-300"
+                          }`}>
+                            {result.cancelled ? "✓ Cancelled" : !result.found ? "Not found" : result.error || "Skipped"}
+                          </span>
+                        </div>
+                        {result.orderName && (
+                          <p className="text-[9px] text-gray-600 mt-0.5">{result.orderName}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {openedGroup && (openedGroup.isBatch ? (<BatchDetailPopup group={openedGroup} />) : (<SingleOrderPopup order={openedGroup.orders[0]} />))}
       </AnimatePresence>
