@@ -673,13 +673,17 @@ export function OrdersPage({
             )}
             
                         <div className="mt-4 flex flex-wrap gap-2">
-              {/* 🔥 Clone Bulk Order — always available */}
+                           {/* 🔥 Clone Bulk Order — always available */}
               <button
                 onClick={() => {
                   setOpenedGroupId(null);
-                  // Clone the first order as template (all links have same pattern)
                   if (group.orders[0]) {
-                    onCloneOrder(group.orders[0]);
+                    // 🔥 FIX: Inject all batch links into the first order before cloning
+                    const orderWithAllLinks = {
+                      ...group.orders[0],
+                      batchLinks: group.orders.map(o => o.link),
+                    };
+                    onCloneOrder(orderWithAllLinks);
                   }
                 }}
                 className="flex items-center gap-1 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-xs font-medium text-yellow-300 hover:bg-yellow-500/20 transition"
