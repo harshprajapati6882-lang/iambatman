@@ -1120,6 +1120,4 @@ return (viewsPrice + likesPrice + sharesPrice + savesPrice + commentsPrice).toFi
       </div>
     </div>
   );
-}    </div>
-  );
 }
