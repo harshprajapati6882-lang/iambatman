@@ -67,9 +67,15 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
       }
     : null;
 
-  const [orderName, setOrderName] = useState(prefillOrder?.name && !prefillOrder.name.startsWith("Order #") ? prefillOrder.name : "");
-  const [postUrl, setPostUrl] = useState(prefillOrder?.link ?? "");
-  const [bulkLinks, setBulkLinks] = useState("");
+    const [orderName, setOrderName] = useState(prefillOrder?.name && !prefillOrder.name.startsWith("Order #") ? prefillOrder.name : "");
+  const [postUrl, setPostUrl] = useState(
+    prefillOrder?.batchLinks && prefillOrder.batchLinks.length > 1 ? "" : (prefillOrder?.link ?? "")
+  );
+  const [bulkLinks, setBulkLinks] = useState(
+    prefillOrder?.batchLinks && prefillOrder.batchLinks.length > 1
+      ? prefillOrder.batchLinks.join("\n")
+      : ""
+  );
   const [totalViews, setTotalViews] = useState(prefillOrder?.totalViews ?? 50000);
   const [selectedApiId, setSelectedApiId] = useState(prefillApiId);
   const [selectedBundleId, setSelectedBundleId] = useState(prefillBundleId);
