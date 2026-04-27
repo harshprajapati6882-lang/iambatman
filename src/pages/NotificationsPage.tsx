@@ -54,26 +54,58 @@ const TYPE_ICONS: Record<string, string> = {
 type FilterType = "all" | "critical" | "warning" | "info";
 
 // Cache for order info
-const orderInfoCache = new Map<string, { name: string; link: string }>();
+const orderInfoCache = new Map<string, { name: string; link: string; batchIndex?: number; batchTotal?: number }>();
 
-async function fetchOrderInfo(schedulerOrderId: string): Promise<{ name: string; link: string }> {
+async function fetchOrderInfo(schedulerOrderId: string): Promise<{ name: string; link: string; batchIndex?: number; batchTotal?: number }> {
   if (orderInfoCache.has(schedulerOrderId)) {
     return orderInfoCache.get(schedulerOrderId)!;
   }
+
   try {
-    const BACKEND_BASE_URL = (import.meta.env.VITE_BACKEND_URL as string | undefined)?.trim() || "https://backend-new-6tzb.onrender.com";
+    const BACKEND_BASE_URL =
+      (import.meta.env.VITE_BACKEND_URL as string | undefined)?.trim() ||
+      "https://backend-new-6tzb.onrender.com";
+
     const response = await fetch(`${BACKEND_BASE_URL}/api/order/status/${schedulerOrderId}`);
+
+    let backendName = schedulerOrderId.slice(0, 20);
+    let backendLink = "";
+
     if (response.ok) {
       const data = await response.json();
-      const info = {
-        name: data.name || schedulerOrderId.slice(0, 20),
-        link: data.link || "",
-      };
-      orderInfoCache.set(schedulerOrderId, info);
-      return info;
+      backendName = data.name || backendName;
+      backendLink = data.link || "";
     }
-  } catch {}
-  return { name: schedulerOrderId.slice(0, 20), link: "" };
+
+    // 🔥 Read local order meta so bulk serial can be shown
+    let batchIndex: number | undefined = undefined;
+    let batchTotal: number | undefined = undefined;
+
+    try {
+      const raw = localStorage.getItem("dev-smm-orders");
+      const localOrders = raw ? JSON.parse(raw) : [];
+      const matched = Array.isArray(localOrders)
+        ? localOrders.find((o: any) => o.schedulerOrderId === schedulerOrderId)
+        : null;
+
+      if (matched) {
+        if (typeof matched.batchIndex === "number") batchIndex = matched.batchIndex;
+        if (typeof matched.batchTotal === "number") batchTotal = matched.batchTotal;
+      }
+    } catch {}
+
+    const info = {
+      name: backendName,
+      link: backendLink,
+      batchIndex,
+      batchTotal,
+    };
+
+    orderInfoCache.set(schedulerOrderId, info);
+    return info;
+  } catch {
+    return { name: schedulerOrderId.slice(0, 20), link: "" };
+  }
 }
 
 // Group notifications by schedulerOrderId
@@ -102,7 +134,7 @@ export function NotificationsPage({ onUnreadCountChange, onNavigateToOrders }: N
   const [filter, setFilter] = useState<FilterType>("all");
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [orderInfos, setOrderInfos] = useState<Record<string, { name: string; link: string }>>({});
+    const [orderInfos, setOrderInfos] = useState<Record<string, { name: string; link: string; batchIndex?: number; batchTotal?: number }>>({});
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const loadNotifications = async () => {
@@ -120,7 +152,7 @@ export function NotificationsPage({ onUnreadCountChange, onNavigateToOrders }: N
           .map(n => n.schedulerOrderId!)
       )];
 
-      const infoMap: Record<string, { name: string; link: string }> = {};
+            const infoMap: Record<string, { name: string; link: string; batchIndex?: number; batchTotal?: number }> = {};
       await Promise.all(
         uniqueIds.map(async (id) => {
           infoMap[id] = await fetchOrderInfo(id);
@@ -260,10 +292,17 @@ export function NotificationsPage({ onUnreadCountChange, onNavigateToOrders }: N
         >
           <span className="text-sm flex-shrink-0">{config.icon}</span>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-wrap">
               <span className={`text-xs font-semibold ${config.title} truncate`}>
                 {info?.name || schedulerOrderId.slice(0, 25)}
               </span>
+
+              {typeof info?.batchIndex === "number" && typeof info?.batchTotal === "number" && info.batchTotal > 1 && (
+                <span className="rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[9px] font-medium text-blue-300">
+                  Link #{info.batchIndex}/{info.batchTotal}
+                </span>
+              )}
+
               {unreadInGroup > 0 && (
                 <span className="rounded-full bg-red-500/30 px-1.5 py-0.5 text-[9px] font-bold text-red-300">
                   {unreadInGroup} new
@@ -273,8 +312,13 @@ export function NotificationsPage({ onUnreadCountChange, onNavigateToOrders }: N
                 {notifs.length} alerts
               </span>
             </div>
-            {info?.link && (
-              <p className="text-[9px] text-gray-600 truncate mt-0.5">{info.link}</p>
+                        {info?.link && (
+              <p className="text-[9px] text-gray-600 truncate mt-0.5">
+                {typeof info?.batchIndex === "number" && typeof info?.batchTotal === "number" && info.batchTotal > 1
+                  ? `#${info.batchIndex}/${info.batchTotal} · `
+                  : ""}
+                {info.link}
+              </p>
             )}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
