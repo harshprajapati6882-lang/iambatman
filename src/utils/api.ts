@@ -575,3 +575,31 @@ export async function clearAllNotifications(): Promise<void> {
   const endpoint = `${BACKEND_BASE_URL.replace(/\/$/, "")}/api/notifications/clear`;
   await fetch(endpoint, { method: "DELETE" });
 }
+
+// 🔥 DUPLICATE DETECTION
+export interface DuplicateInfo {
+  schedulerOrderId: string;
+  orderName: string;
+  link: string;
+  label: string;
+  type: "over_completed" | "duplicate_smm_id" | "rapid_double_execution";
+  expectedRuns?: number;
+  actualCompleted?: number;
+  duplicatedSmmOrderIds?: number[];
+  timeBetweenMin?: number;
+  smmOrders?: Array<{ smmOrderId: number; quantity: number; executedAt: string }>;
+  run1?: { smmOrderId: number; quantity: number; executedAt: string };
+  run2?: { smmOrderId: number; quantity: number; executedAt: string };
+}
+
+export async function checkDuplicates(): Promise<{
+  scannedOrders: number;
+  duplicatesFound: number;
+  hasDuplicates: boolean;
+  duplicates: DuplicateInfo[];
+}> {
+  const endpoint = `${BACKEND_BASE_URL.replace(/\/$/, "")}/api/check-duplicates`;
+  const response = await fetch(endpoint);
+  if (!response.ok) throw new Error(`Failed to check duplicates (HTTP ${response.status})`);
+  return await response.json();
+}
