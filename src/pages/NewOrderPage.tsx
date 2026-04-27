@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { GrowthGraph } from "../components/GrowthGraph";
 import { PatternGenerator } from "../components/PatternGenerator";
@@ -96,7 +96,10 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
   const [expandedRuns, setExpandedRuns] = useState(false);
   const [createError, setCreateError] = useState("");
   const [createSuccess, setCreateSuccess] = useState("");
-  const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+    const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+  const [deployCountdown, setDeployCountdown] = useState<number | null>(null);
+  const [deployReady, setDeployReady] = useState(false);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 🔥 NEW: Minimum views per run state
   const [minViewsPerRun, setMinViewsPerRun] = useState(100);
@@ -263,7 +266,39 @@ const commentsService = selectedApi?.services.find(
     setSeed((current) => current + 1);
     setExpandedRuns(true);
   };
+  const handleDeployClick = () => {
+    // If already in countdown, do nothing (wait for confirm button)
+    if (deployCountdown !== null) return;
 
+    // Start 15 second countdown
+    setDeployCountdown(15);
+    setDeployReady(false);
+
+    let remaining = 15;
+    countdownRef.current = setInterval(() => {
+      remaining -= 1;
+      setDeployCountdown(remaining);
+
+      // After 3 seconds, allow early deploy
+      if (remaining <= 12) {
+        setDeployReady(true);
+      }
+
+      if (remaining <= 0) {
+        if (countdownRef.current) clearInterval(countdownRef.current);
+        setDeployCountdown(null);
+        setDeployReady(false);
+      }
+    }, 1000);
+  };
+
+  const handleCancelDeploy = () => {
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    setDeployCountdown(null);
+    setDeployReady(false);
+    setCreateError("");
+    setCreateSuccess("");
+  };
   const handleGenerate = () => {
     setUseClonedPlan(false);
     setSeed((current) => current + 1);
@@ -882,331 +917,209 @@ return (viewsPrice + likesPrice + sharesPrice + savesPrice + commentsPrice).toFi
         </div>
       </div>
 
-      {/* Deploy Button - Full Width Bottom */}
-      <div className="flex items-center justify-between rounded-lg border border-yellow-500/20 bg-gradient-to-br from-gray-900 to-black px-3 py-2">
-        <div className="flex items-center gap-2">
-          {createError && <span className="text-[10px] text-red-400">❌ {createError}</span>}
-          {createSuccess && <span className="text-[10px] text-emerald-400">✅ {createSuccess}</span>}
-          {!createError && !createSuccess && (
-            <span className="text-[10px] text-gray-500">
-              Ready to deploy • {estimatedRunCount} runs • ~{averageViewsPerRun} views/run
-            </span>
-          )}
-        </div>
-        <button
-          type="button"
-          disabled={isCreatingOrder}
-          onClick={async () => {
-            console.log("CLICKED BUTTON");
-            setCreateError("");
-            setCreateSuccess("");
-            if (!selectedBundleId) {
-              setCreateError("Select a bundle before creating a mission.");
-              return;
-            }
-            const bulkTargets = bulkLinks
-              .split(/\r?\n/)
-              .map((line) => line.trim())
-              .filter(Boolean);
-            const singleTarget = postUrl.trim();
-            const targets = bulkTargets.length > 0 ? bulkTargets : singleTarget ? [singleTarget] : [];
-            if (!targets.length) {
-              setCreateError("Add a post URL or paste multiple links.");
-              return;
-            }
-            const invalidTarget = targets.find((target) => !isValidUrl(target));
-            if (invalidTarget) {
-              setCreateError(`Invalid URL: ${invalidTarget.slice(0, 30)}...`);
-              return;
-            }
+            {/* Deploy Button - Full Width Bottom */}
+      <div className="rounded-lg border border-yellow-500/20 bg-gradient-to-br from-gray-900 to-black px-3 py-2 space-y-2">
 
-            const selectedApi = apis.find((api) => api.id === selectedApiId) ?? null;
-            if (!selectedApi) {
-              setCreateError("Select an API.");
-              return;
-            }
-            if (!selectedApi.url.trim()) {
-              setCreateError("API URL is required.");
-              return;
-            }
-            if (!isValidUrl(selectedApi.url.trim())) {
-              setCreateError("API URL must be valid.");
-              return;
-            }
-            if (!selectedApi.key.trim()) {
-              setCreateError("API key is required.");
-              return;
-            }
+        {/* Countdown bar — shown only during countdown */}
+        {deployCountdown !== null && (
+          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 px-3 py-2">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] text-yellow-400 font-medium">
+                ⏳ Deploying in {deployCountdown}s...
+                {deployReady && (
+                  <span className="ml-2 text-emerald-400">✓ You can deploy now</span>
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={handleCancelDeploy}
+                className="rounded-md border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[10px] text-red-300 hover:bg-red-500/20 transition"
+              >
+                🚫 Cancel Deploy
+              </button>
+            </div>
+            {/* Progress bar — drains from full to empty */}
+            <div className="h-1 w-full rounded-full bg-gray-800 overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-1000 ease-linear bg-yellow-500"
+                style={{ width: `${(deployCountdown / 15) * 100}%` }}
+              />
+            </div>
+          </div>
+        )}
 
-            const selectedBundle = bundles.find((bundle) => bundle.id === selectedBundleId);
-            if (!selectedBundle) {
-              setCreateError("Select a valid bundle.");
-              return;
-            }
-            const viewsServiceId = selectedBundle.serviceIds.views.trim();
-            if (!viewsServiceId) {
-              setCreateError("Bundle has no Views service.");
-              return;
-            }
-            const likesServiceId = selectedBundle.serviceIds.likes.trim();
-            const sharesServiceId = selectedBundle.serviceIds.shares.trim();
-            const savesServiceId = selectedBundle.serviceIds.saves.trim();
-            if (includeLikes && !likesServiceId) {
-              setCreateError("Bundle has no Likes service.");
-              return;
-            }
-            if (includeShares && !sharesServiceId) {
-              setCreateError("Bundle has no Shares service.");
-              return;
-            }
-            if (includeSaves && !savesServiceId) {
-              setCreateError("Bundle has no Saves service.");
-              return;
-            }
-            const commentsServiceId = selectedBundle.serviceIds.comments?.trim();
-            if (includeComments && !commentsServiceId) {
-  setCreateError("Bundle has no Comments service.");
-  return;
-}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            {createError && <span className="text-[10px] text-red-400">❌ {createError}</span>}
+            {createSuccess && <span className="text-[10px] text-emerald-400">✅ {createSuccess}</span>}
+            {!createError && !createSuccess && deployCountdown === null && (
+              <span className="text-[10px] text-gray-500">
+                Ready to deploy • {estimatedRunCount} runs • ~{averageViewsPerRun} views/run
+              </span>
+            )}
+            {deployCountdown !== null && !deployReady && (
+              <span className="text-[10px] text-gray-500">
+                Check details one more time before it deploys...
+              </span>
+            )}
+            {deployCountdown !== null && deployReady && (
+              <span className="text-[10px] text-yellow-400">
+                Click Deploy Now to send immediately
+              </span>
+            )}
+          </div>
 
-            const quantity = (safePlan?.runs || []).reduce((acc, run) => acc + run.views, 0);
-            if (!Number.isFinite(quantity) || quantity <= 0) {
-              setCreateError("Quantity must be > 0.");
-              return;
-            }
-            if (quantity < minViewsPerRun) {
-              setCreateError(`Views must be at least ${minViewsPerRun}.`);
-              return;
-            }
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Main deploy button — changes based on state */}
+            {deployCountdown === null ? (
+              // Initial state: click to start countdown
+              <button
+                type="button"
+                disabled={isCreatingOrder}
+                onClick={handleDeployClick}
+                className="whitespace-nowrap rounded-lg border border-yellow-500/50 bg-yellow-500/20 px-4 py-1.5 text-xs font-semibold text-yellow-300 transition hover:bg-yellow-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isCreatingOrder ? "Deploying..." : "🦇 Deploy"}
+              </button>
+            ) : (
+              // Countdown active: show Deploy Now button (enabled after 3 sec)
+              <button
+                type="button"
+                disabled={!deployReady || isCreatingOrder}
+                onClick={async () => {
+                  // Stop countdown
+                  if (countdownRef.current) clearInterval(countdownRef.current);
+                  setDeployCountdown(null);
+                  setDeployReady(false);
 
-            const totalLikes = (safePlan?.runs || []).reduce((acc, run) => acc + run.likes, 0);
-            const totalShares = (safePlan?.runs || []).reduce((acc, run) => acc + run.shares, 0);
-            const totalSaves = (safePlan?.runs || []).reduce((acc, run) => acc + run.saves, 0);
-            const totalCommentsQty = (safePlan?.runs || []).reduce(
-  (acc, run) => acc + (run.comments || 0),
-  0
-);
-
-            if (includeLikes && totalLikes < 10) {
-              setCreateError("Likes must be at least 10.");
-              return;
-            }
-                        if (includeShares && totalShares < 10) {
-              setCreateError("Shares must be at least 10.");
-              return;
-            }
-            if (includeSaves && totalSaves < 10) {
-              setCreateError("Saves must be at least 10.");
-              return;
-            }
-            if (includeComments && totalCommentsQty <= 0) {
-  setCreateError("Comments must be greater than 0.");
-  return;
-}
-
-            if (quantity > 100000) {
-              const proceed = window.confirm("Large mission. Continue?");
-              if (!proceed) return;
-            }
-
-            const viewRuns = (safePlan?.runs || []).map((run) => ({
-              time: run.at.toISOString(),
-              quantity: Math.max(Math.floor(run.views), minViewsPerRun),
-            }));
-            if (!viewRuns.length || viewRuns.some((run) => !run.time || !Number.isFinite(run.quantity) || run.quantity <= 0)) {
-              setCreateError("Invalid run schedule. Regenerate.");
-              return;
-            }
-
-            const likesRuns = (safePlan?.runs || []).map((run) => ({
-              time: run.at.toISOString(),
-              quantity: Math.max(0, Math.floor(run.likes)),
-            }));
-            const sharesRuns = (safePlan?.runs || []).map((run) => ({
-              time: run.at.toISOString(),
-              quantity: Math.max(0, Math.floor(run.shares)),
-            }));
-            const savesRuns = (safePlan?.runs || []).map((run) => ({
-              time: run.at.toISOString(),
-              quantity: Math.max(0, Math.floor(run.saves)),
-            }));
-
-const commentList = customComments
-  .split("\n")
-  .map(c => c.trim())
-  .filter(Boolean);
-
-const commentsRuns = (safePlan?.runs || []).map((run) => {
-  const required = Math.floor(run.comments || 0);
-
-  if (required <= 0) {
-    return { time: run.at.toISOString(), comments: "" };
-  }
-
-  let finalComments = [];
-
-  if (commentList.length === 0) {
-    finalComments = ["Nice post"];
-  } else if (commentList.length >= required) {
-    finalComments = commentList.slice(0, required);
-  } else {
-    // duplicate
-    while (finalComments.length < required) {
-      finalComments.push(
-        commentList[finalComments.length % commentList.length]
-      );
-    }
-  }
-
-  return {
-    time: run.at.toISOString(),
-    comments: finalComments.join("\n"),
-  };
-});
-            const filteredCommentsRuns = commentsRuns.filter(run => run.comments && run.comments.length > 0);
-
-            const servicesPayload: {
-              views: { serviceId: string; runs: Array<{ time: string; quantity: number }> };
-              likes?: { serviceId: string; runs: Array<{ time: string; quantity: number }> };
-              shares?: { serviceId: string; runs: Array<{ time: string; quantity: number }> };
-              saves?: { serviceId: string; runs: Array<{ time: string; quantity: number }> };
-              comments?: { serviceId: string; runs: Array<{ time: string; comments: string }> };
-            } = {
-              views: { serviceId: viewsServiceId, runs: viewRuns },
-            };
-
-            if (includeLikes) servicesPayload.likes = { serviceId: likesServiceId, runs: likesRuns };
-            if (includeShares) servicesPayload.shares = { serviceId: sharesServiceId, runs: sharesRuns };
-            if (includeSaves) servicesPayload.saves = { serviceId: savesServiceId, runs: savesRuns };
-            if (includeComments && filteredCommentsRuns.length > 0) {
-  servicesPayload.comments = {
-    serviceId: commentsServiceId,
-    runs: filteredCommentsRuns,
-  };
-}
-            setIsCreatingOrder(true);
-            setCreateSuccess(`Processing ${targets.length} missions...`);
-            
-            const batchId = targets.length > 1 ? `batch-${Date.now()}` : undefined;
-            
-            try {
-              const activeLinks = new Set(
-                orders
-                  .filter((order) => {
-                    const now = Date.now();
-                    const runs = order.runs || [];
-                    if (!runs.length) return false;
-                    const allRunsCompleted = runs.every((run) => new Date(run.at).getTime() <= now);
-                    return !allRunsCompleted && order.status !== "cancelled";
-                  })
-                  .map((order) => order.link.replace(/\/+$/, "").toLowerCase())
-              );
-              const createdLinks = new Set<string>();
-              let successCount = 0;
-              let failedCount = 0;
-              let lastError = "";
-
-              for (let index = 0; index < targets.length; index += 1) {
-                const trimmedUrl = targets[index];
-                const normalizedTarget = trimmedUrl.replace(/\/+$/, "").toLowerCase();
-                if (activeLinks.has(normalizedTarget) || createdLinks.has(normalizedTarget)) {
-                  failedCount += 1;
-                  lastError = "Duplicate link.";
-                  continue;
-                }
-
-                try {
-                  const result = await createSmmOrder({
-                    name: orderName.trim() || undefined,
-                    apiUrl: selectedApi.url,
-                    apiKey: selectedApi.key,
-                    link: trimmedUrl,
-                    services: servicesPayload,
+                  // Run the actual deploy logic
+                  setCreateError("");
+                  setCreateSuccess("");
+                  if (!selectedBundleId) {
+                    setCreateError("Select a bundle before creating a mission.");
+                    return;
+                  }
+                  const bulkTargets = bulkLinks
+                    .split(/\r?\n/)
+                    .map((line) => line.trim())
+                    .filter(Boolean);
+                  const singleTarget = postUrl.trim();
+                  const targets = bulkTargets.length > 0 ? bulkTargets : singleTarget ? [singleTarget] : [];
+                  if (!targets.length) {
+                    setCreateError("Add a post URL or paste multiple links.");
+                    return;
+                  }
+                  const invalidTarget = targets.find((target) => !isValidUrl(target));
+                  if (invalidTarget) {
+                    setCreateError(`Invalid URL: ${invalidTarget.slice(0, 30)}...`);
+                    return;
+                  }
+                  const selectedApi = apis.find((api) => api.id === selectedApiId) ?? null;
+                  if (!selectedApi) { setCreateError("Select an API."); return; }
+                  if (!selectedApi.url.trim()) { setCreateError("API URL is required."); return; }
+                  if (!isValidUrl(selectedApi.url.trim())) { setCreateError("API URL must be valid."); return; }
+                  if (!selectedApi.key.trim()) { setCreateError("API key is required."); return; }
+                  const selectedBundle = bundles.find((bundle) => bundle.id === selectedBundleId);
+                  if (!selectedBundle) { setCreateError("Select a valid bundle."); return; }
+                  const viewsServiceId = selectedBundle.serviceIds.views.trim();
+                  if (!viewsServiceId) { setCreateError("Bundle has no Views service."); return; }
+                  const likesServiceId = selectedBundle.serviceIds.likes.trim();
+                  const sharesServiceId = selectedBundle.serviceIds.shares.trim();
+                  const savesServiceId = selectedBundle.serviceIds.saves.trim();
+                  if (includeLikes && !likesServiceId) { setCreateError("Bundle has no Likes service."); return; }
+                  if (includeShares && !sharesServiceId) { setCreateError("Bundle has no Shares service."); return; }
+                  if (includeSaves && !savesServiceId) { setCreateError("Bundle has no Saves service."); return; }
+                  const commentsServiceId = selectedBundle.serviceIds.comments?.trim();
+                  if (includeComments && !commentsServiceId) { setCreateError("Bundle has no Comments service."); return; }
+                  const quantity = (safePlan?.runs || []).reduce((acc, run) => acc + run.views, 0);
+                  if (!Number.isFinite(quantity) || quantity <= 0) { setCreateError("Quantity must be > 0."); return; }
+                  if (quantity < minViewsPerRun) { setCreateError(`Views must be at least ${minViewsPerRun}.`); return; }
+                  const totalLikes = (safePlan?.runs || []).reduce((acc, run) => acc + run.likes, 0);
+                  const totalShares = (safePlan?.runs || []).reduce((acc, run) => acc + run.shares, 0);
+                  const totalSaves = (safePlan?.runs || []).reduce((acc, run) => acc + run.saves, 0);
+                  const totalCommentsQty = (safePlan?.runs || []).reduce((acc, run) => acc + (run.comments || 0), 0);
+                  if (includeLikes && totalLikes < 10) { setCreateError("Likes must be at least 10."); return; }
+                  if (includeShares && totalShares < 10) { setCreateError("Shares must be at least 10."); return; }
+                  if (includeSaves && totalSaves < 10) { setCreateError("Saves must be at least 10."); return; }
+                  if (includeComments && totalCommentsQty <= 0) { setCreateError("Comments must be greater than 0."); return; }
+                  if (quantity > 100000) { const proceed = window.confirm("Large mission. Continue?"); if (!proceed) return; }
+                  const viewRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(Math.floor(run.views), minViewsPerRun) }));
+                  if (!viewRuns.length || viewRuns.some((run) => !run.time || !Number.isFinite(run.quantity) || run.quantity <= 0)) { setCreateError("Invalid run schedule. Regenerate."); return; }
+                  const likesRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(0, Math.floor(run.likes)) }));
+                  const sharesRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(0, Math.floor(run.shares)) }));
+                  const savesRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(0, Math.floor(run.saves)) }));
+                  const commentList = customComments.split("\n").map(c => c.trim()).filter(Boolean);
+                  const commentsRuns = (safePlan?.runs || []).map((run) => {
+                    const required = Math.floor(run.comments || 0);
+                    if (required <= 0) return { time: run.at.toISOString(), comments: "" };
+                    let finalComments: string[] = [];
+                    if (commentList.length === 0) { finalComments = ["Nice post"]; }
+                    else if (commentList.length >= required) { finalComments = commentList.slice(0, required); }
+                    else { while (finalComments.length < required) { finalComments.push(commentList[finalComments.length % commentList.length]); } }
+                    return { time: run.at.toISOString(), comments: finalComments.join("\n") };
                   });
-
-                                   const order: CreatedOrder = {
-                    id: createOrderId(),
-                    name: orderName.trim() || `Mission #${createOrderId()}`,
-                    batchId,
-                    batchIndex: index + 1,
-                    batchTotal: targets.length,
-                    batchLinks: targets.length > 1 ? targets : undefined,
-                    schedulerOrderId: result.schedulerOrderId,
-                    smmOrderId: result.orderId ?? "Scheduled",
-                    link: trimmedUrl,
-                    totalViews: quantity,
-                    startDelayHours,
-                    patternType: safePlan.patternType,
-                    patternName: safePlan.patternName,
-                    runs: safePlan?.runs || [],
-                    engagement: { likes: totalLikes, shares: totalShares, saves: totalSaves, comments: totalCommentsQty },
-                    serviceId: viewsServiceId,
-                    selectedAPI: selectedApi.name,
-                    selectedBundle: selectedBundle.name,
-                    status: result.status === "completed" ? "completed" : "running",
-                    completedRuns: typeof result.completedRuns === "number" ? result.completedRuns : 0,
-                    runStatuses: (safePlan?.runs || []).map(() => "pending"),
-                    createdAt: new Date().toISOString(),
-                    lastUpdatedAt: new Date().toISOString(),
-                  };
-
-                  onCreateOrder(order);
-                  createdLinks.add(normalizedTarget);
-                  successCount += 1;
-                } catch (error) {
-                  const message = error instanceof Error ? error.message : "Failed";
-                  const failedOrder: CreatedOrder = {
-                    id: createOrderId(),
-                    name: orderName.trim() || `Mission #${createOrderId()}`,
-                    batchId,
-                    batchIndex: index + 1,
-                    batchTotal: targets.length,
-                    smmOrderId: "N/A",
-                    link: trimmedUrl,
-                    totalViews: quantity,
-                    startDelayHours,
-                    patternType: safePlan.patternType,
-                    patternName: safePlan.patternName,
-                    runs: safePlan?.runs || [],
-                    engagement: { likes: totalLikes, shares: totalShares, saves: totalSaves, comments: totalCommentsQty },
-                    serviceId: viewsServiceId,
-                    selectedAPI: selectedApi.name,
-                    selectedBundle: selectedBundle.name,
-                    status: "failed",
-                    completedRuns: 0,
-                    runStatuses: (safePlan?.runs || []).map((_, i) => (i === 0 ? "cancelled" : "pending")),
-                    runErrors: (safePlan?.runs || []).map((_, i) => (i === 0 ? message : "")),
-                    errorMessage: message,
-                    createdAt: new Date().toISOString(),
-                    lastUpdatedAt: new Date().toISOString(),
-                  };
-                  onCreateOrder(failedOrder);
-                  failedCount += 1;
-                  lastError = message;
-                }
-              }
-
-              if (failedCount > 0 && successCount === 0) {
-                setCreateError(lastError || "Failed.");
-                setCreateSuccess("");
-                return;
-              }
-
-              const successLabel = targets.length > 1
-                ? `Done: ${successCount}/${targets.length}`
-                : "Mission Deployed ✅";
-              setCreateSuccess(successLabel);
-              if (failedCount > 0) setCreateError(`${failedCount} failed`);
-              onNavigateToOrders(successLabel);
-            } finally {
-              setIsCreatingOrder(false);
-            }
-          }}
-          className="whitespace-nowrap rounded-lg border border-yellow-500/50 bg-yellow-500/20 px-4 py-1.5 text-xs font-semibold text-yellow-300 transition hover:bg-yellow-500/30 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isCreatingOrder ? "Deploying..." : "🦇 Deploy"}
-        </button>
+                  const filteredCommentsRuns = commentsRuns.filter(run => run.comments && run.comments.length > 0);
+                  const servicesPayload: {
+                    views: { serviceId: string; runs: Array<{ time: string; quantity: number }> };
+                    likes?: { serviceId: string; runs: Array<{ time: string; quantity: number }> };
+                    shares?: { serviceId: string; runs: Array<{ time: string; quantity: number }> };
+                    saves?: { serviceId: string; runs: Array<{ time: string; quantity: number }> };
+                    comments?: { serviceId: string; runs: Array<{ time: string; comments: string }> };
+                  } = { views: { serviceId: viewsServiceId, runs: viewRuns } };
+                  if (includeLikes) servicesPayload.likes = { serviceId: likesServiceId, runs: likesRuns };
+                  if (includeShares) servicesPayload.shares = { serviceId: sharesServiceId, runs: sharesRuns };
+                  if (includeSaves) servicesPayload.saves = { serviceId: savesServiceId, runs: savesRuns };
+                  if (includeComments && filteredCommentsRuns.length > 0) { servicesPayload.comments = { serviceId: commentsServiceId!, runs: filteredCommentsRuns }; }
+                  setIsCreatingOrder(true);
+                  setCreateSuccess(`Processing ${targets.length} missions...`);
+                  const batchId = targets.length > 1 ? `batch-${Date.now()}` : undefined;
+                  try {
+                    const activeLinks = new Set(orders.filter((order) => { const now = Date.now(); const runs = order.runs || []; if (!runs.length) return false; const allRunsCompleted = runs.every((run) => new Date(run.at).getTime() <= now); return !allRunsCompleted && order.status !== "cancelled"; }).map((order) => order.link.replace(/\/+$/, "").toLowerCase()));
+                    const createdLinks = new Set<string>();
+                    let successCount = 0;
+                    let failedCount = 0;
+                    let lastError = "";
+                    for (let index = 0; index < targets.length; index += 1) {
+                      const trimmedUrl = targets[index];
+                      const normalizedTarget = trimmedUrl.replace(/\/+$/, "").toLowerCase();
+                      if (activeLinks.has(normalizedTarget) || createdLinks.has(normalizedTarget)) { failedCount += 1; lastError = "Duplicate link."; continue; }
+                      try {
+                        const result = await createSmmOrder({ name: orderName.trim() || undefined, apiUrl: selectedApi.url, apiKey: selectedApi.key, link: trimmedUrl, services: servicesPayload });
+                        const order: CreatedOrder = { id: createOrderId(), name: orderName.trim() || `Mission #${createOrderId()}`, batchId, batchIndex: index + 1, batchTotal: targets.length, batchLinks: targets.length > 1 ? targets : undefined, schedulerOrderId: result.schedulerOrderId, smmOrderId: result.orderId ?? "Scheduled", link: trimmedUrl, totalViews: quantity, startDelayHours, patternType: safePlan.patternType, patternName: safePlan.patternName, runs: safePlan?.runs || [], engagement: { likes: totalLikes, shares: totalShares, saves: totalSaves, comments: totalCommentsQty }, serviceId: viewsServiceId, selectedAPI: selectedApi.name, selectedBundle: selectedBundle.name, status: result.status === "completed" ? "completed" : "running", completedRuns: typeof result.completedRuns === "number" ? result.completedRuns : 0, runStatuses: (safePlan?.runs || []).map(() => "pending"), createdAt: new Date().toISOString(), lastUpdatedAt: new Date().toISOString() };
+                        onCreateOrder(order);
+                        createdLinks.add(normalizedTarget);
+                        successCount += 1;
+                      } catch (error) {
+                        const message = error instanceof Error ? error.message : "Failed";
+                        const failedOrder: CreatedOrder = { id: createOrderId(), name: orderName.trim() || `Mission #${createOrderId()}`, batchId, batchIndex: index + 1, batchTotal: targets.length, smmOrderId: "N/A", link: trimmedUrl, totalViews: quantity, startDelayHours, patternType: safePlan.patternType, patternName: safePlan.patternName, runs: safePlan?.runs || [], engagement: { likes: totalLikes, shares: totalShares, saves: totalSaves, comments: totalCommentsQty }, serviceId: viewsServiceId, selectedAPI: selectedApi.name, selectedBundle: selectedBundle.name, status: "failed", completedRuns: 0, runStatuses: (safePlan?.runs || []).map((_, i) => (i === 0 ? "cancelled" : "pending")), runErrors: (safePlan?.runs || []).map((_, i) => (i === 0 ? message : "")), errorMessage: message, createdAt: new Date().toISOString(), lastUpdatedAt: new Date().toISOString() };
+                        onCreateOrder(failedOrder);
+                        failedCount += 1;
+                        lastError = message;
+                      }
+                    }
+                    if (failedCount > 0 && successCount === 0) { setCreateError(lastError || "Failed."); setCreateSuccess(""); return; }
+                    const successLabel = targets.length > 1 ? `Done: ${successCount}/${targets.length}` : "Mission Deployed ✅";
+                    setCreateSuccess(successLabel);
+                    if (failedCount > 0) setCreateError(`${failedCount} failed`);
+                    onNavigateToOrders(successLabel);
+                  } finally {
+                    setIsCreatingOrder(false);
+                  }
+                }}
+                className={`whitespace-nowrap rounded-lg border px-4 py-1.5 text-xs font-semibold transition ${
+                  deployReady && !isCreatingOrder
+                    ? "border-emerald-500/50 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 animate-pulse"
+                    : "border-gray-600 bg-gray-800/50 text-gray-500 cursor-not-allowed"
+                }`}
+              >
+                {isCreatingOrder ? "Deploying..." : deployReady ? "🦇 Deploy Now!" : `⏳ Wait ${deployCountdown}s...`}
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     </div>
+  );
+}    </div>
   );
 }
