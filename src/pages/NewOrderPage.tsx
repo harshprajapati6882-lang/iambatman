@@ -230,10 +230,10 @@ const commentsService = selectedApi?.services.find(
 
   const safePlan = useMemo(() => ({ ...plan, runs: plan?.runs || [] }), [plan]);
 
-  const bundleOptions = useMemo(() => {
-    if (!selectedApiId) return bundles;
-    return bundles.filter((bundle) => bundle.apiId === selectedApiId);
-  }, [bundles, selectedApiId]);
+    const bundleOptions = useMemo(() => {
+    // 🔥 Show all bundles — with multi-API support, bundles are no longer tied to one API
+    return bundles;
+  }, [bundles]);
 
   function isValidUrl(value: string) {
     try {
