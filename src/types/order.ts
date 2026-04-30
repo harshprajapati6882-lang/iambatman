@@ -84,17 +84,30 @@ export interface ApiPanel {
   lastFetchError?: string;
 }
 
+export interface BundleService {
+  apiId: string;
+  serviceId: string;
+}
+
 export interface Bundle {
   id: string;
-  apiId: string;
+  apiId: string; // kept for backward compat (primary/default api)
   name: string;
   serviceIds: {
-  views: string;
-  likes: string;
-  shares: string;
-  saves: string;
-  comments: string;
-};
+    views: string;
+    likes: string;
+    shares: string;
+    saves: string;
+    comments: string;
+  };
+  // 🔥 NEW: Per-service API override
+  serviceApis?: {
+    views?: string;
+    likes?: string;
+    shares?: string;
+    saves?: string;
+    comments?: string;
+  };
 }
 
 export interface BackendRunInfo {
