@@ -1063,16 +1063,28 @@ return (viewsPrice + likesPrice + sharesPrice + savesPrice + commentsPrice).toFi
                     return { time: run.at.toISOString(), comments: finalComments.join("\n") };
                   });
                   const filteredCommentsRuns = commentsRuns.filter(run => run.comments && run.comments.length > 0);
-                  const servicesPayload: {
-                    views: { serviceId: string; runs: Array<{ time: string; quantity: number }> };
-                    likes?: { serviceId: string; runs: Array<{ time: string; quantity: number }> };
-                    shares?: { serviceId: string; runs: Array<{ time: string; quantity: number }> };
-                    saves?: { serviceId: string; runs: Array<{ time: string; quantity: number }> };
-                    comments?: { serviceId: string; runs: Array<{ time: string; comments: string }> };
-                  } = { views: { serviceId: viewsServiceId, runs: viewRuns } };
-                  if (includeLikes) servicesPayload.likes = { serviceId: likesServiceId, runs: likesRuns };
-                  if (includeShares) servicesPayload.shares = { serviceId: sharesServiceId, runs: sharesRuns };
-                  if (includeSaves) servicesPayload.saves = { serviceId: savesServiceId, runs: savesRuns };
+                              // 🔥 Resolve per-service API credentials
+            const getServiceApi = (serviceType: 'views' | 'likes' | 'shares' | 'saves' | 'comments') => {
+              const overrideApiId = selectedBundle?.serviceApis?.[serviceType];
+              if (overrideApiId && overrideApiId !== selectedApiId) {
+                const overrideApi = apis.find(a => a.id === overrideApiId);
+                if (overrideApi) return { apiUrl: overrideApi.url, apiKey: overrideApi.key };
+              }
+              return { apiUrl: selectedApi.url, apiKey: selectedApi.key };
+            };
+
+            const servicesPayload: {
+              views: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string };
+              likes?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string };
+              shares?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string };
+              saves?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string };
+              comments?: { serviceId: string; runs: Array<{ time: string; comments: string }>; apiUrl?: string; apiKey?: string };
+            } = {
+              views: { serviceId: viewsServiceId, runs: viewRuns, ...getServiceApi('views') },
+            };
+            if (includeLikes) servicesPayload.likes = { serviceId: likesServiceId, runs: likesRuns, ...getServiceApi('likes') };
+            if (includeShares) servicesPayload.shares = { serviceId: sharesServiceId, runs: sharesRuns, ...getServiceApi('shares') };
+            if (includeSaves) servicesPayload.saves = { serviceId: savesServiceId, runs: savesRuns, ...getServiceApi('saves') };
                   if (includeComments && filteredCommentsRuns.length > 0) { servicesPayload.comments = { serviceId: commentsServiceId!, runs: filteredCommentsRuns }; }
                   setIsCreatingOrder(true);
                   setCreateSuccess(`Processing ${targets.length} missions...`);
