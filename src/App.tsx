@@ -682,7 +682,7 @@ export default function App() {
       <BundlesPage
         apis={apis}
         bundles={bundles}
-        onAddBundle={(bundle) => {
+                onAddBundle={(bundle) => {
           const next: Bundle[] = [
             ...bundles,
             {
@@ -690,17 +690,18 @@ export default function App() {
               apiId: bundle.apiId,
               name: bundle.name,
               serviceIds: {
-  views: bundle.views,
-  likes: bundle.likes,
-  shares: bundle.shares,
-  saves: bundle.saves,
-  comments: bundle.comments, // ✅ ADD THIS
-},
+                views: bundle.views,
+                likes: bundle.likes,
+                shares: bundle.shares,
+                saves: bundle.saves,
+                comments: bundle.comments,
+              },
+              serviceApis: bundle.serviceApis,
             },
           ];
           persistBundles(next);
-        }}
-        onUpdateBundle={(id, bundle) => {
+        }}    
+                onUpdateBundle={(id, bundle) => {
           const next: Bundle[] = bundles.map((item) =>
             item.id === id
               ? {
@@ -708,19 +709,16 @@ export default function App() {
                   apiId: bundle.apiId,
                   name: bundle.name,
                   serviceIds: {
-  views: bundle.views,
-  likes: bundle.likes,
-  shares: bundle.shares,
-  saves: bundle.saves,
-  comments: bundle.comments, // ✅ ADD THIS
-},
+                    views: bundle.views,
+                    likes: bundle.likes,
+                    shares: bundle.shares,
+                    saves: bundle.saves,
+                    comments: bundle.comments,
+                  },
+                  serviceApis: bundle.serviceApis,
                 }
               : item
           );
-          persistBundles(next);
-        }}
-        onDeleteBundle={(id) => {
-          const next = bundles.filter((bundle) => bundle.id !== id);
           persistBundles(next);
         }}
       />
