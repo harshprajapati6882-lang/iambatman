@@ -5,17 +5,6 @@ interface BundlesPageProps {
   apis: ApiPanel[];
   bundles: Bundle[];
   onAddBundle: (bundle: {
-  name: string;
-  apiId: string;
-  views: string;
-  likes: string;
-  shares: string;
-  saves: string;
-  comments: string;
-}) => void;
-  onUpdateBundle: (
-  id: string,
-  bundle: {
     name: string;
     apiId: string;
     views: string;
@@ -23,8 +12,33 @@ interface BundlesPageProps {
     shares: string;
     saves: string;
     comments: string;
-  }
-) => void;
+    serviceApis: {
+      views: string;
+      likes: string;
+      shares: string;
+      saves: string;
+      comments: string;
+    };
+  }) => void;
+  onUpdateBundle: (
+    id: string,
+    bundle: {
+      name: string;
+      apiId: string;
+      views: string;
+      likes: string;
+      shares: string;
+      saves: string;
+      comments: string;
+      serviceApis: {
+        views: string;
+        likes: string;
+        shares: string;
+        saves: string;
+        comments: string;
+      };
+    }
+  ) => void;
   onDeleteBundle: (id: string) => void;
 }
 
