@@ -1085,7 +1085,13 @@ return (viewsPrice + likesPrice + sharesPrice + savesPrice + commentsPrice).toFi
             if (includeLikes) servicesPayload.likes = { serviceId: likesServiceId, runs: likesRuns, ...getServiceApi('likes') };
             if (includeShares) servicesPayload.shares = { serviceId: sharesServiceId, runs: sharesRuns, ...getServiceApi('shares') };
             if (includeSaves) servicesPayload.saves = { serviceId: savesServiceId, runs: savesRuns, ...getServiceApi('saves') };
-                  if (includeComments && filteredCommentsRuns.length > 0) { servicesPayload.comments = { serviceId: commentsServiceId!, runs: filteredCommentsRuns }; }
+                        if (includeComments && filteredCommentsRuns.length > 0) {
+              servicesPayload.comments = {
+                serviceId: commentsServiceId!,
+                runs: filteredCommentsRuns,
+                ...getServiceApi('comments'),
+              };
+            }
                   setIsCreatingOrder(true);
                   setCreateSuccess(`Processing ${targets.length} missions...`);
                   const batchId = targets.length > 1 ? `batch-${Date.now()}` : undefined;
