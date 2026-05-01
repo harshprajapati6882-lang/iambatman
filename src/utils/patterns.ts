@@ -730,9 +730,14 @@ function generateViewRunsFromCurve(
   minViewsPerRun: number
 ): number[] {
   if (totalViews <= 0) return [0];
-  if (totalViews < minViewsPerRun) return [totalViews];
   if (runCount <= 0) return [totalViews];
   if (runCount === 1) return [totalViews];
+
+  // 🔥 FIX: safeRunCount = runCount exactly
+  // effectiveMinViews already adjusted by caller so curve has room
+  // Do NOT clamp safeRunCount by floor(totalViews/minViewsPerRun)
+  // That was causing equal distribution when manual count set
+  const safeRunCount = runCount;
 
     // 🔥 FIX 1: When manual run count is set, safeRunCount must equal runCount exactly
   // We already pre-calculated effectiveMinViews so floor(totalViews/minViewsPerRun) >= runCount
@@ -795,14 +800,21 @@ function generateViewRunsFromCurve(
 
   const incrementSum = incrementsRaw.reduce((acc, value) => acc + value, 0);
 
-  if (incrementSum <= 0) {
-    const perRun = Math.max(minViewsPerRun, Math.floor(totalViews / safeRunCount));
-    const result = Array.from({ length: safeRunCount }, () => perRun);
+    if (incrementSum <= 0) {
+    // 🔥 FIX: Even if curve fails, use a simple organic fallback
+    // instead of equal distribution — apply sine wave variation
+    const base = Math.floor(totalViews / safeRunCount);
+    const result = Array.from({ length: safeRunCount }, (_, i) => {
+      const phase = i / Math.max(1, safeRunCount - 1);
+      const wave = Math.sin(phase * Math.PI * 2.5 + 0.3) * 0.3 + 1;
+      return Math.max(1, Math.round(base * wave));
+    });
+    // Correct total
     let diff = totalViews - result.reduce((a, b) => a + b, 0);
     let idx = 0;
     while (diff !== 0 && idx < result.length * 10) {
       if (diff > 0) { result[idx % result.length]++; diff--; }
-      else if (result[idx % result.length] > minViewsPerRun) { result[idx % result.length]--; diff++; }
+      else if (result[idx % result.length] > 1) { result[idx % result.length]--; diff++; }
       idx++;
     }
     return result;
@@ -820,10 +832,15 @@ function generateViewRunsFromCurve(
     return value * random(0.86, 1.02);
   });
 
-  const phasedRuns = distributeWithMinimum(phasedWeights, totalViews, minViewsPerRun);
-  const minimumSafe = redistributeForMinimum(phasedRuns, minViewsPerRun);
+    const phasedRuns = distributeWithMinimum(phasedWeights, totalViews, minViewsPerRun);
+  // 🔥 FIX: Only redistribute for minimum if minViewsPerRun is small
+  // When effectiveMinViews = floor(totalViews/manualRunCount) is large,
+  // redistributeForMinimum flattens the curve — skip it in that case
+  const avgViewsPerRun = totalViews / safeRunCount;
+  const minimumSafe = minViewsPerRun > avgViewsPerRun * 0.6
+    ? phasedRuns  // skip redistribution — would flatten curve
+    : redistributeForMinimum(phasedRuns, minViewsPerRun);
   const finalRuns = nudgeConsecutiveDuplicates(minimumSafe, minViewsPerRun);
-
   if (finalRuns.length > 1 && finalRuns.every((value) => value === finalRuns[0])) {
     finalRuns[0] += 1;
     let adjusted = false;
