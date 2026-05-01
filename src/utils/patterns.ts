@@ -326,7 +326,7 @@ const BASE_ORGANIC_PATTERN_LIBRARY: OrganicPatternProfile[] = [
     dipBand: [0.82, 0.92],
     waveAmplitude: 0.024,
   },
-  {
+    {
     key: "momentum-shift",
     name: "momentum-shift",
     baseType: "rocket-launch",
@@ -340,6 +340,68 @@ const BASE_ORGANIC_PATTERN_LIBRARY: OrganicPatternProfile[] = [
     dipChance: 0.09,
     dipBand: [0.76, 0.9],
     waveAmplitude: 0.026,
+  },
+
+  // 🔥 NEW: More unique S-curve profiles for slow burn
+  {
+    key: "deep-s-curve",
+    name: "deep-s-curve",
+    baseType: "smooth-s-curve",
+    runMultiplier: 1.22,
+    durationMultiplier: 1.34,
+    earlyBand: [0.62, 0.82],
+    midBand: [1.08, 1.28],
+    lateBand: [0.82, 1.02],
+    midSpikeChance: 0.05,
+    spikeBand: [1.06, 1.18],
+    dipChance: 0.03,
+    dipBand: [0.88, 0.96],
+    waveAmplitude: 0.018,
+  },
+  {
+    key: "lazy-rise-s",
+    name: "lazy-rise-s",
+    baseType: "smooth-s-curve",
+    runMultiplier: 1.28,
+    durationMultiplier: 1.42,
+    earlyBand: [0.58, 0.78],
+    midBand: [1.04, 1.22],
+    lateBand: [0.84, 1.04],
+    midSpikeChance: 0.04,
+    spikeBand: [1.04, 1.14],
+    dipChance: 0.03,
+    dipBand: [0.9, 0.97],
+    waveAmplitude: 0.016,
+  },
+  {
+    key: "sigmoid-drift",
+    name: "sigmoid-drift",
+    baseType: "smooth-s-curve",
+    runMultiplier: 1.18,
+    durationMultiplier: 1.3,
+    earlyBand: [0.66, 0.84],
+    midBand: [1.1, 1.3],
+    lateBand: [0.86, 1.04],
+    midSpikeChance: 0.06,
+    spikeBand: [1.08, 1.2],
+    dipChance: 0.04,
+    dipBand: [0.87, 0.95],
+    waveAmplitude: 0.02,
+  },
+  {
+    key: "wide-swell-s",
+    name: "wide-swell-s",
+    baseType: "smooth-s-curve",
+    runMultiplier: 1.3,
+    durationMultiplier: 1.5,
+    earlyBand: [0.64, 0.82],
+    midBand: [1.12, 1.32],
+    lateBand: [0.8, 1.0],
+    midSpikeChance: 0.05,
+    spikeBand: [1.06, 1.16],
+    dipChance: 0.04,
+    dipBand: [0.88, 0.95],
+    waveAmplitude: 0.017,
   },
 ];
 
@@ -435,8 +497,14 @@ function resolvePresetProfile(preset: QuickPatternPreset | null): PresetProfile 
   if (preset === "trending-push") {
     return { patternType: "viral-spike", runMultiplier: 0.9, durationMultiplier: 0.95, varianceMultiplier: 1.15, targetAverageViews: 195 };
   }
-  if (preset === "slow-burn") {
-    return { patternType: "smooth-s-curve", runMultiplier: 1.2, durationMultiplier: 1.35, varianceMultiplier: 0.65, targetAverageViews: 150 };
+    if (preset === "slow-burn") {
+    return {
+      patternType: "smooth-s-curve",
+      runMultiplier: 1.32,
+      durationMultiplier: 1.48,
+      varianceMultiplier: 0.55,
+      targetAverageViews: 130,
+    };
   }
   return { runMultiplier: 1, durationMultiplier: 1, varianceMultiplier: 1, targetAverageViews: 180 };
 }
@@ -758,7 +826,7 @@ function generateViewRunsFromCurve(
     const wave = 1 + Math.sin((phase + variant.timingShift) * Math.PI * variant.waveFrequency) * variant.waveAmplitude;
     let phaseFactor = 1;
 
-    if (phase < 0.2) {
+            if (phase < 0.2) {
       phaseFactor = random(variant.earlyBand[0], variant.earlyBand[1]);
     } else if (phase <= 0.8) {
       phaseFactor = random(variant.midBand[0], variant.midBand[1]);
@@ -768,6 +836,39 @@ function generateViewRunsFromCurve(
       if (Math.random() < spikeChance) {
         phaseFactor *= random(variant.spikeBand[0], variant.spikeBand[1]);
       }
+    } else {
+      phaseFactor = random(variant.lateBand[0], variant.lateBand[1]);
+    }
+
+    // 🔥 NEW: Stronger S-curve shaping for slow burn
+    if (preset === "slow-burn") {
+      if (phase < 0.18) {
+        phaseFactor *= random(0.62, 0.82); // very slow early
+      } else if (phase < 0.38) {
+        phaseFactor *= random(0.82, 0.96); // still restrained
+      } else if (phase < 0.68) {
+        phaseFactor *= random(1.14, 1.34); // strong middle curve
+      } else if (phase < 0.86) {
+        phaseFactor *= random(0.92, 1.08); // smooth late settle
+      } else {
+        phaseFactor *= random(0.78, 0.94); // softer ending
+      }
+    }
+
+    // 🔥 NEW: Stronger S-curve shaping for slow burn
+    if (preset === "slow-burn") {
+      if (phase < 0.18) {
+        phaseFactor *= random(0.62, 0.82); // very slow early
+      } else if (phase < 0.38) {
+        phaseFactor *= random(0.82, 0.96); // still restrained
+      } else if (phase < 0.68) {
+        phaseFactor *= random(1.14, 1.34); // strong middle curve
+      } else if (phase < 0.86) {
+        phaseFactor *= random(0.92, 1.08); // smooth late settle
+      } else {
+        phaseFactor *= random(0.78, 0.94); // softer ending
+      }
+    }
     } else {
       phaseFactor = random(variant.lateBand[0], variant.lateBand[1]);
     }
