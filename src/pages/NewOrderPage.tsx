@@ -108,8 +108,12 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
     // 🔥 NEW: Manual run count
   const [manualRunCount, setManualRunCount] = useState<number>(0);
 
-  // 🔥 NEW: Drawable graph mode
+    // 🔥 NEW: Drawable graph mode
   const [showDrawableGraph, setShowDrawableGraph] = useState(false);
+
+  // 🔥 NEW: Custom drawn views (only views shape, engagement added by pattern engine)
+  const [customDrawnViews, setCustomDrawnViews] = useState<number[] | null>(null);
+  const [useCustomDrawnViews, setUseCustomDrawnViews] = useState(false);
 
   // 🔥 NEW: Shares ratio
   const [sharesRatio, setSharesRatio] = useState<"equal" | "half" | "third" | "custom">("half");
@@ -146,7 +150,7 @@ const commentsService = selectedApi?.services.find(
   s => s.id === selectedBundle?.serviceIds.comments
 );
   
-   const config: OrderConfig = useMemo(
+     const config: OrderConfig = useMemo(
     () => ({
       postUrl,
       totalViews,
@@ -170,6 +174,7 @@ const commentsService = selectedApi?.services.find(
       savesRatio,
       sharesCustomCount,
       savesCustomCount,
+      customDrawnViews: useCustomDrawnViews ? customDrawnViews : undefined,
     }),
     [
       postUrl,
@@ -190,6 +195,8 @@ const commentsService = selectedApi?.services.find(
       savesRatio,
       sharesCustomCount,
       savesCustomCount,
+      customDrawnViews,
+      useCustomDrawnViews,
     ]
   );
 
@@ -269,8 +276,10 @@ const commentsService = selectedApi?.services.find(
     }
   }
 
-  const handleApplyPreset = (preset: QuickPatternPreset) => {
+    const handleApplyPreset = (preset: QuickPatternPreset) => {
     setUseClonedPlan(false);
+    setUseCustomDrawnViews(false);
+    setCustomDrawnViews(null);
     setQuickPreset(preset);
     if (preset === "viral-boost") {
       setVariancePercent(48);
@@ -324,8 +333,10 @@ const commentsService = selectedApi?.services.find(
     setCreateError("");
     setCreateSuccess("");
   };
-  const handleGenerate = () => {
+    const handleGenerate = () => {
     setUseClonedPlan(false);
+    setUseCustomDrawnViews(false);
+    setCustomDrawnViews(null);
     setSeed((current) => current + 1);
     setExpandedRuns(true);
   };
@@ -602,59 +613,24 @@ const commentsService = selectedApi?.services.find(
             )}
           </div>
 
-          {/* Drawable Graph */}
+                    {/* Drawable Graph */}
           {showDrawableGraph && (
             <DrawableGraph
               totalViews={totalViews}
               runCount={safePlan.runs.length > 0 ? safePlan.runs.length : 30}
               minViewsPerRun={minViewsPerRun}
               onApply={(customViews) => {
-                // Build a custom plan from the drawn curve
+                // 🔥 Store only the views shape — engagement will be added by the plan useMemo
                 const now = new Date();
                 const durationMin = (delivery.mode === "custom" ? customHours : delivery.hours) * 60;
                 const startDelayMs = startDelayHours * 60 * 60_000;
                 const intervalMs = (durationMin * 60_000) / Math.max(1, customViews.length - 1);
 
-                let cumulativeViews = 0;
-                let cumulativeLikes = 0;
-                let cumulativeShares = 0;
-                let cumulativeSaves = 0;
-                let cumulativeComments = 0;
-
-                const customRuns = customViews.map((views, index) => {
-                  cumulativeViews += views;
-                  const runTime = new Date(now.getTime() + startDelayMs + index * intervalMs);
-                  return {
-                    run: index + 1,
-                    at: runTime,
-                    minutesFromStart: Math.round((runTime.getTime() - now.getTime()) / 60_000),
-                    views,
-                    likes: 0,
-                    shares: 0,
-                    saves: 0,
-                    comments: 0,
-                    cumulativeViews,
-                    cumulativeLikes: 0,
-                    cumulativeShares: 0,
-                    cumulativeSaves: 0,
-                    cumulativeComments: 0,
-                  };
-                });
-
-                const customPlan = {
-                  patternId: Date.now() % 1000,
-                  patternName: "custom-drawn",
-                  patternType: "manual" as const,
-                  totalRuns: customRuns.length,
-                  approximateIntervalMin: Math.round(durationMin / Math.max(1, customRuns.length)),
-                  finishTime: customRuns[customRuns.length - 1]?.at ?? now,
-                  estimatedDurationHours: Number((durationMin / 60 + startDelayHours).toFixed(1)),
-                  risk: "Safe" as const,
-                  runs: customRuns,
-                };
-
-                setClonedPlan(customPlan);
-                setUseClonedPlan(true);
+                // 🔥 Save custom views into config so createPatternPlan can use them
+                setCustomDrawnViews(customViews);
+                setUseCustomDrawnViews(true);
+                setUseClonedPlan(false); // 🔥 Don't use cloned plan — let pattern engine add engagement
+                setSeed(prev => prev + 1); // 🔥 Force regenerate with custom views
                 setExpandedRuns(true);
                 setShowDrawableGraph(false);
               }}
