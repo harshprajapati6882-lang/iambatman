@@ -101,8 +101,19 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
   const [deployReady, setDeployReady] = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 🔥 NEW: Minimum views per run state
+   // 🔥 NEW: Minimum views per run state
   const [minViewsPerRun, setMinViewsPerRun] = useState(100);
+
+  // 🔥 NEW: Manual run count
+  const [manualRunCount, setManualRunCount] = useState<number>(0);
+
+  // 🔥 NEW: Shares ratio
+  const [sharesRatio, setSharesRatio] = useState<"equal" | "half" | "third" | "custom">("half");
+  const [sharesCustomCount, setSharesCustomCount] = useState<number>(100);
+
+  // 🔥 NEW: Saves ratio
+  const [savesRatio, setSavesRatio] = useState<"equal" | "half" | "third" | "custom">("third");
+  const [savesCustomCount, setSavesCustomCount] = useState<number>(50);
 
   // 🔥 NEW: Fetch min views setting from backend on mount
   useEffect(() => {
@@ -131,7 +142,7 @@ const commentsService = selectedApi?.services.find(
   s => s.id === selectedBundle?.serviceIds.comments
 );
   
-  const config: OrderConfig = useMemo(
+   const config: OrderConfig = useMemo(
     () => ({
       postUrl,
       totalViews,
@@ -149,23 +160,33 @@ const commentsService = selectedApi?.services.find(
           : delivery.mode === "auto"
             ? { ...delivery, hours: Math.max(6, Math.min(48, delivery.hours)) }
             : delivery,
-      minViewsPerRun, // 🔥 NEW: Pass to pattern generator
+      minViewsPerRun,
+      manualRunCount: manualRunCount > 0 ? manualRunCount : undefined,
+      sharesRatio,
+      savesRatio,
+      sharesCustomCount,
+      savesCustomCount,
     }),
     [
-  postUrl,
-  totalViews,
-  startDelayHours,
-  includeLikes,
-  includeShares,
-  includeSaves,
-  includeComments, // ✅ ADD THIS
-  variancePercent,
-  peakHoursBoost,
-  quickPreset,
-  delivery,
-  customHours,
-  minViewsPerRun,
-]
+      postUrl,
+      totalViews,
+      startDelayHours,
+      includeLikes,
+      includeShares,
+      includeSaves,
+      includeComments,
+      variancePercent,
+      peakHoursBoost,
+      quickPreset,
+      delivery,
+      customHours,
+      minViewsPerRun,
+      manualRunCount,
+      sharesRatio,
+      savesRatio,
+      sharesCustomCount,
+      savesCustomCount,
+    ]
   );
 
   const generatedPlan = useMemo(() => {
@@ -502,6 +523,57 @@ const commentsService = selectedApi?.services.find(
                 </div>
               </div>
 
+                            {/* 🔥 NEW: Manual Run Count */}
+              <div className="border-t border-blue-500/20 pt-3">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <label className="text-[10px] text-gray-400">
+                    Manual Run Count
+                    <span className="ml-1 text-[9px] text-blue-400/60">(0 = auto)</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={manualRunCount}
+                      onChange={(e) => {
+                        const val = Math.max(0, Math.floor(Number(e.target.value)));
+                        setManualRunCount(val);
+                        setUseClonedPlan(false);
+                        setSeed(prev => prev + 1);
+                      }}
+                      min={0}
+                      max={500}
+                      className="w-20 rounded-lg border border-blue-500/30 bg-black px-2 py-1 text-xs text-white text-center focus:border-blue-500/50 focus:outline-none"
+                    />
+                    <span className="text-[9px] text-gray-500">runs</span>
+                  </div>
+                </div>
+                <div className="flex gap-1 flex-wrap">
+                  {[0, 20, 30, 40, 50, 60].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => {
+                        setManualRunCount(preset);
+                        setUseClonedPlan(false);
+                        setSeed(prev => prev + 1);
+                      }}
+                      className={`rounded-md px-2 py-0.5 text-[9px] font-medium transition ${
+                        manualRunCount === preset
+                          ? "border border-blue-500 bg-blue-500/20 text-blue-300"
+                          : "border border-blue-500/20 bg-black text-gray-500 hover:text-blue-300"
+                      }`}
+                    >
+                      {preset === 0 ? "Auto" : preset}
+                    </button>
+                  ))}
+                </div>
+                {manualRunCount > 0 && (
+                  <p className="mt-1 text-[9px] text-blue-300/60">
+                    ⚡ Min views auto-adjusted to ~{Math.floor(totalViews / manualRunCount).toLocaleString()} views/run
+                  </p>
+                )}
+              </div>
+
               <p className="text-[9px] text-blue-300/60 leading-relaxed">
                 ℹ️ Higher minimum = fewer runs with more views each. Lower minimum = more runs with fewer views each.
               </p>
@@ -738,71 +810,159 @@ const commentsService = selectedApi?.services.find(
               )}
             </div>
 
-            {/* Row 3: Engagement Toggles + Peak Hours */}
-            <div className="flex flex-wrap items-center gap-2">
-             <label className="text-[10px] text-gray-300 font-semibold">Engagement:</label>
-              
-              <button
-                type="button"
-                onClick={() => { setUseClonedPlan(false); setIncludeLikes(!includeLikes); }}
-                className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
-                  includeLikes
-                    ? "border border-pink-500 bg-pink-500/20 text-pink-300"
-                    : "border border-gray-600 bg-black text-gray-500"
-                }`}
-              >
-                ❤️ Likes
-              </button>
-              
-              <button
-                type="button"
-                onClick={() => { setUseClonedPlan(false); setIncludeShares(!includeShares); }}
-                className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
-                  includeShares
-                    ? "border border-blue-500 bg-blue-500/20 text-blue-300"
-                    : "border border-gray-600 bg-black text-gray-500"
-                }`}
-              >
-                🔄 Shares
-              </button>
-              
-              <button
-                type="button"
-                onClick={() => { setUseClonedPlan(false); setIncludeSaves(!includeSaves); }}
-                className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
-                  includeSaves
-                    ? "border border-purple-500 bg-purple-500/20 text-purple-300"
-                    : "border border-gray-600 bg-black text-gray-500"
-                }`}
-              >
-                💾 Saves
-              </button>
+                        {/* Row 3: Engagement Toggles + Peak Hours */}
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="text-[10px] text-gray-300 font-semibold">Engagement:</label>
 
-              <button
-  type="button"
-  onClick={() => { setUseClonedPlan(false); setIncludeComments(!includeComments); }}
-  className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
-    includeComments
-      ? "border border-pink-500 bg-pink-500/20 text-pink-300"
-      : "border border-gray-600 bg-black text-gray-500"
-  }`}
->
-  💬 Comments
-</button>
-
-              <div className="ml-auto">
                 <button
                   type="button"
-                  onClick={() => { setUseClonedPlan(false); setPeakHoursBoost(!peakHoursBoost); }}
+                  onClick={() => { setUseClonedPlan(false); setIncludeLikes(!includeLikes); }}
                   className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
-                    peakHoursBoost
-                      ? "border border-orange-500 bg-orange-500/20 text-orange-300"
+                    includeLikes
+                      ? "border border-pink-500 bg-pink-500/20 text-pink-300"
                       : "border border-gray-600 bg-black text-gray-500"
                   }`}
                 >
-                  🔥 Peak Hours
+                  ❤️ Likes
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setUseClonedPlan(false); setIncludeShares(!includeShares); }}
+                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
+                    includeShares
+                      ? "border border-blue-500 bg-blue-500/20 text-blue-300"
+                      : "border border-gray-600 bg-black text-gray-500"
+                  }`}
+                >
+                  🔄 Shares
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setUseClonedPlan(false); setIncludeSaves(!includeSaves); }}
+                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
+                    includeSaves
+                      ? "border border-purple-500 bg-purple-500/20 text-purple-300"
+                      : "border border-gray-600 bg-black text-gray-500"
+                  }`}
+                >
+                  💾 Saves
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setUseClonedPlan(false); setIncludeComments(!includeComments); }}
+                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
+                    includeComments
+                      ? "border border-pink-500 bg-pink-500/20 text-pink-300"
+                      : "border border-gray-600 bg-black text-gray-500"
+                  }`}
+                >
+                  💬 Comments
+                </button>
+
+                <div className="ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => { setUseClonedPlan(false); setPeakHoursBoost(!peakHoursBoost); }}
+                    className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
+                      peakHoursBoost
+                        ? "border border-orange-500 bg-orange-500/20 text-orange-300"
+                        : "border border-gray-600 bg-black text-gray-500"
+                    }`}
+                  >
+                    🔥 Peak Hours
+                  </button>
+                </div>
               </div>
+
+              {/* 🔥 NEW: Shares ratio - only when shares enabled */}
+              {includeShares && (
+                <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] text-blue-400 font-medium">🔄 Shares =</span>
+                    {(["equal", "half", "third", "custom"] as const).map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => {
+                          setSharesRatio(option);
+                          setUseClonedPlan(false);
+                          setSeed(prev => prev + 1);
+                        }}
+                        className={`rounded-md px-2 py-0.5 text-[9px] font-medium transition ${
+                          sharesRatio === option
+                            ? "border border-blue-500 bg-blue-500/20 text-blue-300"
+                            : "border border-blue-500/20 bg-black text-gray-500 hover:text-blue-300"
+                        }`}
+                      >
+                        {option === "equal" ? "= Likes" : option === "half" ? "½ Likes" : option === "third" ? "⅓ Likes" : "Custom #"}
+                      </button>
+                    ))}
+                    {sharesRatio === "custom" && (
+                      <input
+                        type="number"
+                        value={sharesCustomCount}
+                        onChange={(e) => {
+                          setSharesCustomCount(Math.max(10, Number(e.target.value)));
+                          setUseClonedPlan(false);
+                          setSeed(prev => prev + 1);
+                        }}
+                        min={10}
+                        className="w-16 rounded-md border border-blue-500/30 bg-black px-2 py-0.5 text-[9px] text-white focus:outline-none"
+                      />
+                    )}
+                    <span className="text-[9px] text-gray-600 ml-auto">
+                      ≈ {safePlan.runs.reduce((s, r) => s + r.shares, 0)} total
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* 🔥 NEW: Saves ratio - only when saves enabled */}
+              {includeSaves && (
+                <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 px-3 py-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] text-purple-400 font-medium">💾 Saves =</span>
+                    {(["equal", "half", "third", "custom"] as const).map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => {
+                          setSavesRatio(option);
+                          setUseClonedPlan(false);
+                          setSeed(prev => prev + 1);
+                        }}
+                        className={`rounded-md px-2 py-0.5 text-[9px] font-medium transition ${
+                          savesRatio === option
+                            ? "border border-purple-500 bg-purple-500/20 text-purple-300"
+                            : "border border-purple-500/20 bg-black text-gray-500 hover:text-purple-300"
+                        }`}
+                      >
+                        {option === "equal" ? "= Likes" : option === "half" ? "½ Likes" : option === "third" ? "⅓ Likes" : "Custom #"}
+                      </button>
+                    ))}
+                    {savesRatio === "custom" && (
+                      <input
+                        type="number"
+                        value={savesCustomCount}
+                        onChange={(e) => {
+                          setSavesCustomCount(Math.max(10, Number(e.target.value)));
+                          setUseClonedPlan(false);
+                          setSeed(prev => prev + 1);
+                        }}
+                        min={10}
+                        className="w-16 rounded-md border border-purple-500/30 bg-black px-2 py-0.5 text-[9px] text-white focus:outline-none"
+                      />
+                    )}
+                    <span className="text-[9px] text-gray-600 ml-auto">
+                      ≈ {safePlan.runs.reduce((s, r) => s + r.saves, 0)} total
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 <div className="mt-2">
