@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { GrowthGraph } from "../components/GrowthGraph";
+import { DrawableGraph } from "../components/DrawableGraph";
 import { PatternGenerator } from "../components/PatternGenerator";
 import type {
   ApiPanel,
@@ -104,8 +105,11 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
    // 🔥 NEW: Minimum views per run state
   const [minViewsPerRun, setMinViewsPerRun] = useState(100);
 
-  // 🔥 NEW: Manual run count
+    // 🔥 NEW: Manual run count
   const [manualRunCount, setManualRunCount] = useState<number>(0);
+
+  // 🔥 NEW: Drawable graph mode
+  const [showDrawableGraph, setShowDrawableGraph] = useState(false);
 
   // 🔥 NEW: Shares ratio
   const [sharesRatio, setSharesRatio] = useState<"equal" | "half" | "third" | "custom">("half");
@@ -579,6 +583,83 @@ const commentsService = selectedApi?.services.find(
               </p>
             </div>
           </div>
+
+                    {/* 🔥 Draw Your Own Graph toggle */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowDrawableGraph(!showDrawableGraph)}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                showDrawableGraph
+                  ? "border-yellow-500/50 bg-yellow-500/20 text-yellow-300"
+                  : "border-yellow-500/30 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20"
+              }`}
+            >
+              ✏️ {showDrawableGraph ? "Hide Custom Curve" : "Draw Custom Curve"}
+            </button>
+            {showDrawableGraph && (
+              <span className="text-[9px] text-gray-500">Drag handles to shape your delivery curve</span>
+            )}
+          </div>
+
+          {/* Drawable Graph */}
+          {showDrawableGraph && (
+            <DrawableGraph
+              totalViews={totalViews}
+              runCount={safePlan.runs.length > 0 ? safePlan.runs.length : 30}
+              minViewsPerRun={minViewsPerRun}
+              onApply={(customViews) => {
+                // Build a custom plan from the drawn curve
+                const now = new Date();
+                const durationMin = (delivery.mode === "custom" ? customHours : delivery.hours) * 60;
+                const startDelayMs = startDelayHours * 60 * 60_000;
+                const intervalMs = (durationMin * 60_000) / Math.max(1, customViews.length - 1);
+
+                let cumulativeViews = 0;
+                let cumulativeLikes = 0;
+                let cumulativeShares = 0;
+                let cumulativeSaves = 0;
+                let cumulativeComments = 0;
+
+                const customRuns = customViews.map((views, index) => {
+                  cumulativeViews += views;
+                  const runTime = new Date(now.getTime() + startDelayMs + index * intervalMs);
+                  return {
+                    run: index + 1,
+                    at: runTime,
+                    minutesFromStart: Math.round((runTime.getTime() - now.getTime()) / 60_000),
+                    views,
+                    likes: 0,
+                    shares: 0,
+                    saves: 0,
+                    comments: 0,
+                    cumulativeViews,
+                    cumulativeLikes: 0,
+                    cumulativeShares: 0,
+                    cumulativeSaves: 0,
+                    cumulativeComments: 0,
+                  };
+                });
+
+                const customPlan = {
+                  patternId: Date.now() % 1000,
+                  patternName: "custom-drawn",
+                  patternType: "manual" as const,
+                  totalRuns: customRuns.length,
+                  approximateIntervalMin: Math.round(durationMin / Math.max(1, customRuns.length)),
+                  finishTime: customRuns[customRuns.length - 1]?.at ?? now,
+                  estimatedDurationHours: Number((durationMin / 60 + startDelayHours).toFixed(1)),
+                  risk: "Safe" as const,
+                  runs: customRuns,
+                };
+
+                setClonedPlan(customPlan);
+                setUseClonedPlan(true);
+                setExpandedRuns(true);
+                setShowDrawableGraph(false);
+              }}
+            />
+          )}
 
           {/* Growth Graph - Compact */}
                               <GrowthGraph 
