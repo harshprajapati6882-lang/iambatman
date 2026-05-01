@@ -734,7 +734,9 @@ function generateViewRunsFromCurve(
   if (runCount <= 0) return [totalViews];
   if (runCount === 1) return [totalViews];
 
-  const safeRunCount = Math.min(runCount, Math.max(1, Math.floor(totalViews / minViewsPerRun)));
+    // 🔥 FIX 1: When manual run count is set, safeRunCount must equal runCount exactly
+  // We already pre-calculated effectiveMinViews so floor(totalViews/minViewsPerRun) >= runCount
+  const safeRunCount = runCount; // Trust the caller — effectiveMinViews already adjusted
   if (safeRunCount <= 0) return [totalViews];
   if (safeRunCount === 1) return [totalViews];
 
@@ -1098,7 +1100,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   const requestedViews = Math.max(0, Math.floor(config.totalViews));
   const variance = clamp(config.variancePercent * presetProfile.varianceMultiplier, 10, 50);
 
-    const totalRuns = (() => {
+      const totalRuns = (() => {
     if (config.manualRunCount && config.manualRunCount > 0) {
       return Math.max(1, Math.min(config.manualRunCount, 500));
     }
@@ -1110,6 +1112,9 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       : 1;
   })();
 
+  // 🔥 FIX 1: When manual run count set, auto-adjust effectiveMinViews
+  // but still use CURVE distribution (not equal split)
+  // effectiveMinViews = floor(totalViews / manualRunCount) so curve has room to work
   const effectiveMinViews = (config.manualRunCount && config.manualRunCount > 0)
     ? Math.max(1, Math.floor(requestedViews / totalRuns))
     : minViewsPerRun;
@@ -1125,7 +1130,11 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     // 🔥 Calculate baseInterval BEFORE peak boost so it can be used inside
   const baseInterval = durationMin / Math.max(1, totalRuns - 1);
 
-    let viewRuns = generateViewRunsFromCurve(
+      // 🔥 FIX 1: Always use curve-based distribution
+  // When manual run count set → effectiveMinViews is auto-adjusted
+  // so generateViewRunsFromCurve distributes views organically
+  // across exactly totalRuns runs using the selected pattern curve
+  let viewRuns = generateViewRunsFromCurve(
     patternType,
     requestedViews,
     totalRuns,
@@ -1389,65 +1398,76 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     return result;
   })();
-    // =========================================================
-  // 🔥 SHARES DISTRIBUTION
-  // Rules:
-  // - Not in first 3 runs (indexes 0,1,2)
-  // - Not in last run
-  // - Minimum 20 per run
-  // - No negative values
+      // =========================================================
+  // 🔥 FIX 2: SHARES DISTRIBUTION
+  // Rule: After every 2 like-runs, place 1 share-run
+  // i.e. likes at indexes [L1, L2, L3, L4, L5, L6...]
+  //      shares go after  [L2,     L4,     L6...]
+  //      = indexes selectedLikeIndexes[1], [3], [5]...
+  // If not enough likes pairs → place shares sparsely after index 3
   // =========================================================
   const sharesRuns = (() => {
     const result = Array.from({ length: provisionalRuns.length }, () => 0);
     if (!config.includeShares || sharesTotal <= 0 || provisionalRuns.length <= 4) return result;
 
-    const availableIndexes = Array.from(
-      { length: provisionalRuns.length },
-      (_, i) => i
-    ).filter(i => i >= 3 && i < provisionalRuns.length - 1);
+    const minPerRun = 10;
 
-    if (availableIndexes.length === 0) return result;
+    // 🔥 Build share indexes: after every 2nd like-run
+    // likeIndexes from likesRuns already computed above
+    const likeRunIndexes = likesRuns
+      .map((val, idx) => (val > 0 ? idx : -1))
+      .filter(idx => idx !== -1);
 
-        const targetCount = Math.max(1, Math.floor(availableIndexes.length * random(0.3, 0.5)));
-    
-    // 🔥 Pick non-consecutive indexes
     const selectedIndexes: number[] = [];
-    const shuffled = [...availableIndexes].sort(() => Math.random() - 0.5);
-    
-    for (const idx of shuffled) {
-      if (selectedIndexes.length >= targetCount) break;
-      // Check no adjacent to already selected
-      const hasAdjacent = selectedIndexes.some(s => Math.abs(s - idx) <= 1);
-      if (!hasAdjacent) {
-        selectedIndexes.push(idx);
-      }
-    }
-    
-    // If we couldn't get enough non-consecutive, fill remaining allowing adjacent
-    if (selectedIndexes.length < targetCount) {
-      for (const idx of shuffled) {
-        if (selectedIndexes.length >= targetCount) break;
-        if (!selectedIndexes.includes(idx)) {
-          selectedIndexes.push(idx);
+
+    // After 2nd like, 4th like, 6th like...
+    for (let i = 1; i < likeRunIndexes.length; i += 2) {
+      const afterLikeIndex = likeRunIndexes[i];
+      // Place share 1-2 runs AFTER this like-run (not same run)
+      const shareIndex = afterLikeIndex + 1;
+      if (
+        shareIndex < provisionalRuns.length - 1 &&
+        shareIndex > 0 &&
+        !selectedIndexes.includes(shareIndex) &&
+        likesRuns[shareIndex] === 0 // don't place share on a like run
+      ) {
+        selectedIndexes.push(shareIndex);
+      } else {
+        // Try +2 runs after like
+        const shareIndex2 = afterLikeIndex + 2;
+        if (
+          shareIndex2 < provisionalRuns.length - 1 &&
+          shareIndex2 > 0 &&
+          !selectedIndexes.includes(shareIndex2) &&
+          likesRuns[shareIndex2] === 0
+        ) {
+          selectedIndexes.push(shareIndex2);
         }
       }
     }
-    
+
+    // 🔥 Fallback: if no like-runs found or not enough pairs,
+    // place shares at index 4, then every ~4 runs
+    if (selectedIndexes.length === 0) {
+      for (let i = 4; i < provisionalRuns.length - 1; i += 4) {
+        selectedIndexes.push(i);
+        if (selectedIndexes.length >= Math.floor(sharesTotal / minPerRun)) break;
+      }
+    }
+
     selectedIndexes.sort((a, b) => a - b);
 
-    const minPerRun = 10;
-
+    // Trim if can't cover minimums
     while (selectedIndexes.length > 1 && sharesTotal < selectedIndexes.length * minPerRun) {
       selectedIndexes.pop();
     }
 
-    if (sharesTotal < minPerRun) return result;
+    if (selectedIndexes.length === 0 || sharesTotal < minPerRun) return result;
 
     let remaining = sharesTotal;
 
     for (let i = 0; i < selectedIndexes.length; i++) {
       const isLast = i === selectedIndexes.length - 1;
-
       if (isLast) {
         result[selectedIndexes[i]] = Math.max(minPerRun, remaining);
       } else {
@@ -1467,66 +1487,71 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     return result;
   })();
 
-  // =========================================================
-  // 🔥 SAVES DISTRIBUTION
-  // Rules:
-  // - Not in first 3 runs (indexes 0,1,2)
-  // - Not in last run
-  // - Minimum 10 per run
-  // - No negative values
+    // =========================================================
+  // 🔥 FIX 3: SAVES DISTRIBUTION
+  // Rule: Place save 1-2 runs AFTER each share-run
+  // i.e. shares at indexes [S1, S2, S3...]
+  //      saves go at       [S1+1 or S1+2, S2+1 or S2+2...]
+  // The offset (1 or 2) is random per share-run
+  // If save slot conflicts (like/share already there), try next slot
+  // Fallback: place saves sparsely after index 4 if no share-runs
   // =========================================================
   const savesRuns = (() => {
     const result = Array.from({ length: provisionalRuns.length }, () => 0);
     if (!config.includeSaves || savesTotal <= 0 || provisionalRuns.length <= 4) return result;
 
-    // Skip first 3 runs and last run
-    const availableIndexes = Array.from(
-      { length: provisionalRuns.length },
-      (_, i) => i
-    ).filter(i => i >= 3 && i < provisionalRuns.length - 1);
+    const minPerRun = 10;
 
-    if (availableIndexes.length === 0) return result;
+    // Get share run indexes from sharesRuns already computed
+    const shareRunIndexes = sharesRuns
+      .map((val, idx) => (val > 0 ? idx : -1))
+      .filter(idx => idx !== -1);
 
-        const targetCount = Math.max(1, Math.floor(availableIndexes.length * random(0.25, 0.45)));
-    
-    // 🔥 Pick non-consecutive indexes
     const selectedIndexes: number[] = [];
-    const shuffled = [...availableIndexes].sort(() => Math.random() - 0.5);
-    
-    for (const idx of shuffled) {
-      if (selectedIndexes.length >= targetCount) break;
-      const hasAdjacent = selectedIndexes.some(s => Math.abs(s - idx) <= 1);
-      if (!hasAdjacent) {
-        selectedIndexes.push(idx);
-      }
-    }
-    
-    if (selectedIndexes.length < targetCount) {
-      for (const idx of shuffled) {
-        if (selectedIndexes.length >= targetCount) break;
-        if (!selectedIndexes.includes(idx)) {
-          selectedIndexes.push(idx);
+
+    for (const shareIdx of shareRunIndexes) {
+      // Random offset: 1 or 2 runs after the share
+      const offsets = Math.random() < 0.5 ? [1, 2] : [2, 1];
+
+      for (const offset of offsets) {
+        const saveIndex = shareIdx + offset;
+        if (
+          saveIndex < provisionalRuns.length - 1 &&
+          saveIndex > 0 &&
+          !selectedIndexes.includes(saveIndex) &&
+          likesRuns[saveIndex] === 0 &&   // not a like run
+          sharesRuns[saveIndex] === 0      // not a share run
+        ) {
+          selectedIndexes.push(saveIndex);
+          break; // found valid slot for this share
         }
       }
     }
-    
+
+    // 🔥 Fallback: if no share-runs, place saves sparsely after index 4
+    if (selectedIndexes.length === 0) {
+      for (let i = 5; i < provisionalRuns.length - 1; i += 5) {
+        if (likesRuns[i] === 0 && sharesRuns[i] === 0) {
+          selectedIndexes.push(i);
+        }
+        if (selectedIndexes.length >= Math.floor(savesTotal / minPerRun)) break;
+      }
+    }
+
     selectedIndexes.sort((a, b) => a - b);
 
-    const minPerRun = 10;
-
-    // Reduce selected runs if total can't cover all minimums
+    // Trim if can't cover minimums
     while (selectedIndexes.length > 1 && savesTotal < selectedIndexes.length * minPerRun) {
       selectedIndexes.pop();
     }
 
-    if (savesTotal < minPerRun) return result;
+    if (selectedIndexes.length === 0 || savesTotal < minPerRun) return result;
 
     let remaining = savesTotal;
 
     for (let i = 0; i < selectedIndexes.length; i++) {
       const idx = selectedIndexes[i];
       const isLast = i === selectedIndexes.length - 1;
-
       if (isLast) {
         result[idx] = Math.max(minPerRun, remaining);
       } else {
