@@ -1194,7 +1194,11 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   const requestedViews = Math.max(0, Math.floor(config.totalViews));
   const variance = clamp(config.variancePercent * presetProfile.varianceMultiplier, 10, 50);
 
-      const totalRuns = (() => {
+        const totalRuns = (() => {
+    // 🔥 If custom drawn views provided, use that length
+    if (config.customDrawnViews && config.customDrawnViews.length > 0) {
+      return config.customDrawnViews.length;
+    }
     if (config.manualRunCount && config.manualRunCount > 0) {
       return Math.max(1, Math.min(config.manualRunCount, 500));
     }
@@ -1225,21 +1229,40 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     // 🔥 Calculate baseInterval BEFORE peak boost so it can be used inside
   const baseInterval = durationMin / Math.max(1, totalRuns - 1);
 
-      // 🔥 FIX 1: Always use curve-based distribution
-  // When manual run count set → effectiveMinViews is auto-adjusted
-  // so generateViewRunsFromCurve distributes views organically
-  // across exactly totalRuns runs using the selected pattern curve
-  let viewRuns = generateViewRunsFromCurve(
-    patternType,
-    requestedViews,
-    totalRuns,
-    variance,
-    config.quickPreset,
-    variant,
-    effectiveMinViews
-  );
+        // 🔥 Use custom drawn views if provided, otherwise generate from curve
+  let viewRuns: number[];
 
-    if (config.peakHoursBoost && viewRuns.length > 1 && requestedViews >= effectiveMinViews) {
+  if (config.customDrawnViews && config.customDrawnViews.length > 0) {
+    // 🔥 Custom drawn curve — use exact views shape from user drawing
+    viewRuns = [...config.customDrawnViews];
+
+    // Ensure total matches
+    const drawnTotal = viewRuns.reduce((a, b) => a + b, 0);
+    if (drawnTotal !== requestedViews) {
+      const ratio = requestedViews / Math.max(1, drawnTotal);
+      viewRuns = viewRuns.map(v => Math.max(effectiveMinViews, Math.round(v * ratio)));
+      // Correct any rounding difference
+      let diff = requestedViews - viewRuns.reduce((a, b) => a + b, 0);
+      let idx = 0;
+      while (diff !== 0 && idx < viewRuns.length * 10) {
+        if (diff > 0) { viewRuns[idx % viewRuns.length]++; diff--; }
+        else if (viewRuns[idx % viewRuns.length] > effectiveMinViews) { viewRuns[idx % viewRuns.length]--; diff++; }
+        idx++;
+      }
+    }
+  } else {
+    // Normal curve-based distribution
+    viewRuns = generateViewRunsFromCurve(
+      patternType,
+      requestedViews,
+      totalRuns,
+      variance,
+      config.quickPreset,
+      variant,
+      effectiveMinViews
+    );
+  }
+        if (config.peakHoursBoost && viewRuns.length > 1 && requestedViews >= effectiveMinViews && !config.customDrawnViews) {
     const initialWeights = viewRuns.map((views) => Math.max(0.01, views));
 
     // 🔥 Calculate actual run times first (same logic as provisionalRuns below)
@@ -1295,7 +1318,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   // cap first 3 runs to 100-150 views each.
   // If user changed minViewsPerRun to 200, 300, etc → skip this rule.
   // =========================================================
-    if (!config.manualRunCount && requestedViews < 5000 && effectiveMinViews <= 100 && viewRuns.length >= 4) {
+        if (!config.manualRunCount && !config.customDrawnViews && requestedViews < 5000 && effectiveMinViews <= 100 && viewRuns.length >= 4) {
     let totalStolen = 0;
 
     for (let i = 0; i < Math.min(3, viewRuns.length); i++) {
