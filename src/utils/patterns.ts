@@ -826,7 +826,7 @@ function generateViewRunsFromCurve(
     const wave = 1 + Math.sin((phase + variant.timingShift) * Math.PI * variant.waveFrequency) * variant.waveAmplitude;
     let phaseFactor = 1;
 
-            if (phase < 0.2) {
+                   if (phase < 0.2) {
       phaseFactor = random(variant.earlyBand[0], variant.earlyBand[1]);
     } else if (phase <= 0.8) {
       phaseFactor = random(variant.midBand[0], variant.midBand[1]);
@@ -840,37 +840,22 @@ function generateViewRunsFromCurve(
       phaseFactor = random(variant.lateBand[0], variant.lateBand[1]);
     }
 
-    // 🔥 NEW: Stronger S-curve shaping for slow burn
     if (preset === "slow-burn") {
       if (phase < 0.18) {
-        phaseFactor *= random(0.62, 0.82); // very slow early
+        phaseFactor *= random(0.62, 0.82);
       } else if (phase < 0.38) {
-        phaseFactor *= random(0.82, 0.96); // still restrained
+        phaseFactor *= random(0.82, 0.96);
       } else if (phase < 0.68) {
-        phaseFactor *= random(1.14, 1.34); // strong middle curve
+        phaseFactor *= random(1.14, 1.34);
       } else if (phase < 0.86) {
-        phaseFactor *= random(0.92, 1.08); // smooth late settle
+        phaseFactor *= random(0.92, 1.08);
       } else {
-        phaseFactor *= random(0.78, 0.94); // softer ending
+        phaseFactor *= random(0.78, 0.94);
       }
     }
 
-    // 🔥 NEW: Stronger S-curve shaping for slow burn
-    if (preset === "slow-burn") {
-      if (phase < 0.18) {
-        phaseFactor *= random(0.62, 0.82); // very slow early
-      } else if (phase < 0.38) {
-        phaseFactor *= random(0.82, 0.96); // still restrained
-      } else if (phase < 0.68) {
-        phaseFactor *= random(1.14, 1.34); // strong middle curve
-      } else if (phase < 0.86) {
-        phaseFactor *= random(0.92, 1.08); // smooth late settle
-      } else {
-        phaseFactor *= random(0.78, 0.94); // softer ending
-      }
-    }
-    } else {
-      phaseFactor = random(variant.lateBand[0], variant.lateBand[1]);
+    if (Math.random() < variant.dipChance) {
+      phaseFactor *= random(variant.dipBand[0], variant.dipBand[1]);
     }
 
     if (Math.random() < variant.dipChance) {
