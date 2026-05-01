@@ -733,17 +733,8 @@ function generateViewRunsFromCurve(
   if (runCount <= 0) return [totalViews];
   if (runCount === 1) return [totalViews];
 
-  // 🔥 FIX: safeRunCount = runCount exactly
-  // effectiveMinViews already adjusted by caller so curve has room
-  // Do NOT clamp safeRunCount by floor(totalViews/minViewsPerRun)
-  // That was causing equal distribution when manual count set
+    // 🔥 Use exact requested run count — effectiveMinViews already adjusted by caller
   const safeRunCount = runCount;
-
-    // 🔥 FIX 1: When manual run count is set, safeRunCount must equal runCount exactly
-  // We already pre-calculated effectiveMinViews so floor(totalViews/minViewsPerRun) >= runCount
-  const safeRunCount = runCount; // Trust the caller — effectiveMinViews already adjusted
-  if (safeRunCount <= 0) return [totalViews];
-  if (safeRunCount === 1) return [totalViews];
 
   const context = createCurveContext(patternType);
   const varianceFactor = clamp(variancePercent, 10, 50) / 100;
