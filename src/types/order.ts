@@ -29,7 +29,12 @@ export interface OrderConfig {
   peakHoursBoost: boolean;
   quickPreset: QuickPatternPreset | null;
   delivery: DeliveryOption;
-  minViewsPerRun: number; // 🔥 NEW: Dynamic minimum views per run
+    minViewsPerRun: number; // 🔥 NEW: Dynamic minimum views per run
+  manualRunCount?: number;
+  sharesRatio?: "equal" | "half" | "third" | "custom";
+  savesRatio?: "equal" | "half" | "third" | "custom";
+  sharesCustomCount?: number;
+  savesCustomCount?: number;
 }
 
 export interface RunStep {
