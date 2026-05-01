@@ -896,9 +896,9 @@ const commentsService = selectedApi?.services.find(
               <div className="flex flex-wrap items-center gap-2">
                 <label className="text-[10px] text-gray-300 font-semibold">Engagement:</label>
 
-                <button
+                              <button
                   type="button"
-                  onClick={() => { setUseClonedPlan(false); setIncludeLikes(!includeLikes); }}
+                  onClick={() => { setIncludeLikes(!includeLikes); }}
                   className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
                     includeLikes
                       ? "border border-pink-500 bg-pink-500/20 text-pink-300"
@@ -908,9 +908,9 @@ const commentsService = selectedApi?.services.find(
                   ❤️ Likes
                 </button>
 
-                <button
+                                <button
                   type="button"
-                  onClick={() => { setUseClonedPlan(false); setIncludeShares(!includeShares); }}
+                  onClick={() => { setIncludeShares(!includeShares); }}
                   className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
                     includeShares
                       ? "border border-blue-500 bg-blue-500/20 text-blue-300"
@@ -920,9 +920,9 @@ const commentsService = selectedApi?.services.find(
                   🔄 Shares
                 </button>
 
-                <button
+                                <button
                   type="button"
-                  onClick={() => { setUseClonedPlan(false); setIncludeSaves(!includeSaves); }}
+                  onClick={() => { setIncludeSaves(!includeSaves); }}
                   className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
                     includeSaves
                       ? "border border-purple-500 bg-purple-500/20 text-purple-300"
@@ -932,9 +932,9 @@ const commentsService = selectedApi?.services.find(
                   💾 Saves
                 </button>
 
-                <button
+                                <button
                   type="button"
-                  onClick={() => { setUseClonedPlan(false); setIncludeComments(!includeComments); }}
+                  onClick={() => { setIncludeComments(!includeComments); }}
                   className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
                     includeComments
                       ? "border border-pink-500 bg-pink-500/20 text-pink-300"
@@ -945,9 +945,9 @@ const commentsService = selectedApi?.services.find(
                 </button>
 
                 <div className="ml-auto">
-                  <button
+                                  <button
                     type="button"
-                    onClick={() => { setUseClonedPlan(false); setPeakHoursBoost(!peakHoursBoost); }}
+                    onClick={() => { setPeakHoursBoost(!peakHoursBoost); }}
                     className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
                       peakHoursBoost
                         ? "border border-orange-500 bg-orange-500/20 text-orange-300"
