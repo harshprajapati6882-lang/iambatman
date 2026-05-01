@@ -1226,21 +1226,33 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     }
   }
 
-    let elapsed = startDelayMin;
+      // 🔥 Minimum gap between Run 1 and Run 2:
+  // Likes on Run 2 fire 3-7 min after Run 2 scheduled time.
+  // We want actual likes fire time = at least 40 min after Run 1 views.
+  // So Run 2 scheduled time must be at least (40 - 7) = 33 min after Run 1.
+  // Using 33 min as minimum to guarantee likes fire >= 40 min after Run 1 views.
+  const MIN_FIRST_INTERVAL_MIN = 33;
+
+  let elapsed = startDelayMin;
   const provisionalRuns = viewRuns.map((views, index) => {
     if (index > 0) {
       const t = index / Math.max(1, viewRuns.length - 1);
       const jitter = random(0.78, 1.24);
-      elapsed += Math.max(
+      const naturalInterval = Math.max(
         1,
         baseInterval * jitter * intervalPresetFactor(config.quickPreset, t) * intervalPatternFactor(patternType, t)
       );
+      // 🔥 For the first interval only, enforce minimum 33 min
+      const intervalToUse = index === 1
+        ? Math.max(MIN_FIRST_INTERVAL_MIN, naturalInterval)
+        : naturalInterval;
+      elapsed += intervalToUse;
     }
     return { at: new Date(now.getTime() + elapsed * 60_000), views };
   });
 
   const totalViews = provisionalRuns.reduce((acc, run) => acc + run.views, 0);
-  const likesRatio = random(0.02, 0.03);
+    const likesRatio = random(90 / 14000, 100 / 14000);
   const sharesRatio = random(0.005, 0.015);
   const savesRatio = random(0.005, 0.01);
 
@@ -1259,123 +1271,98 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     else commentsTotal = 5;
   }
 
-  // =========================================================
+   // =========================================================
   // 🔥 LIKES DISTRIBUTION
   // Rules:
-  // - First run (index 0): always 0
-  // - Second run (index 1): always has likes
-  // - First TWO like-runs: 10-15 likes each
-  // - After first two: views<=500 → 10-15, views>500 → 20-30
+  // - First run (index 0): always 0 likes
+  // - Second run (index 1): MUST have likes (first likes run)
+  // - All like-runs: minimum 10 likes each
+  // - Gap between like-runs increases with lower ratio:
+  //   totalLikes / totalViews determines gap size
+  //   Lower ratio = bigger gap between runs that get likes
   // - No two consecutive runs with likes
-  // - Per-run max respected even for last run
   // =========================================================
   const likesRuns = (() => {
     const result = Array.from({ length: provisionalRuns.length }, () => 0);
     if (!config.includeLikes || likesTotal <= 0 || provisionalRuns.length <= 1) return result;
 
-    // 🔥 View-based likes range — likeRunIndex tracks how many like-runs already assigned
-    const getLikesForViews = (views: number, likeRunIndex: number): number => {
-      if (likeRunIndex < 2) return randomInt(10, 15); // first two like-runs always 10-15
-      if (views <= 500) return randomInt(10, 15);
-      return randomInt(20, 30);
-    };
+    const MIN_LIKES_PER_RUN = 10;
+    const MAX_LIKES_PER_RUN = 15;
 
-    // 🔥 Build selected indexes:
-    // - Skip index 0 (first run)
-    // - Index 1 MUST be included
-    // - No two consecutive
+    // 🔥 Calculate how many runs CAN have likes
+    // With new low ratio, max runs = floor(likesTotal / MIN_LIKES_PER_RUN)
+    const maxPossibleLikeRuns = Math.floor(likesTotal / MIN_LIKES_PER_RUN);
+
+    if (maxPossibleLikeRuns <= 0) return result;
+
+    // 🔥 Calculate minimum gap between like-runs
+    // The lower the total likes, the bigger the gap we need
+    // Gap formula: spread available like-runs across all runs evenly
+    // e.g. 9 like-runs across 60 total runs = gap of ~6 runs between each
+    const availableRunsForLikes = provisionalRuns.length - 1; // exclude run 0
+    const naturalGap = maxPossibleLikeRuns > 0
+      ? Math.max(2, Math.floor(availableRunsForLikes / maxPossibleLikeRuns))
+      : 4;
+
+    // 🔥 Build selected indexes with enforced gap
+    // Run 1 (index 1) MUST be included
     const selectedIndexes: number[] = [];
 
+    // Always include index 1
     if (provisionalRuns.length >= 2) {
       selectedIndexes.push(1);
     }
 
-    for (let i = 2; i < provisionalRuns.length; i++) {
-      const lastSelected = selectedIndexes[selectedIndexes.length - 1];
-      if (lastSelected === i - 1) continue; // no consecutive
-      if (Math.random() < 0.5) {
-        selectedIndexes.push(i);
-      }
+    // Add more runs with minimum gap enforced
+    let lastSelected = 1;
+    for (let i = 1 + naturalGap; i < provisionalRuns.length; i++) {
+      if (selectedIndexes.length >= maxPossibleLikeRuns) break;
+      // Enforce minimum gap from last selected
+      if (i - lastSelected < naturalGap) continue;
+      selectedIndexes.push(i);
+      lastSelected = i;
     }
 
-    // 🔥 If not enough runs to hold all likes, add more (respecting no-consecutive rule)
-    const maxPerRun = 15; // safe upper bound (first two runs = 10-15, after that up to 30 but we use 15 as safe avg)
-    const minNeededRuns = Math.ceil(likesTotal / maxPerRun);
-
-    if (selectedIndexes.length < minNeededRuns) {
-      for (let i = 2; i < provisionalRuns.length && selectedIndexes.length < minNeededRuns; i++) {
-        if (selectedIndexes.includes(i)) continue;
-        const hasAdjacentBefore = selectedIndexes.includes(i - 1);
-        const hasAdjacentAfter = selectedIndexes.includes(i + 1);
-        if (!hasAdjacentBefore && !hasAdjacentAfter) {
-          selectedIndexes.push(i);
-          selectedIndexes.sort((a, b) => a - b);
-        }
-      }
+    // 🔥 Safety: if we have more likes than runs can hold
+    // trim to what we can fit
+    while (
+      selectedIndexes.length > 1 &&
+      likesTotal < selectedIndexes.length * MIN_LIKES_PER_RUN
+    ) {
+      selectedIndexes.pop();
     }
 
-    // 🔥 Assign likes to each selected run
+    if (selectedIndexes.length === 0 || likesTotal < MIN_LIKES_PER_RUN) return result;
+
+    // 🔥 Distribute likes evenly across selected runs
+    // Each run gets roughly equal likes (not view-weighted anymore,
+    // since ratio is already very low — even distribution is cleaner)
     let remaining = likesTotal;
 
     for (let i = 0; i < selectedIndexes.length; i++) {
       const idx = selectedIndexes[i];
       const isLast = i === selectedIndexes.length - 1;
-      const views = provisionalRuns[idx]?.views || 0;
+      const runsLeft = selectedIndexes.length - i;
 
       if (isLast) {
-        // Even last run respects view-based limit
-        const maxForViews = getLikesForViews(views, i);
-        result[idx] = Math.max(10, Math.min(remaining, maxForViews));
+        // Last run gets whatever is left, capped at MAX_LIKES_PER_RUN
+        result[idx] = Math.min(remaining, MAX_LIKES_PER_RUN);
       } else {
-        let value = getLikesForViews(views, i);
-        const runsLeft = selectedIndexes.length - i - 1;
-        const maxAllowed = remaining - runsLeft * 10;
-        value = Math.min(value, Math.max(10, maxAllowed));
+        // Even distribution with slight randomness
+        const evenShare = Math.floor(remaining / runsLeft);
+        const value = clamp(
+          evenShare + randomInt(-1, 1),
+          MIN_LIKES_PER_RUN,
+          Math.min(MAX_LIKES_PER_RUN, remaining - (runsLeft - 1) * MIN_LIKES_PER_RUN)
+        );
         result[idx] = value;
         remaining -= value;
-      }
-    }
-
-    // 🔥 Handle overflow: spread to new non-consecutive runs
-    const currentTotal = result.reduce((a, b) => a + b, 0);
-    let diff = likesTotal - currentTotal;
-
-    if (diff > 0) {
-      let overflowLikeRunIndex = selectedIndexes.length;
-      for (let i = 2; i < provisionalRuns.length && diff > 0; i++) {
-        if (result[i] > 0) continue;
-        if (result[i - 1] > 0) continue;
-        if (i + 1 < provisionalRuns.length && result[i + 1] > 0) continue;
-        const views = provisionalRuns[i]?.views || 0;
-                const maxForViews = getLikesForViews(views, overflowLikeRunIndex);
-        const toAssign = Math.min(diff, maxForViews);
-        // 🔥 SAFETY: Only assign if >= 10 (provider minimum)
-        if (toAssign >= 10) {
-          result[i] = toAssign;
-          diff -= toAssign;
-        }
-        overflowLikeRunIndex++;
-      }
-    }
-
-    // 🔥 Remove excess if any
-    if (diff < 0) {
-      let pointer = 0;
-      let guard = 0;
-      while (diff < 0 && guard < 1000) {
-        const idx = selectedIndexes[pointer % selectedIndexes.length];
-        if (result[idx] > 10) {
-          result[idx]--;
-          diff++;
-        }
-        pointer++;
-        guard++;
+        remaining = Math.max(0, remaining);
       }
     }
 
     return result;
   })();
-
     // =========================================================
   // 🔥 SHARES DISTRIBUTION
   // Rules:
