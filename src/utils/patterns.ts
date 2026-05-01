@@ -1098,13 +1098,21 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   const requestedViews = Math.max(0, Math.floor(config.totalViews));
   const variance = clamp(config.variancePercent * presetProfile.varianceMultiplier, 10, 50);
 
-  const maxPossibleRuns = Math.max(1, Math.floor(requestedViews / minViewsPerRun));
-  const baseRequestedRuns = Math.round(randomInt(50, 80) * presetProfile.runMultiplier * selectedPatternProfile.runMultiplier);
-  const requestedRuns = Math.min(baseRequestedRuns, maxPossibleRuns);
+    const totalRuns = (() => {
+    if (config.manualRunCount && config.manualRunCount > 0) {
+      return Math.max(1, Math.min(config.manualRunCount, 500));
+    }
+    const maxPossibleRuns = Math.max(1, Math.floor(requestedViews / minViewsPerRun));
+    const baseRequestedRuns = Math.round(randomInt(50, 80) * presetProfile.runMultiplier * selectedPatternProfile.runMultiplier);
+    const requestedRuns = Math.min(baseRequestedRuns, maxPossibleRuns);
+    return requestedViews >= minViewsPerRun
+      ? resolveRunCount(requestedViews, requestedRuns, presetProfile.targetAverageViews, minViewsPerRun)
+      : 1;
+  })();
 
-  const totalRuns = requestedViews >= minViewsPerRun
-    ? resolveRunCount(requestedViews, requestedRuns, presetProfile.targetAverageViews, minViewsPerRun)
-    : 1;
+  const effectiveMinViews = (config.manualRunCount && config.manualRunCount > 0)
+    ? Math.max(1, Math.floor(requestedViews / totalRuns))
+    : minViewsPerRun;
 
   const durationHours = clamp(
     resolveDurationHours(config) * presetProfile.durationMultiplier * selectedPatternProfile.durationMultiplier,
@@ -1117,17 +1125,17 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     // 🔥 Calculate baseInterval BEFORE peak boost so it can be used inside
   const baseInterval = durationMin / Math.max(1, totalRuns - 1);
 
-  let viewRuns = generateViewRunsFromCurve(
+    let viewRuns = generateViewRunsFromCurve(
     patternType,
     requestedViews,
     totalRuns,
     variance,
     config.quickPreset,
     variant,
-    minViewsPerRun
+    effectiveMinViews
   );
 
-  if (config.peakHoursBoost && viewRuns.length > 1 && requestedViews >= minViewsPerRun) {
+    if (config.peakHoursBoost && viewRuns.length > 1 && requestedViews >= effectiveMinViews) {
     const initialWeights = viewRuns.map((views) => Math.max(0.01, views));
 
     // 🔥 Calculate actual run times first (same logic as provisionalRuns below)
@@ -1174,7 +1182,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       return weight * boost;
     });
 
-    viewRuns = distributeWithMinimum(boostedWeights, requestedViews, minViewsPerRun);
+        viewRuns = distributeWithMinimum(boostedWeights, requestedViews, effectiveMinViews);
   }
 
     // =========================================================
@@ -1183,7 +1191,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   // cap first 3 runs to 100-150 views each.
   // If user changed minViewsPerRun to 200, 300, etc → skip this rule.
   // =========================================================
-  if (requestedViews < 5000 && minViewsPerRun <= 100 && viewRuns.length >= 4) {
+    if (!config.manualRunCount && requestedViews < 5000 && effectiveMinViews <= 100 && viewRuns.length >= 4) {
     let totalStolen = 0;
 
     for (let i = 0; i < Math.min(3, viewRuns.length); i++) {
@@ -1216,7 +1224,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       // Need to take from later runs to cover deficit
       let needed = Math.abs(totalStolen);
       for (let i = viewRuns.length - 1; i >= 3 && needed > 0; i--) {
-        const canTake = viewRuns[i] - minViewsPerRun;
+                const canTake = viewRuns[i] - effectiveMinViews;
         if (canTake > 0) {
           const take = Math.min(needed, canTake);
           viewRuns[i] -= take;
@@ -1252,13 +1260,28 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   });
 
   const totalViews = provisionalRuns.reduce((acc, run) => acc + run.views, 0);
-    const likesRatio = random(90 / 14000, 100 / 14000);
-  const sharesRatio = random(0.005, 0.015);
-  const savesRatio = random(0.005, 0.01);
-
+      const likesRatio = random(90 / 14000, 100 / 14000);
   const likesTotal = config.includeLikes ? Math.max(10, Math.floor(totalViews * likesRatio)) : 0;
-  const sharesTotal = config.includeShares ? Math.max(10, Math.floor(totalViews * sharesRatio)) : 0;
-  const savesTotal = config.includeSaves ? Math.max(10, Math.floor(totalViews * savesRatio)) : 0;
+
+  const sharesTotal = (() => {
+    if (!config.includeShares) return 0;
+    const ratio = config.sharesRatio || "half";
+    if (ratio === "equal") return Math.max(10, likesTotal);
+    if (ratio === "half") return Math.max(10, Math.floor(likesTotal / 2));
+    if (ratio === "third") return Math.max(10, Math.floor(likesTotal / 3));
+    if (ratio === "custom") return Math.max(10, config.sharesCustomCount || 0);
+    return Math.max(10, Math.floor(likesTotal / 2));
+  })();
+
+  const savesTotal = (() => {
+    if (!config.includeSaves) return 0;
+    const ratio = config.savesRatio || "third";
+    if (ratio === "equal") return Math.max(10, likesTotal);
+    if (ratio === "half") return Math.max(10, Math.floor(likesTotal / 2));
+    if (ratio === "third") return Math.max(10, Math.floor(likesTotal / 3));
+    if (ratio === "custom") return Math.max(10, config.savesCustomCount || 0);
+    return Math.max(10, Math.floor(likesTotal / 3));
+  })();
 
   let commentsTotal = 0;
   if (config.includeComments) {
@@ -1271,16 +1294,12 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     else commentsTotal = 5;
   }
 
-   // =========================================================
-  // 🔥 LIKES DISTRIBUTION
-  // Rules:
-  // - First run (index 0): always 0 likes
-  // - Second run (index 1): MUST have likes (first likes run)
-  // - All like-runs: minimum 10 likes each
-  // - Gap between like-runs increases with lower ratio:
-  //   totalLikes / totalViews determines gap size
-  //   Lower ratio = bigger gap between runs that get likes
-  // - No two consecutive runs with likes
+     // =========================================================
+  // 🔥 LIKES DISTRIBUTION - bracket-based placement
+  // - Run index 1 (2nd run): ALWAYS first likes
+  // - After that: find run closest to midpoint of each 1000-view bracket
+  //   Brackets: 1000-2000 → midpoint 1500, 2000-3000 → 2500, etc.
+  // - Each like-run: minimum 10 likes, maximum 15 likes
   // =========================================================
   const likesRuns = (() => {
     const result = Array.from({ length: provisionalRuns.length }, () => 0);
@@ -1289,42 +1308,53 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     const MIN_LIKES_PER_RUN = 10;
     const MAX_LIKES_PER_RUN = 15;
 
-    // 🔥 Calculate how many runs CAN have likes
-    // With new low ratio, max runs = floor(likesTotal / MIN_LIKES_PER_RUN)
-    const maxPossibleLikeRuns = Math.floor(likesTotal / MIN_LIKES_PER_RUN);
+    // Build cumulative views per provisional run
+    let cumViews = 0;
+    const cumulativeViewsPerRun = provisionalRuns.map(r => {
+      cumViews += r.views;
+      return cumViews;
+    });
 
-    if (maxPossibleLikeRuns <= 0) return result;
+    const totalViewsAll = cumulativeViewsPerRun[cumulativeViewsPerRun.length - 1] || 1;
 
-    // 🔥 Calculate minimum gap between like-runs
-    // The lower the total likes, the bigger the gap we need
-    // Gap formula: spread available like-runs across all runs evenly
-    // e.g. 9 like-runs across 60 total runs = gap of ~6 runs between each
-    const availableRunsForLikes = provisionalRuns.length - 1; // exclude run 0
-    const naturalGap = maxPossibleLikeRuns > 0
-      ? Math.max(2, Math.floor(availableRunsForLikes / maxPossibleLikeRuns))
-      : 4;
-
-    // 🔥 Build selected indexes with enforced gap
-    // Run 1 (index 1) MUST be included
+    // 🔥 Step 1: Index 1 is always first likes run
     const selectedIndexes: number[] = [];
-
-    // Always include index 1
     if (provisionalRuns.length >= 2) {
       selectedIndexes.push(1);
     }
 
-    // Add more runs with minimum gap enforced
-    let lastSelected = 1;
-    for (let i = 1 + naturalGap; i < provisionalRuns.length; i++) {
-      if (selectedIndexes.length >= maxPossibleLikeRuns) break;
-      // Enforce minimum gap from last selected
-      if (i - lastSelected < naturalGap) continue;
-      selectedIndexes.push(i);
-      lastSelected = i;
+    // 🔥 Step 2: Find bracket midpoints (1500, 2500, 3500...)
+    const bracketSize = 1000;
+    const maxBrackets = Math.floor(totalViewsAll / bracketSize);
+
+    for (let bracketIndex = 1; bracketIndex <= maxBrackets; bracketIndex++) {
+      const midpoint = bracketIndex * bracketSize + bracketSize / 2;
+      if (midpoint > totalViewsAll) break;
+
+      // Find run whose cumulativeViews is closest to midpoint
+      let bestRunIndex = -1;
+      let bestDiff = Infinity;
+
+      for (let i = 2; i < provisionalRuns.length - 1; i++) {
+        const diff = Math.abs(cumulativeViewsPerRun[i] - midpoint);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestRunIndex = i;
+        }
+      }
+
+      if (
+        bestRunIndex !== -1 &&
+        !selectedIndexes.includes(bestRunIndex) &&
+        !selectedIndexes.some(s => Math.abs(s - bestRunIndex) < 2)
+      ) {
+        selectedIndexes.push(bestRunIndex);
+      }
     }
 
-    // 🔥 Safety: if we have more likes than runs can hold
-    // trim to what we can fit
+    selectedIndexes.sort((a, b) => a - b);
+
+    // Trim if likes can't cover all selected runs
     while (
       selectedIndexes.length > 1 &&
       likesTotal < selectedIndexes.length * MIN_LIKES_PER_RUN
@@ -1334,9 +1364,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     if (selectedIndexes.length === 0 || likesTotal < MIN_LIKES_PER_RUN) return result;
 
-    // 🔥 Distribute likes evenly across selected runs
-    // Each run gets roughly equal likes (not view-weighted anymore,
-    // since ratio is already very low — even distribution is cleaner)
+    // Distribute likes evenly across selected runs
     let remaining = likesTotal;
 
     for (let i = 0; i < selectedIndexes.length; i++) {
@@ -1345,10 +1373,8 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       const runsLeft = selectedIndexes.length - i;
 
       if (isLast) {
-        // Last run gets whatever is left, capped at MAX_LIKES_PER_RUN
         result[idx] = Math.min(remaining, MAX_LIKES_PER_RUN);
       } else {
-        // Even distribution with slight randomness
         const evenShare = Math.floor(remaining / runsLeft);
         const value = clamp(
           evenShare + randomInt(-1, 1),
