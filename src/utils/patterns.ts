@@ -1120,11 +1120,12 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       : 1;
   })();
 
-  // 🔥 FIX 1: When manual run count set, auto-adjust effectiveMinViews
-  // but still use CURVE distribution (not equal split)
-  // effectiveMinViews = floor(totalViews / manualRunCount) so curve has room to work
+    // 🔥 FIX: To draw a curve, the minimum floor MUST be lower than the average!
+  // If we set the floor to the average (e.g. 5000/30 = 166), it becomes a flat line.
+  // So we use the global minViewsPerRun (e.g. 100), UNLESS the math forces us lower.
+  const avgViewsPerRun = Math.floor(requestedViews / totalRuns);
   const effectiveMinViews = (config.manualRunCount && config.manualRunCount > 0)
-    ? Math.max(1, Math.floor(requestedViews / totalRuns))
+    ? Math.min(minViewsPerRun, Math.max(1, avgViewsPerRun))
     : minViewsPerRun;
 
   const durationHours = clamp(
