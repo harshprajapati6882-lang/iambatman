@@ -567,9 +567,9 @@ const commentsService = selectedApi?.services.find(
                     </button>
                   ))}
                 </div>
-                {manualRunCount > 0 && (
-                  <p className="mt-1 text-[9px] text-blue-300/60">
-                    ⚡ Min views auto-adjusted to ~{Math.floor(totalViews / manualRunCount).toLocaleString()} views/run
+                                {manualRunCount > 0 && (
+                  <p className="mt-1 text-[9px] text-emerald-400/80">
+                    ⚡ Manual mode active: Graph will curve while maintaining exact run count
                   </p>
                 )}
               </div>
