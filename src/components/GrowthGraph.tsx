@@ -59,7 +59,7 @@ interface GrowthGraphProps {
   onApplyFavourite?: (config: FavouriteConfig) => void;
 }
 
-type GraphMode = "smooth" | "stepped";
+// Removed smooth mode — stepped graph only
 
 const FAVOURITES_KEY = "dev-smm-favourite-configs";
 
@@ -234,7 +234,7 @@ export function GrowthGraph({
   onGenerate,
   onApplyFavourite,
 }: GrowthGraphProps) {
-  const [graphMode, setGraphMode] = useState<GraphMode>("smooth");
+    const graphMode = "stepped";
   const [favourites, setFavourites] = useState<FavouriteConfig[]>(() => readFavourites());
   const [showFavourites, setShowFavourites] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
@@ -314,29 +314,8 @@ export function GrowthGraph({
         <div className="flex items-center gap-3 flex-wrap">
           <h2 className="text-lg font-semibold text-yellow-400">📈 Growth Projection</h2>
 
-          <div className="inline-flex rounded-lg border border-yellow-500/30 bg-black p-0.5">
-            <button
-              type="button"
-              onClick={() => setGraphMode("smooth")}
-              className={`rounded-md px-2 py-1 text-[10px] font-medium transition ${
-                graphMode === "smooth"
-                  ? "bg-yellow-500/20 text-yellow-300"
-                  : "text-gray-500 hover:text-yellow-400"
-              }`}
-            >
-              〰️ Smooth
-            </button>
-            <button
-              type="button"
-              onClick={() => setGraphMode("stepped")}
-              className={`rounded-md px-2 py-1 text-[10px] font-medium transition ${
-                graphMode === "stepped"
-                  ? "bg-yellow-500/20 text-yellow-300"
-                  : "text-gray-500 hover:text-yellow-400"
-              }`}
-            >
-              📊 Stepped
-            </button>
+                    <div className="inline-flex rounded-lg border border-yellow-500/30 bg-black px-2 py-1 text-[10px] font-medium text-yellow-300">
+            📊 Stepped Graph
           </div>
 
           {/* 🔥 Favourite controls — only in stepped mode */}
@@ -521,59 +500,31 @@ export function GrowthGraph({
         transition={{ duration: 0.35, ease: "easeOut" }}
         className="h-80"
       >
-        {graphMode === "smooth" ? (
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={smoothData} margin={{ top: 14, right: 20, left: 0, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis dataKey="label" tick={{ fill: "#9ca3af", fontSize: 11 }} minTickGap={26} />
-              <YAxis tick={{ fill: "#9ca3af", fontSize: 11 }} width={52} />
-              <Tooltip
-                contentStyle={{
-                  background: "#000000",
-                  border: "1px solid #eab308",
-                  borderRadius: "0.75rem",
-                  color: "#d1d5db",
-                  fontSize: "12px",
-                }}
-              />
-              <Legend wrapperStyle={{ fontSize: "12px", color: "#d1d5db" }} />
-              <Line type={curveType} dataKey="views" name="Views" stroke="#eab308" strokeWidth={2.5} dot={false} isAnimationActive animationDuration={900} />
-              <Line type={curveType} dataKey="likes" name="Likes" stroke="#a78bfa" strokeWidth={1.8} dot={false} isAnimationActive animationDuration={900} />
-              <Line type={curveType} dataKey="shares" name="Shares" stroke="#f59e0b" strokeWidth={1.8} dot={false} isAnimationActive animationDuration={900} />
-              <Line type={curveType} dataKey="saves" name="Saves" stroke="#34d399" strokeWidth={1.8} dot={false} isAnimationActive animationDuration={900} />
-              <Line type={curveType} dataKey="comments" name="Comments" stroke="#f472b6" strokeWidth={1.8} dot={false} isAnimationActive animationDuration={900} />
-            </LineChart>
-          </ResponsiveContainer>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={steppedData} margin={{ top: 14, right: 20, left: 0, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#111" opacity={0.3} />
-              <XAxis dataKey="time" stroke="#666" tick={{ fill: "#9ca3af", fontSize: 11 }} />
-              <YAxis stroke="#666" tick={{ fill: "#9ca3af", fontSize: 11 }} width={52} />
-              <Tooltip content={<SteppedTooltip />} />
-              <Legend wrapperStyle={{ fontSize: "12px", color: "#d1d5db" }} />
-              <Line type="monotone" dataKey="views" stroke="#3b82f6" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-views" legendType="none" tooltipType="none" />
-              <Line type="monotone" dataKey="likes" stroke="#ec4899" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-likes" legendType="none" tooltipType="none" />
-              <Line type="monotone" dataKey="shares" stroke="#22c55e" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-shares" legendType="none" tooltipType="none" />
-              <Line type="monotone" dataKey="saves" stroke="#eab308" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-saves" legendType="none" tooltipType="none" />
-              <Line type="monotone" dataKey="comments" stroke="#a855f7" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-comments" legendType="none" tooltipType="none" />
-              <Line type="monotone" dataKey="views" stroke="#3b82f6" strokeWidth={2} dot={false} name="Views" isAnimationActive animationDuration={900} />
-              <Line type="monotone" dataKey="likes" stroke="#ec4899" strokeWidth={2} dot={false} name="Likes" isAnimationActive animationDuration={900} />
-              <Line type="monotone" dataKey="shares" stroke="#22c55e" strokeWidth={2} dot={false} name="Shares" isAnimationActive animationDuration={900} />
-              <Line type="monotone" dataKey="saves" stroke="#eab308" strokeWidth={2} dot={false} name="Saves" isAnimationActive animationDuration={900} />
-              <Line type="monotone" dataKey="comments" stroke="#a855f7" strokeWidth={2} dot={false} name="Comments" isAnimationActive animationDuration={900} />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
+                <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={steppedData} margin={{ top: 14, right: 20, left: 0, bottom: 4 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#111" opacity={0.3} />
+            <XAxis dataKey="time" stroke="#666" tick={{ fill: "#9ca3af", fontSize: 11 }} />
+            <YAxis stroke="#666" tick={{ fill: "#9ca3af", fontSize: 11 }} width={52} />
+            <Tooltip content={<SteppedTooltip />} />
+            <Legend wrapperStyle={{ fontSize: "12px", color: "#d1d5db" }} />
+            <Line type="monotone" dataKey="views" stroke="#3b82f6" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-views" legendType="none" tooltipType="none" />
+            <Line type="monotone" dataKey="likes" stroke="#ec4899" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-likes" legendType="none" tooltipType="none" />
+            <Line type="monotone" dataKey="shares" stroke="#22c55e" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-shares" legendType="none" tooltipType="none" />
+            <Line type="monotone" dataKey="saves" stroke="#eab308" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-saves" legendType="none" tooltipType="none" />
+            <Line type="monotone" dataKey="comments" stroke="#a855f7" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-comments" legendType="none" tooltipType="none" />
+            <Line type="monotone" dataKey="views" stroke="#3b82f6" strokeWidth={2} dot={false} name="Views" isAnimationActive animationDuration={900} />
+            <Line type="monotone" dataKey="likes" stroke="#ec4899" strokeWidth={2} dot={false} name="Likes" isAnimationActive animationDuration={900} />
+            <Line type="monotone" dataKey="shares" stroke="#22c55e" strokeWidth={2} dot={false} name="Shares" isAnimationActive animationDuration={900} />
+            <Line type="monotone" dataKey="saves" stroke="#eab308" strokeWidth={2} dot={false} name="Saves" isAnimationActive animationDuration={900} />
+            <Line type="monotone" dataKey="comments" stroke="#a855f7" strokeWidth={2} dot={false} name="Comments" isAnimationActive animationDuration={900} />
+          </LineChart>
+        </ResponsiveContainer>
       </motion.div>
 
       <div className="mt-2 flex items-center justify-between">
-        <p className="text-[9px] text-gray-600">
-          {graphMode === "smooth"
-            ? "〰️ Smooth: Interpolated cumulative growth curve"
-            : "📊 Stepped: Per-run cumulative view (same as Orders page)"}
-        </p>
-        {graphMode === "stepped" && (
+                <p className="text-[9px] text-gray-600">
+          📊 Stepped: Per-run cumulative view (same as Orders page)
+        </p>        {graphMode === "stepped" && (
           <p className="text-[9px] text-pink-600">
             🤍 Save config to reuse with any view count
           </p>
