@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   LineChart,
   Line,
@@ -7,7 +7,6 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
 
 interface DrawableGraphProps {
@@ -17,7 +16,6 @@ interface DrawableGraphProps {
   onApply: (viewsPerRun: number[]) => void;
 }
 
-// Catmull-Rom spline for smooth interpolation
 function catmullRom(p0: number, p1: number, p2: number, p3: number, t: number): number {
   const t2 = t * t;
   const t3 = t2 * t;
@@ -37,90 +35,44 @@ function smoothInterpolate(controlPoints: number[], outputCount: number): number
       return controlPoints[0] + (controlPoints[1] - controlPoints[0]) * t;
     });
   }
-
   const result: number[] = [];
   const n = controlPoints.length;
-
   for (let i = 0; i < outputCount; i++) {
     const t = (i / (outputCount - 1)) * (n - 1);
     const idx = Math.min(Math.floor(t), n - 2);
     const frac = t - idx;
-
     const p0 = controlPoints[Math.max(0, idx - 1)];
     const p1 = controlPoints[idx];
     const p2 = controlPoints[Math.min(n - 1, idx + 1)];
     const p3 = controlPoints[Math.min(n - 1, idx + 2)];
-
     result.push(catmullRom(p0, p1, p2, p3, frac));
   }
-
   return result;
 }
 
 function enforceMinAndTotal(raw: number[], totalViews: number, minViewsPerRun: number): number[] {
-  // Normalize: shift so all positive
   const minVal = Math.min(...raw);
   const shifted = raw.map(v => Math.max(0.01, v - minVal + 0.01));
   const sum = shifted.reduce((a, b) => a + b, 0);
-
-  // Scale to totalViews
   const scaled = shifted.map(v => Math.round((v / sum) * totalViews));
-
-  // Enforce minimum
   const enforced = scaled.map(v => Math.max(minViewsPerRun, v));
-
-  // Correct total
   let diff = totalViews - enforced.reduce((a, b) => a + b, 0);
   let idx = 0;
   while (diff !== 0 && idx < enforced.length * 10) {
-    if (diff > 0) {
-      enforced[idx % enforced.length]++;
-      diff--;
-    } else if (enforced[idx % enforced.length] > minViewsPerRun) {
-      enforced[idx % enforced.length]--;
-      diff++;
-    }
+    if (diff > 0) { enforced[idx % enforced.length]++; diff--; }
+    else if (enforced[idx % enforced.length] > minViewsPerRun) { enforced[idx % enforced.length]--; diff++; }
     idx++;
   }
-
   return enforced;
 }
 
-const CustomDot = ({
-  cx,
-  cy,
-  index,
-  isHandle,
-  isDragging,
-}: {
-  cx?: number;
-  cy?: number;
-  index?: number;
-  isHandle: boolean;
-  isDragging: boolean;
-}) => {
-  if (!isHandle || cx === undefined || cy === undefined) return null;
-  return (
-    <circle
-      cx={cx}
-      cy={cy}
-      r={isDragging ? 7 : 5}
-      fill={isDragging ? "#eab308" : "#3b82f6"}
-      stroke={isDragging ? "#fbbf24" : "#60a5fa"}
-      strokeWidth={2}
-      style={{ cursor: "grab", filter: isDragging ? "drop-shadow(0 0 6px rgba(234,179,8,0.5))" : "none" }}
-    />
-  );
-};
-
 const SteppedTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload || !payload.length) return null;
-  const filtered = payload.filter((entry: any) => !String(entry.name || "").startsWith("planned-"));
+  const filtered = payload.filter((e: any) => !String(e.name || "").startsWith("planned-"));
   if (filtered.length === 0) return null;
-
   return (
     <div style={{
-      background: "#000000",
+      background: "#000",
       border: "1px solid #eab308",
       borderRadius: "0.75rem",
       color: "#d1d5db",
@@ -128,119 +80,140 @@ const SteppedTooltip = ({ active, payload, label }: any) => {
       padding: "8px 12px",
     }}>
       <p style={{ marginBottom: 4, color: "#9ca3af" }}>{label}</p>
-      {filtered.map((entry: any) => (
-        <p key={entry.name} style={{ color: entry.color, margin: "2px 0" }}>
-          {entry.name}: {Math.round(entry.value)}
+      {filtered.map((e: any) => (
+        <p key={e.name} style={{ color: e.color, margin: "2px 0" }}>
+          {e.name}: {Math.round(e.value)}
         </p>
       ))}
     </div>
   );
 };
 
-export function DrawableGraph({
-  totalViews,
-  runCount,
-  minViewsPerRun,
-  onApply,
-}: DrawableGraphProps) {
-  // Number of draggable control handles
+export function DrawableGraph({ totalViews, runCount, minViewsPerRun, onApply }: DrawableGraphProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const numHandles = Math.min(12, Math.max(6, Math.floor(runCount / 4)));
 
-  // Handle positions: 0-1 value (0=bottom, 1=top)
-  const [handles, setHandles] = useState<number[]>(() => {
-    return Array.from({ length: numHandles }, (_, i) => {
+  const [handles, setHandles] = useState<number[]>(() =>
+    Array.from({ length: numHandles }, (_, i) => {
       const t = i / (numHandles - 1);
-      return 1 / (1 + Math.exp(-8 * (t - 0.5))); // default S-curve
-    });
-  });
+      return 1 / (1 + Math.exp(-8 * (t - 0.5)));
+    })
+  );
 
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [hasCustomized, setHasCustomized] = useState(false);
 
-  // Map each handle to which run index it controls
-  const handleRunIndexes = useMemo(() => {
-    return Array.from({ length: numHandles }, (_, i) =>
+  const handleRunIndexes = useMemo(() =>
+    Array.from({ length: numHandles }, (_, i) =>
       Math.round((i / (numHandles - 1)) * (runCount - 1))
-    );
-  }, [numHandles, runCount]);
+    ), [numHandles, runCount]
+  );
 
-  // Compute views per run from handles
   const viewsPerRun = useMemo(() => {
     const interpolated = smoothInterpolate(handles, runCount);
     return enforceMinAndTotal(interpolated, totalViews, minViewsPerRun);
   }, [handles, runCount, totalViews, minViewsPerRun]);
 
-  // Build chart data — same format as stepped graph
   const chartData = useMemo(() => {
     let cumViews = 0;
     return viewsPerRun.map((views, i) => {
       cumViews += views;
-      return {
-        time: `#${i + 1}`,
-        views: cumViews,
-        perRun: views,
-        index: i,
-      };
+      return { time: `#${i + 1}`, views: cumViews, perRun: views, index: i };
     });
   }, [viewsPerRun]);
 
-  // Handle Y-axis max
-  const maxCumViews = chartData.length > 0 ? chartData[chartData.length - 1].views : 1;
+  // 🔥 SVG overlay handles — these are the big draggable circles
+  const [chartArea, setChartArea] = useState({ left: 0, top: 0, width: 0, height: 0 });
 
-  // Find which handle is closest to a chart point
-  const isHandlePoint = useCallback(
-    (index: number) => handleRunIndexes.includes(index),
-    [handleRunIndexes]
-  );
-
-  const getHandleIdx = useCallback(
-    (runIndex: number) => handleRunIndexes.indexOf(runIndex),
-    [handleRunIndexes]
-  );
-
-  // Drag handling on the chart area
-  const handleChartMouseDown = useCallback(
-    (data: any) => {
-      if (!data || !data.activePayload || !data.activePayload[0]) return;
-      const pointIndex = data.activePayload[0].payload.index;
-      const handleIdx = getHandleIdx(pointIndex);
-      if (handleIdx !== -1) {
-        setDraggingIndex(handleIdx);
-      }
-    },
-    [getHandleIdx]
-  );
-
-  const handleChartMouseMove = useCallback(
-    (data: any) => {
-      if (draggingIndex === null || !data || !data.chartY) return;
-
-      // Convert chartY to 0-1 value
-      // We need the chart's internal height — approximate from container
-      const chartHeight = 220; // matches our container height
-      const padT = 20;
-      const padB = 40;
-      const usableHeight = chartHeight - padT - padB;
-
-      const rawY = data.chartY;
-      const normalizedY = 1 - ((rawY - padT) / usableHeight);
-      const clamped = Math.max(0.05, Math.min(0.95, normalizedY));
-
-      setHandles(prev => {
-        const next = [...prev];
-        next[draggingIndex] = clamped;
-        return next;
+  // Measure chart area after render
+  const measureChart = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    // Recharts renders the plot area inside .recharts-cartesian-grid
+    const grid = container.querySelector(".recharts-cartesian-grid");
+    if (grid) {
+      const rect = grid.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      setChartArea({
+        left: rect.left - containerRect.left,
+        top: rect.top - containerRect.top,
+        width: rect.width,
+        height: rect.height,
       });
-      setHasCustomized(true);
-    },
-    [draggingIndex]
-  );
-
-  const handleChartMouseUp = useCallback(() => {
-    setDraggingIndex(null);
+    }
   }, []);
 
-  // Preset shapes
+  useEffect(() => {
+    measureChart();
+    window.addEventListener("resize", measureChart);
+    return () => window.removeEventListener("resize", measureChart);
+  }, [measureChart, chartData]);
+
+  // Delayed measure after chart animation
+  useEffect(() => {
+    const timer = setTimeout(measureChart, 100);
+    return () => clearTimeout(timer);
+  }, [chartData, measureChart]);
+
+  // Compute handle positions in pixels
+  const maxCumViews = chartData.length > 0 ? chartData[chartData.length - 1].views * 1.05 : 1;
+
+  const handlePositions = useMemo(() => {
+    if (chartArea.width === 0) return [];
+    return handleRunIndexes.map((runIdx) => {
+      const x = chartArea.left + (runIdx / (runCount - 1)) * chartArea.width;
+      const cumV = chartData[runIdx]?.views || 0;
+      const y = chartArea.top + chartArea.height - (cumV / maxCumViews) * chartArea.height;
+      return { x, y, runIdx };
+    });
+  }, [chartArea, handleRunIndexes, chartData, runCount, maxCumViews]);
+
+  // 🔥 Global mouse/touch handlers for smooth dragging
+  const updateHandleFromY = useCallback((handleIdx: number, clientY: number) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const containerRect = container.getBoundingClientRect();
+    const relY = clientY - containerRect.top;
+
+    // Convert pixel Y to 0-1 value (0 = bottom of chart, 1 = top)
+    const normalized = 1 - ((relY - chartArea.top) / chartArea.height);
+    const clamped = Math.max(0.05, Math.min(0.95, normalized));
+
+    setHandles(prev => {
+      const next = [...prev];
+      next[handleIdx] = clamped;
+      return next;
+    });
+    setHasCustomized(true);
+  }, [chartArea]);
+
+  useEffect(() => {
+    if (draggingIndex === null) return;
+
+    const handleMove = (e: MouseEvent) => {
+      e.preventDefault();
+      updateHandleFromY(draggingIndex, e.clientY);
+    };
+    const handleUp = () => setDraggingIndex(null);
+    const handleTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      updateHandleFromY(draggingIndex, e.touches[0].clientY);
+    };
+    const handleTouchEnd = () => setDraggingIndex(null);
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("touchmove", handleTouchMove, { passive: false });
+    window.addEventListener("touchend", handleTouchEnd);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [draggingIndex, updateHandleFromY]);
+
   const applyShape = (type: string) => {
     setHandles(
       Array.from({ length: numHandles }, (_, i) => {
@@ -257,36 +230,19 @@ export function DrawableGraph({
     setHasCustomized(true);
   };
 
-  // Stats
   const minViews = Math.min(...viewsPerRun);
   const maxViews = Math.max(...viewsPerRun);
   const avgViews = Math.round(totalViews / runCount);
 
-  // Custom dot renderer for the chart
+  const isHandlePoint = useCallback(
+    (index: number) => handleRunIndexes.includes(index),
+    [handleRunIndexes]
+  );
+
   const renderDot = (props: any) => {
     const { cx, cy, index } = props;
-    const isHandle = isHandlePoint(index);
-    const handleIdx = getHandleIdx(index);
-    const isDrag = handleIdx === draggingIndex;
-
-    if (!isHandle) return <circle key={index} cx={cx} cy={cy} r={0} />;
-
-    return (
-      <circle
-        key={index}
-        cx={cx}
-        cy={cy}
-        r={isDrag ? 8 : 5}
-        fill={isDrag ? "#eab308" : "#3b82f6"}
-        stroke={isDrag ? "#fbbf24" : "#60a5fa"}
-        strokeWidth={2}
-        style={{
-          cursor: "grab",
-          filter: isDrag ? "drop-shadow(0 0 8px rgba(234,179,8,0.6))" : "drop-shadow(0 0 3px rgba(59,130,246,0.3))",
-          transition: isDrag ? "none" : "all 0.2s",
-        }}
-      />
-    );
+    if (!isHandlePoint(index)) return <circle key={`d${index}`} cx={cx} cy={cy} r={0} />;
+    return <circle key={`d${index}`} cx={cx} cy={cy} r={2} fill="#3b82f6" opacity={0.4} />;
   };
 
   return (
@@ -301,7 +257,9 @@ export function DrawableGraph({
           </span>
         </div>
         {draggingIndex !== null && (
-          <span className="text-[9px] text-yellow-400 animate-pulse">🎯 Dragging handle #{draggingIndex + 1}</span>
+          <span className="text-[9px] text-yellow-400 animate-pulse">
+            🎯 Dragging handle #{draggingIndex + 1}
+          </span>
         )}
       </div>
 
@@ -326,20 +284,15 @@ export function DrawableGraph({
         ))}
       </div>
 
-      {/* Chart — same style as existing stepped graph */}
+      {/* Chart with overlay handles */}
       <div
-        style={{ height: 260, cursor: draggingIndex !== null ? "grabbing" : "default" }}
-        onMouseUp={handleChartMouseUp}
-        onMouseLeave={handleChartMouseUp}
+        ref={containerRef}
+        className="relative"
+        style={{ height: 260 }}
       >
+        {/* Recharts graph underneath */}
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart
-            data={chartData}
-            margin={{ top: 14, right: 20, left: 0, bottom: 4 }}
-            onMouseDown={handleChartMouseDown}
-            onMouseMove={handleChartMouseMove}
-            onMouseUp={handleChartMouseUp}
-          >
+          <LineChart data={chartData} margin={{ top: 14, right: 20, left: 0, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#111" opacity={0.3} />
             <XAxis
               dataKey="time"
@@ -347,14 +300,8 @@ export function DrawableGraph({
               tick={{ fill: "#9ca3af", fontSize: 10 }}
               interval={Math.max(0, Math.floor(runCount / 10))}
             />
-            <YAxis
-              stroke="#666"
-              tick={{ fill: "#9ca3af", fontSize: 10 }}
-              width={50}
-            />
+            <YAxis stroke="#666" tick={{ fill: "#9ca3af", fontSize: 10 }} width={50} />
             <Tooltip content={<SteppedTooltip />} />
-
-            {/* Faded planned line */}
             <Line
               type="monotone"
               dataKey="views"
@@ -366,8 +313,6 @@ export function DrawableGraph({
               legendType="none"
               tooltipType="none"
             />
-
-            {/* Main cumulative views line */}
             <Line
               type="monotone"
               dataKey="views"
@@ -380,6 +325,77 @@ export function DrawableGraph({
             />
           </LineChart>
         </ResponsiveContainer>
+
+        {/* 🔥 BIG draggable handle overlay — positioned on top of chart */}
+        {handlePositions.map((pos, i) => (
+          <div
+            key={`handle-${i}`}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDraggingIndex(i);
+            }}
+            onTouchStart={(e) => {
+              e.stopPropagation();
+              setDraggingIndex(i);
+            }}
+            style={{
+              position: "absolute",
+              left: pos.x - 14,
+              top: pos.y - 14,
+              width: 28,
+              height: 28,
+              cursor: draggingIndex === i ? "grabbing" : "grab",
+              zIndex: draggingIndex === i ? 20 : 10,
+              touchAction: "none",
+            }}
+          >
+            {/* Large invisible hit area */}
+            <div
+              style={{
+                position: "absolute",
+                inset: -8,
+                borderRadius: "50%",
+              }}
+            />
+            {/* Visible handle */}
+            <div
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: "50%",
+                transform: "translate(-50%, -50%)",
+                width: draggingIndex === i ? 18 : 14,
+                height: draggingIndex === i ? 18 : 14,
+                borderRadius: "50%",
+                backgroundColor: draggingIndex === i ? "#eab308" : "#3b82f6",
+                border: `2px solid ${draggingIndex === i ? "#fbbf24" : "#60a5fa"}`,
+                boxShadow: draggingIndex === i
+                  ? "0 0 12px rgba(234,179,8,0.6), 0 0 24px rgba(234,179,8,0.3)"
+                  : "0 0 8px rgba(59,130,246,0.4)",
+                transition: draggingIndex === i ? "none" : "all 0.2s",
+              }}
+            />
+            {/* Value label */}
+            <div
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: -18,
+                transform: "translateX(-50%)",
+                fontSize: 9,
+                color: draggingIndex === i ? "#eab308" : "#60a5fa",
+                whiteSpace: "nowrap",
+                fontWeight: 600,
+                opacity: draggingIndex === i ? 1 : 0,
+                transition: "opacity 0.15s",
+                pointerEvents: "none",
+              }}
+            >
+              {viewsPerRun[pos.runIdx]}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Per-run bar visualization */}
@@ -414,7 +430,6 @@ export function DrawableGraph({
           <span className="text-gray-500">Avg: <span className="text-blue-400">{avgViews}</span></span>
           <span className="text-gray-500">Total: <span className="text-yellow-400">{totalViews.toLocaleString()}</span></span>
         </div>
-
         <button
           type="button"
           onClick={() => onApply(viewsPerRun)}
@@ -430,8 +445,8 @@ export function DrawableGraph({
       </div>
 
       <p className="mt-2 text-[9px] text-gray-600">
-        🎨 Drag the blue dots on the graph to reshape your delivery curve. The line stays smooth between handles.
-        Min {minViewsPerRun} views/run enforced. Click Apply to use this curve.
+        🎨 Drag the big blue dots up/down to shape your curve. Line stays smooth automatically.
+        Min {minViewsPerRun} views/run enforced.
       </p>
     </div>
   );
