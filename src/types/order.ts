@@ -34,7 +34,8 @@ export interface OrderConfig {
   sharesRatio?: "equal" | "half" | "third" | "custom";
   savesRatio?: "equal" | "half" | "third" | "custom";
   sharesCustomCount?: number;
-  savesCustomCount?: number;
+    savesCustomCount?: number;
+  customDrawnViews?: number[] | null;
 }
 
 export interface RunStep {
