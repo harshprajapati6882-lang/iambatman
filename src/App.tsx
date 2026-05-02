@@ -678,7 +678,7 @@ export default function App() {
         />
       );
     }
-    return (
+        return (
       <BundlesPage
         apis={apis}
         bundles={bundles}
@@ -719,6 +719,10 @@ export default function App() {
                 }
               : item
           );
+          persistBundles(next);
+        }}
+        onDeleteBundle={(id) => {
+          const next = bundles.filter((bundle) => bundle.id !== id);
           persistBundles(next);
         }}
       />
