@@ -119,9 +119,12 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
   const [sharesRatio, setSharesRatio] = useState<"equal" | "half" | "third" | "custom">("half");
   const [sharesCustomCount, setSharesCustomCount] = useState<number>(100);
 
-  // 🔥 NEW: Saves ratio
+    // 🔥 NEW: Saves ratio
   const [savesRatio, setSavesRatio] = useState<"equal" | "half" | "third" | "custom">("third");
   const [savesCustomCount, setSavesCustomCount] = useState<number>(50);
+
+  // 🔥 NEW: Likes distribution mode
+  const [likesDistribution, setLikesDistribution] = useState<"bracket" | "even-spread">("bracket");
 
   // 🔥 NEW: Fetch min views setting from backend on mount
   useEffect(() => {
@@ -174,7 +177,8 @@ const commentsService = selectedApi?.services.find(
       savesRatio,
       sharesCustomCount,
       savesCustomCount,
-      customDrawnViews: useCustomDrawnViews ? customDrawnViews : undefined,
+            customDrawnViews: useCustomDrawnViews ? customDrawnViews : undefined,
+      likesDistribution,
     }),
     [
       postUrl,
@@ -197,6 +201,7 @@ const commentsService = selectedApi?.services.find(
       savesCustomCount,
       customDrawnViews,
       useCustomDrawnViews,
+      likesDistribution,
     ]
   );
 
@@ -884,7 +889,26 @@ const commentsService = selectedApi?.services.find(
                   ❤️ Likes
                 </button>
 
-                                <button
+                                                {/* 🔥 Likes distribution toggle — only when likes enabled */}
+                {includeLikes && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLikesDistribution(prev => prev === "bracket" ? "even-spread" : "bracket");
+                      setSeed(prev => prev + 1);
+                    }}
+                    className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[9px] font-medium transition ${
+                      likesDistribution === "even-spread"
+                        ? "border border-pink-400 bg-pink-500/20 text-pink-300"
+                        : "border border-pink-500/30 bg-black text-pink-400/60"
+                    }`}
+                    title={likesDistribution === "bracket" ? "Likes at view milestones (1500, 2500...)" : "Likes spread across all runs proportionally"}
+                  >
+                    {likesDistribution === "bracket" ? "📍 Milestone" : "🌊 Spread"}
+                  </button>
+                )}
+
+                <button
                   type="button"
                   onClick={() => { setIncludeShares(!includeShares); }}
                   className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
