@@ -1421,12 +1421,11 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     else commentsTotal = 5;
   }
 
-     // =========================================================
-  // 🔥 LIKES DISTRIBUTION - bracket-based placement
-  // - Run index 1 (2nd run): ALWAYS first likes
-  // - After that: find run closest to midpoint of each 1000-view bracket
-  //   Brackets: 1000-2000 → midpoint 1500, 2000-3000 → 2500, etc.
-  // - Each like-run: minimum 10 likes, maximum 15 likes
+       // =========================================================
+  // 🔥 LIKES DISTRIBUTION
+  // Two modes:
+  //   "bracket" (default) — place likes at view milestones (1500, 2500...)
+  //   "even-spread" — distribute likes across many runs proportional to views
   // =========================================================
   const likesRuns = (() => {
     const result = Array.from({ length: provisionalRuns.length }, () => 0);
@@ -1441,16 +1440,117 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       cumViews += r.views;
       return cumViews;
     });
-
     const totalViewsAll = cumulativeViewsPerRun[cumulativeViewsPerRun.length - 1] || 1;
 
-    // 🔥 Step 1: Index 1 is always first likes run
+    if (config.likesDistribution === "even-spread") {
+      // =========================================================
+      // 🔥 EVEN-SPREAD MODE
+      // - Skip run 0 (no likes on first run)
+      // - Select as many runs as likes can cover (each min 10)
+      // - Distribute likes proportional to each run's views
+      // - Add randomness so values aren't flat
+      // =========================================================
+      const maxPossibleLikeRuns = Math.floor(likesTotal / MIN_LIKES_PER_RUN);
+      if (maxPossibleLikeRuns <= 0) return result;
+
+      // All runs except first and last are candidates
+      const candidateIndexes = Array.from(
+        { length: provisionalRuns.length },
+        (_, i) => i
+      ).filter(i => i >= 1 && i < provisionalRuns.length);
+
+      // How many runs to give likes — spread as widely as possible
+      const targetLikeRuns = Math.min(maxPossibleLikeRuns, candidateIndexes.length);
+
+      // Space them evenly across the candidate range
+      const selectedIndexes: number[] = [];
+      if (targetLikeRuns >= candidateIndexes.length) {
+        // All candidates get likes
+        selectedIndexes.push(...candidateIndexes);
+      } else {
+        // Pick evenly spaced
+        for (let i = 0; i < targetLikeRuns; i++) {
+          const pos = Math.round((i / (targetLikeRuns - 1)) * (candidateIndexes.length - 1));
+          const idx = candidateIndexes[pos];
+          if (!selectedIndexes.includes(idx)) {
+            selectedIndexes.push(idx);
+          }
+        }
+      }
+
+      selectedIndexes.sort((a, b) => a - b);
+
+      if (selectedIndexes.length === 0) return result;
+
+      // Trim if can't cover all
+      while (selectedIndexes.length > 1 && likesTotal < selectedIndexes.length * MIN_LIKES_PER_RUN) {
+        selectedIndexes.pop();
+      }
+
+      // 🔥 Calculate views-proportional weights for selected runs
+      const selectedViews = selectedIndexes.map(idx => provisionalRuns[idx].views);
+      const viewsSum = selectedViews.reduce((a, b) => a + b, 0);
+
+      // Distribute proportionally with randomness
+      let remaining = likesTotal;
+      const rawLikes = selectedIndexes.map((idx, i) => {
+        const proportion = viewsSum > 0 ? (provisionalRuns[idx].views / viewsSum) : (1 / selectedIndexes.length);
+        const base = Math.round(proportion * likesTotal);
+        // Add randomness: ±2
+        const noisy = clamp(base + randomInt(-2, 2), MIN_LIKES_PER_RUN, MIN_LIKES_PER_RUN + 8);
+        return noisy;
+      });
+
+      // Scale to fit total
+      const rawSum = rawLikes.reduce((a, b) => a + b, 0);
+      const scaledLikes = rawLikes.map(v => Math.max(MIN_LIKES_PER_RUN, Math.round((v / Math.max(1, rawSum)) * likesTotal)));
+
+      // Correct total
+      let diff = likesTotal - scaledLikes.reduce((a, b) => a + b, 0);
+      let corrIdx = 0;
+      while (diff !== 0 && corrIdx < scaledLikes.length * 10) {
+        const target = corrIdx % scaledLikes.length;
+        if (diff > 0 && scaledLikes[target] < MAX_LIKES_PER_RUN) {
+          scaledLikes[target]++;
+          diff--;
+        } else if (diff < 0 && scaledLikes[target] > MIN_LIKES_PER_RUN) {
+          scaledLikes[target]--;
+          diff++;
+        }
+        corrIdx++;
+      }
+
+      // 🔥 Final nudge: ensure no two consecutive same value
+      for (let i = 1; i < scaledLikes.length; i++) {
+        if (scaledLikes[i] === scaledLikes[i - 1]) {
+          if (scaledLikes[i] < MAX_LIKES_PER_RUN && i < scaledLikes.length - 1 && scaledLikes[i + 1] > MIN_LIKES_PER_RUN) {
+            scaledLikes[i] += 1;
+            scaledLikes[i + 1] -= 1;
+          } else if (scaledLikes[i] > MIN_LIKES_PER_RUN && i < scaledLikes.length - 1 && scaledLikes[i + 1] < MAX_LIKES_PER_RUN) {
+            scaledLikes[i] -= 1;
+            scaledLikes[i + 1] += 1;
+          }
+        }
+      }
+
+      // Assign to result
+      selectedIndexes.forEach((runIdx, i) => {
+        result[runIdx] = scaledLikes[i];
+      });
+
+      return result;
+    }
+
+    // =========================================================
+    // 🔥 BRACKET MODE (default)
+    // - Run index 1: ALWAYS first likes
+    // - After that: closest to midpoint of each 1000-view bracket
+    // =========================================================
     const selectedIndexes: number[] = [];
     if (provisionalRuns.length >= 2) {
       selectedIndexes.push(1);
     }
 
-    // 🔥 Step 2: Find bracket midpoints (1500, 2500, 3500...)
     const bracketSize = 1000;
     const maxBrackets = Math.floor(totalViewsAll / bracketSize);
 
@@ -1458,7 +1558,6 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       const midpoint = bracketIndex * bracketSize + bracketSize / 2;
       if (midpoint > totalViewsAll) break;
 
-      // Find run whose cumulativeViews is closest to midpoint
       let bestRunIndex = -1;
       let bestDiff = Infinity;
 
@@ -1481,7 +1580,6 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     selectedIndexes.sort((a, b) => a - b);
 
-    // Trim if likes can't cover all selected runs
     while (
       selectedIndexes.length > 1 &&
       likesTotal < selectedIndexes.length * MIN_LIKES_PER_RUN
@@ -1491,7 +1589,6 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     if (selectedIndexes.length === 0 || likesTotal < MIN_LIKES_PER_RUN) return result;
 
-    // Distribute likes evenly across selected runs
     let remaining = likesTotal;
 
     for (let i = 0; i < selectedIndexes.length; i++) {
@@ -1516,6 +1613,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     return result;
   })();
+  
       // =========================================================
   // 🔥 FIX 2: SHARES DISTRIBUTION
   // Rule: After every 2 like-runs, place 1 share-run
