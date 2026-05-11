@@ -1453,11 +1453,11 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       const maxPossibleLikeRuns = Math.floor(likesTotal / MIN_LIKES_PER_RUN);
       if (maxPossibleLikeRuns <= 0) return result;
 
-      // All runs except first and last are candidates
+            // All runs except first run and last 2 runs are candidates
       const candidateIndexes = Array.from(
         { length: provisionalRuns.length },
         (_, i) => i
-      ).filter(i => i >= 1 && i < provisionalRuns.length);
+      ).filter(i => i >= 1 && i < provisionalRuns.length - 2);
 
       // How many runs to give likes — spread as widely as possible
       const targetLikeRuns = Math.min(maxPossibleLikeRuns, candidateIndexes.length);
