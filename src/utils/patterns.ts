@@ -1821,26 +1821,37 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     return result;
   })();
 
-  // =========================================================
+    // =========================================================
   // 🔥 COMMENTS DISTRIBUTION
   // Rules:
   // - Skip first run
   // - Sparse distribution
   // - Minimum 5 per run
+  // - 🔥 FIXED: Never land on same run as likes, shares, or saves
   // =========================================================
   const commentsRuns = (() => {
     const result = Array.from({ length: provisionalRuns.length }, () => 0);
     if (!config.includeComments || commentsTotal <= 0) return result;
 
+    // 🔥 Build available indexes — skip first run AND skip runs that have likes/shares/saves
     const availableIndexes = Array.from(
       { length: provisionalRuns.length - 1 },
       (_, i) => i + 1
+    ).filter(i =>
+      likesRuns[i] === 0 &&
+      sharesRuns[i] === 0 &&
+      savesRuns[i] === 0
     );
 
-    const maxRuns = Math.min(availableIndexes.length, Math.ceil(commentsTotal / 5));
+    // 🔥 Fallback: if filtering removed everything, allow any run except first
+    const candidateIndexes = availableIndexes.length > 0
+      ? availableIndexes
+      : Array.from({ length: provisionalRuns.length - 1 }, (_, i) => i + 1);
+
+    const maxRuns = Math.min(candidateIndexes.length, Math.ceil(commentsTotal / 5));
     const activeRuns = randomInt(1, Math.max(1, maxRuns));
 
-    const selectedIndexes = [...availableIndexes]
+    const selectedIndexes = [...candidateIndexes]
       .sort(() => Math.random() - 0.5)
       .slice(0, activeRuns)
       .sort((a, b) => a - b);
@@ -1864,7 +1875,6 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     return result;
   })();
-
   // =========================================================
   // 🔥 BUILD FINAL RUNS
   // =========================================================
