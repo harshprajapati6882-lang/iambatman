@@ -235,43 +235,12 @@ const commentsService = selectedApi?.services.find(
     }
   }, [config, seed]);
 
-  const plan = useMemo(() => {
+    const plan = useMemo(() => {
     const basePlan = useClonedPlan && clonedPlan
       ? { ...clonedPlan, runs: clonedPlan.runs || [] }
       : generatedPlan;
 
-    const runs = basePlan?.runs || [];
-
-    if (runs.length <= 1) return basePlan;
-
-    const baseIntervalMin = basePlan.approximateIntervalMin || 120;
-
-    const newRuns = runs.map((run, i) => {
-      if (i === 0) return run;
-
-      const prevTime = new Date(runs[i - 1].at).getTime();
-      const hour = new Date(prevTime).getHours();
-
-      let multiplier = 1;
-
-      if (hour >= 0 && hour < 6) multiplier = 1.4;
-      else if (hour >= 6 && hour < 12) multiplier = 1.1;
-      else if (hour >= 18 && hour <= 23) multiplier = 0.85;
-
-      const baseIntervalMs = baseIntervalMin * 60 * 1000 * multiplier;
-      const variation = baseIntervalMs * (Math.random() * 0.4 - 0.2);
-      const newTime = prevTime + baseIntervalMs + variation;
-
-      return {
-        ...run,
-        at: new Date(newTime),
-      };
-    });
-
-    return {
-      ...basePlan,
-      runs: newRuns,
-    };
+    return basePlan;
   }, [useClonedPlan, clonedPlan, generatedPlan]);
 
   const safePlan = useMemo(() => ({ ...plan, runs: plan?.runs || [] }), [plan]);
