@@ -1755,13 +1755,10 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     return result;
   })();
     // =========================================================
-  // 🔥 FIX 3: SAVES DISTRIBUTION
-  // Rule: Place save 1-2 runs AFTER each share-run
-  // i.e. shares at indexes [S1, S2, S3...]
-  //      saves go at       [S1+1 or S1+2, S2+1 or S2+2...]
-  // The offset (1 or 2) is random per share-run
-  // If save slot conflicts (like/share already there), try next slot
-  // Fallback: place saves sparsely after index 4 if no share-runs
+  // 🔥 SAVES DISTRIBUTION
+  // Step 1: Place 1 save 1-3 runs AFTER each share-run
+  // Step 2: If savesTotal needs MORE runs, add extras evenly spaced
+  // Distribute saves proportional to views (not flat)
   // =========================================================
   const savesRuns = (() => {
     const result = Array.from({ length: provisionalRuns.length }, () => 0);
@@ -1769,39 +1766,62 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     const minPerRun = 10;
 
-    // Get share run indexes from sharesRuns already computed
     const shareRunIndexes = sharesRuns
       .map((val, idx) => (val > 0 ? idx : -1))
       .filter(idx => idx !== -1);
 
     const selectedIndexes: number[] = [];
 
+    // Step 1: After each share-run, place 1 save 1-3 runs later
     for (const shareIdx of shareRunIndexes) {
-      // Random offset: 1 or 2 runs after the share
-      const offsets = Math.random() < 0.5 ? [1, 2] : [2, 1];
-
+      const offsets = [1, 2, 3];
       for (const offset of offsets) {
         const saveIndex = shareIdx + offset;
         if (
-          saveIndex < provisionalRuns.length - 1 &&
+          saveIndex < provisionalRuns.length - 2 &&
           saveIndex > 0 &&
           !selectedIndexes.includes(saveIndex) &&
-          likesRuns[saveIndex] === 0 &&   // not a like run
-          sharesRuns[saveIndex] === 0      // not a share run
+          likesRuns[saveIndex] === 0 &&
+          sharesRuns[saveIndex] === 0
         ) {
           selectedIndexes.push(saveIndex);
-          break; // found valid slot for this share
+          break;
         }
       }
     }
 
-    // 🔥 Fallback: if no share-runs, place saves sparsely after index 4
+    // Step 2: If savesTotal needs MORE runs than we have, add extras
+    const maxSaveRuns = Math.floor(savesTotal / minPerRun);
+    if (selectedIndexes.length < maxSaveRuns) {
+      // Find all available slots
+      const availableSlots = Array.from(
+        { length: provisionalRuns.length },
+        (_, i) => i
+      ).filter(i =>
+        i >= 3 &&
+        i < provisionalRuns.length - 2 &&
+        likesRuns[i] === 0 &&
+        sharesRuns[i] === 0 &&
+        !selectedIndexes.includes(i)
+      );
+
+      // Pick evenly spaced from available
+      const needed = maxSaveRuns - selectedIndexes.length;
+      if (needed > 0 && availableSlots.length > 0) {
+        const step = Math.max(1, Math.floor(availableSlots.length / needed));
+        for (let j = 0; j < availableSlots.length && selectedIndexes.length < maxSaveRuns; j += step) {
+          selectedIndexes.push(availableSlots[j]);
+        }
+      }
+    }
+
+    // Fallback: if still empty, place every 5 runs from index 5
     if (selectedIndexes.length === 0) {
-      for (let i = 5; i < provisionalRuns.length - 1; i += 5) {
+      for (let i = 5; i < provisionalRuns.length - 2; i += 5) {
         if (likesRuns[i] === 0 && sharesRuns[i] === 0) {
           selectedIndexes.push(i);
         }
-        if (selectedIndexes.length >= Math.floor(savesTotal / minPerRun)) break;
+        if (selectedIndexes.length >= maxSaveRuns) break;
       }
     }
 
@@ -1814,26 +1834,48 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     if (selectedIndexes.length === 0 || savesTotal < minPerRun) return result;
 
-    let remaining = savesTotal;
+    // 🔥 Distribute proportional to views (not flat)
+    const selectedViews = selectedIndexes.map(idx => provisionalRuns[idx].views);
+    const viewsSum = selectedViews.reduce((a, b) => a + b, 0);
 
-    for (let i = 0; i < selectedIndexes.length; i++) {
-      const idx = selectedIndexes[i];
-      const isLast = i === selectedIndexes.length - 1;
-      if (isLast) {
-        result[idx] = Math.max(minPerRun, remaining);
-      } else {
-        const runsLeft = selectedIndexes.length - i;
-        const avgRemaining = remaining / runsLeft;
-        const maxAllowed = remaining - (runsLeft - 1) * minPerRun;
-        const value = Math.min(
-          Math.max(minPerRun, Math.round(avgRemaining * random(0.6, 1.4))),
-          maxAllowed
-        );
-        result[idx] = Math.max(minPerRun, value);
-        remaining -= result[idx];
-        remaining = Math.max(0, remaining);
+    const rawSaves = selectedIndexes.map((idx) => {
+      const proportion = viewsSum > 0 ? (provisionalRuns[idx].views / viewsSum) : (1 / selectedIndexes.length);
+      const base = Math.round(proportion * savesTotal);
+      const noise = randomInt(-1, 1);
+      return Math.max(minPerRun, base + noise);
+    });
+
+    // Scale to exact total
+    const rawSum = rawSaves.reduce((a, b) => a + b, 0);
+    const scaled = rawSaves.map(v => Math.max(minPerRun, Math.round((v / Math.max(1, rawSum)) * savesTotal)));
+
+    // Correct rounding
+    let diff = savesTotal - scaled.reduce((a, b) => a + b, 0);
+    let corrIdx = 0;
+    while (diff !== 0 && corrIdx < scaled.length * 10) {
+      const target = corrIdx % scaled.length;
+      if (diff > 0) { scaled[target]++; diff--; }
+      else if (scaled[target] > minPerRun) { scaled[target]--; diff++; }
+      corrIdx++;
+    }
+
+    // Nudge consecutive duplicates
+    for (let i = 1; i < scaled.length - 1; i++) {
+      if (scaled[i] === scaled[i - 1]) {
+        if (scaled[i + 1] > minPerRun) {
+          scaled[i] += 1;
+          scaled[i + 1] -= 1;
+        } else if (scaled[i] > minPerRun) {
+          scaled[i] -= 1;
+          scaled[i + 1] += 1;
+        }
       }
     }
+
+    // Assign
+    selectedIndexes.forEach((runIdx, i) => {
+      result[runIdx] = scaled[i];
+    });
 
     return result;
   })();
