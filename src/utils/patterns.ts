@@ -1695,8 +1695,8 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       }
     }
 
-        // 🔥 Fallback: if no like-runs found or not enough pairs,
-    // place shares at index 4, then every ~4 runs (skip like runs)
+           // 🔥 Fallback: if no like-runs found or not enough pairs,
+    // place shares at index 4, then every ~4 runs (skip like runs + last 2)
     if (selectedIndexes.length === 0) {
       for (let i = 4; i < provisionalRuns.length - 2; i += 4) {
         if (likesRuns[i] > 0) continue;
