@@ -111,9 +111,13 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
     // 🔥 NEW: Drawable graph mode
   const [showDrawableGraph, setShowDrawableGraph] = useState(false);
 
-  // 🔥 NEW: Custom drawn views (only views shape, engagement added by pattern engine)
+   // 🔥 NEW: Custom drawn views (only views shape, engagement added by pattern engine)
   const [customDrawnViews, setCustomDrawnViews] = useState<number[] | null>(null);
   const [useCustomDrawnViews, setUseCustomDrawnViews] = useState(false);
+
+  // 🔥 NEW: Lock views — freeze current views distribution
+  const [lockedViews, setLockedViews] = useState<number[] | null>(null);
+  const [isViewsLocked, setIsViewsLocked] = useState(false);
 
   // 🔥 NEW: Shares ratio
   const [sharesRatio, setSharesRatio] = useState<"equal" | "half" | "third" | "custom">("half");
@@ -180,8 +184,8 @@ const commentsService = selectedApi?.services.find(
       savesRatio,
       sharesCustomCount,
       savesCustomCount,
-            customDrawnViews: useCustomDrawnViews ? customDrawnViews : undefined,
-           likesDistribution,
+            customDrawnViews: isViewsLocked ? lockedViews : (useCustomDrawnViews ? customDrawnViews : undefined),
+      likesDistribution,
       likesBoostPercent: likesBoostPercent > 0 ? likesBoostPercent : undefined,
     }),
     [
@@ -203,9 +207,11 @@ const commentsService = selectedApi?.services.find(
       savesRatio,
       sharesCustomCount,
       savesCustomCount,
-      customDrawnViews,
+            customDrawnViews,
       useCustomDrawnViews,
-       likesDistribution,
+      lockedViews,
+      isViewsLocked,
+      likesDistribution,
       likesBoostPercent,
     ]
   );
@@ -288,8 +294,10 @@ const commentsService = selectedApi?.services.find(
 
     const handleApplyPreset = (preset: QuickPatternPreset) => {
     setUseClonedPlan(false);
-    setUseCustomDrawnViews(false);
-    setCustomDrawnViews(null);
+    if (!isViewsLocked) {
+      setUseCustomDrawnViews(false);
+      setCustomDrawnViews(null);
+    }
     setQuickPreset(preset);
     if (preset === "viral-boost") {
       setVariancePercent(48);
@@ -343,10 +351,12 @@ const commentsService = selectedApi?.services.find(
     setCreateError("");
     setCreateSuccess("");
   };
-    const handleGenerate = () => {
+      const handleGenerate = () => {
     setUseClonedPlan(false);
-    setUseCustomDrawnViews(false);
-    setCustomDrawnViews(null);
+    if (!isViewsLocked) {
+      setUseCustomDrawnViews(false);
+      setCustomDrawnViews(null);
+    }
     setSeed((current) => current + 1);
     setExpandedRuns(true);
   };
@@ -605,8 +615,8 @@ const commentsService = selectedApi?.services.find(
             </div>
           </div>
 
-                    {/* 🔥 Draw Your Own Graph toggle */}
-          <div className="flex items-center gap-2">
+                             {/* 🔥 Draw Your Own Graph toggle + Lock Views button */}
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
               onClick={() => setShowDrawableGraph(!showDrawableGraph)}
@@ -618,11 +628,45 @@ const commentsService = selectedApi?.services.find(
             >
               ✏️ {showDrawableGraph ? "Hide Custom Curve" : "Draw Custom Curve"}
             </button>
-            {showDrawableGraph && (
+
+            {/* 🔥 Lock/Unlock Views button */}
+            <button
+              type="button"
+              onClick={() => {
+                if (isViewsLocked) {
+                  // Unlock
+                  setIsViewsLocked(false);
+                  setLockedViews(null);
+                } else {
+                  // Lock current views
+                  const currentViews = safePlan.runs.map(r => r.views);
+                  if (currentViews.length > 0 && currentViews.some(v => v > 0)) {
+                    setLockedViews(currentViews);
+                    setIsViewsLocked(true);
+                  }
+                }
+              }}
+              disabled={safePlan.runs.length === 0}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                isViewsLocked
+                  ? "border-emerald-500/50 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"
+                  : "border-gray-600 bg-black text-gray-400 hover:text-yellow-300 hover:border-yellow-500/30"
+              }`}
+            >
+              {isViewsLocked ? "🔒 Views Locked" : "🔓 Lock Views"}
+            </button>
+
+            {isViewsLocked && (
+              <span className="text-[9px] text-emerald-400">
+                ✓ Views frozen — only engagement will change
+              </span>
+            )}
+
+            {showDrawableGraph && !isViewsLocked && (
               <span className="text-[9px] text-gray-500">Drag handles to shape your delivery curve</span>
             )}
           </div>
-
+          
                     {/* Drawable Graph */}
           {showDrawableGraph && (
             <DrawableGraph
