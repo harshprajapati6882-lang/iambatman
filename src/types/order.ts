@@ -37,6 +37,7 @@ export interface OrderConfig {
     savesCustomCount?: number;
   customDrawnViews?: number[] | null;
   likesDistribution?: "bracket" | "even-spread";
+  likesBoostPercent?: number;
 }
 
 export interface RunStep {
