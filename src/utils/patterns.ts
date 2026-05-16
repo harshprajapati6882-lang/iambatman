@@ -1222,7 +1222,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   const durationHours = clamp(
     resolveDurationHours(config) * presetProfile.durationMultiplier * selectedPatternProfile.durationMultiplier,
     2,
-    72
+   240
   );
   const durationMin = durationHours * 60;
   const startDelayMin = clamp(config.startDelayHours || 0, 0, 168) * 60;
