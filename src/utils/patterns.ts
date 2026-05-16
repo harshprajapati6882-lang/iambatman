@@ -570,19 +570,20 @@ function resolveRunCount(totalViews: number, desiredRuns: number, averageTarget:
   if (totalViews < minViewsPerRun) return 1;
 
   const maxRunsByMinimum = Math.max(1, Math.floor(totalViews / minViewsPerRun));
-  let runCount = clamp(desiredRuns, 1, maxRunsByMinimum);
+  // 🔥 Allow up to 200 runs max in auto mode
+  let runCount = clamp(desiredRuns, 1, Math.min(200, maxRunsByMinimum));
 
   while (runCount > 1 && totalViews / runCount < minViewsPerRun * 1.3) {
     runCount -= 1;
   }
 
-  const safeDivisor = Math.max(minViewsPerRun, averageTarget, 1);
+  // 🔥 Relaxed average bound — allow more runs for high view counts
+  const safeDivisor = Math.max(minViewsPerRun, Math.floor(averageTarget * 0.7), 1);
   const averageBound = Math.max(1, Math.floor(totalViews / safeDivisor));
-  runCount = Math.min(runCount, Math.max(1, averageBound));
+  runCount = Math.min(runCount, Math.max(1, Math.min(200, averageBound)));
 
   return Math.max(1, runCount);
 }
-
 interface CurveContext {
   spikes: Array<{ center: number; width: number; height: number }>;
   burstAnchors: number[];
@@ -1203,7 +1204,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       return Math.max(1, Math.min(config.manualRunCount, 500));
     }
     const maxPossibleRuns = Math.max(1, Math.floor(requestedViews / minViewsPerRun));
-    const baseRequestedRuns = Math.round(randomInt(50, 80) * presetProfile.runMultiplier * selectedPatternProfile.runMultiplier);
+       const baseRequestedRuns = Math.round(randomInt(80, 140) * presetProfile.runMultiplier * selectedPatternProfile.runMultiplier);
     const requestedRuns = Math.min(baseRequestedRuns, maxPossibleRuns);
     return requestedViews >= minViewsPerRun
       ? resolveRunCount(requestedViews, requestedRuns, presetProfile.targetAverageViews, minViewsPerRun)
@@ -1495,14 +1496,21 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       const viewsSum = selectedViews.reduce((a, b) => a + b, 0);
       const maxViewsInSelected = Math.max(...selectedViews, 1);
 
-      // 🔥 Distribute likes proportional to each run's views
-      // High-view runs get more likes, low-view runs get fewer (but min 10)
-      // No fixed max — scales naturally with views
+          // 🔥 Distribute likes proportional to each run's views
+      // High-view runs get MORE likes, low-view runs get FEWER
+      // The ratio follows: likesForThisRun = (thisRunViews / avgViews) × avgLikesPerRun
+      // This means: run with 2× avg views → gets 2× avg likes
+      // No fixed max — scales naturally
+      const avgViewsForSelected = viewsSum / Math.max(1, selectedIndexes.length);
+      const avgLikesPerSelected = likesTotal / Math.max(1, selectedIndexes.length);
+
       const rawLikes = selectedIndexes.map((idx) => {
         const runViews = provisionalRuns[idx].views;
-        const proportion = viewsSum > 0 ? (runViews / viewsSum) : (1 / selectedIndexes.length);
-        const base = Math.round(proportion * likesTotal);
-        // Add slight randomness ±1-2 for natural feel
+        // How much bigger/smaller is this run vs average?
+        const viewsRatio = runViews / Math.max(1, avgViewsForSelected);
+        // Scale likes by that ratio
+        const base = Math.round(avgLikesPerSelected * viewsRatio);
+        // Add slight randomness for organic feel
         const noise = randomInt(-2, 2);
         return Math.max(MIN_LIKES_PER_RUN, base + noise);
       });
@@ -1525,7 +1533,6 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
         }
         corrIdx++;
       }
-
       // 🔥 Final nudge: ensure no two consecutive same value (bounds-safe)
       for (let i = 1; i < scaledLikes.length - 1; i++) {
         if (scaledLikes[i] === scaledLikes[i - 1]) {
@@ -1647,13 +1654,11 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     return result;
   })();
   
-      // =========================================================
-  // 🔥 FIX 2: SHARES DISTRIBUTION
+   // =========================================================
+  // 🔥 SHARES DISTRIBUTION
   // Rule: After every 2 like-runs, place 1 share-run
-  // i.e. likes at indexes [L1, L2, L3, L4, L5, L6...]
-  //      shares go after  [L2,     L4,     L6...]
-  //      = indexes selectedLikeIndexes[1], [3], [5]...
-  // If not enough likes pairs → place shares sparsely after index 3
+  // Then if more shares remain, add extra share-runs evenly spaced
+  // Distribute shares proportional to views (not flat)
   // =========================================================
   const sharesRuns = (() => {
     const result = Array.from({ length: provisionalRuns.length }, () => 0);
@@ -1661,47 +1666,50 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     const minPerRun = 10;
 
-    // 🔥 Build share indexes: after every 2nd like-run
-    // likeIndexes from likesRuns already computed above
     const likeRunIndexes = likesRuns
       .map((val, idx) => (val > 0 ? idx : -1))
       .filter(idx => idx !== -1);
 
     const selectedIndexes: number[] = [];
 
-    // After 2nd like, 4th like, 6th like...
+    // Step 1: After every 2nd like-run
     for (let i = 1; i < likeRunIndexes.length; i += 2) {
       const afterLikeIndex = likeRunIndexes[i];
-      // Place share 1-2 runs AFTER this like-run (not same run)
-      const shareIndex = afterLikeIndex + 1;
-      if (
-        shareIndex < provisionalRuns.length - 1 &&
-        shareIndex > 0 &&
-        !selectedIndexes.includes(shareIndex) &&
-        likesRuns[shareIndex] === 0 // don't place share on a like run
-      ) {
-        selectedIndexes.push(shareIndex);
-      } else {
-        // Try +2 runs after like
-        const shareIndex2 = afterLikeIndex + 2;
+      for (const offset of [1, 2, 3]) {
+        const shareIndex = afterLikeIndex + offset;
         if (
-          shareIndex2 < provisionalRuns.length - 1 &&
-          shareIndex2 > 0 &&
-          !selectedIndexes.includes(shareIndex2) &&
-          likesRuns[shareIndex2] === 0
+          shareIndex < provisionalRuns.length - 2 &&
+          shareIndex > 0 &&
+          !selectedIndexes.includes(shareIndex) &&
+          likesRuns[shareIndex] === 0
         ) {
-          selectedIndexes.push(shareIndex2);
+          selectedIndexes.push(shareIndex);
+          break;
         }
       }
     }
 
-           // 🔥 Fallback: if no like-runs found or not enough pairs,
-    // place shares at index 4, then every ~4 runs (skip like runs + last 2)
-    if (selectedIndexes.length === 0) {
-      for (let i = 4; i < provisionalRuns.length - 2; i += 4) {
-        if (likesRuns[i] > 0) continue;
-        selectedIndexes.push(i);
-        if (selectedIndexes.length >= Math.floor(sharesTotal / minPerRun)) break;
+    // Step 2: If sharesTotal needs MORE runs than we have, add extras
+    const maxShareRuns = Math.floor(sharesTotal / minPerRun);
+    if (selectedIndexes.length < maxShareRuns) {
+      // Find all available slots (no likes, no existing shares, not first 3, not last 2)
+      const availableSlots = Array.from(
+        { length: provisionalRuns.length },
+        (_, i) => i
+      ).filter(i =>
+        i >= 3 &&
+        i < provisionalRuns.length - 2 &&
+        likesRuns[i] === 0 &&
+        !selectedIndexes.includes(i)
+      );
+
+      // Pick evenly spaced from available
+      const needed = maxShareRuns - selectedIndexes.length;
+      if (needed > 0 && availableSlots.length > 0) {
+        const step = Math.max(1, Math.floor(availableSlots.length / needed));
+        for (let j = 0; j < availableSlots.length && selectedIndexes.length < maxShareRuns; j += step) {
+          selectedIndexes.push(availableSlots[j]);
+        }
       }
     }
 
@@ -1714,29 +1722,38 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     if (selectedIndexes.length === 0 || sharesTotal < minPerRun) return result;
 
-    let remaining = sharesTotal;
+    // 🔥 Distribute proportional to views (not flat)
+    const selectedViews = selectedIndexes.map(idx => provisionalRuns[idx].views);
+    const viewsSum = selectedViews.reduce((a, b) => a + b, 0);
 
-    for (let i = 0; i < selectedIndexes.length; i++) {
-      const isLast = i === selectedIndexes.length - 1;
-      if (isLast) {
-        result[selectedIndexes[i]] = Math.max(minPerRun, remaining);
-      } else {
-        const runsLeft = selectedIndexes.length - i;
-        const avgRemaining = remaining / runsLeft;
-        const maxAllowed = remaining - (runsLeft - 1) * minPerRun;
-        const value = Math.min(
-          Math.max(minPerRun, Math.round(avgRemaining * random(0.6, 1.4))),
-          maxAllowed
-        );
-        result[selectedIndexes[i]] = Math.max(minPerRun, value);
-        remaining -= result[selectedIndexes[i]];
-        remaining = Math.max(0, remaining);
-      }
+    const rawShares = selectedIndexes.map((idx) => {
+      const proportion = viewsSum > 0 ? (provisionalRuns[idx].views / viewsSum) : (1 / selectedIndexes.length);
+      const base = Math.round(proportion * sharesTotal);
+      const noise = randomInt(-1, 1);
+      return Math.max(minPerRun, base + noise);
+    });
+
+    // Scale to exact total
+    const rawSum = rawShares.reduce((a, b) => a + b, 0);
+    const scaled = rawShares.map(v => Math.max(minPerRun, Math.round((v / Math.max(1, rawSum)) * sharesTotal)));
+
+    // Correct rounding
+    let diff = sharesTotal - scaled.reduce((a, b) => a + b, 0);
+    let corrIdx = 0;
+    while (diff !== 0 && corrIdx < scaled.length * 10) {
+      const target = corrIdx % scaled.length;
+      if (diff > 0) { scaled[target]++; diff--; }
+      else if (scaled[target] > minPerRun) { scaled[target]--; diff++; }
+      corrIdx++;
     }
+
+    // Assign
+    selectedIndexes.forEach((runIdx, i) => {
+      result[runIdx] = scaled[i];
+    });
 
     return result;
   })();
-
     // =========================================================
   // 🔥 FIX 3: SAVES DISTRIBUTION
   // Rule: Place save 1-2 runs AFTER each share-run
