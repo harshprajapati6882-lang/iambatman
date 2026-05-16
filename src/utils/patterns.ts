@@ -1893,6 +1893,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     if (!config.includeComments || commentsTotal <= 0) return result;
 
     const MIN_COMMENTS_PER_RUN = 10;
+    const MAX_COMMENTS_PER_RUN = 15;
 
     // Build cumulative views
     let cumViews = 0;
@@ -1979,46 +1980,49 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     const selectedCumViews = selectedIndexes.map(idx => cumulativeViewsPerRun[idx]);
     const cumViewsSum = selectedCumViews.reduce((a, b) => a + b, 0);
 
-    const rawComments = selectedIndexes.map((idx) => {
+        const rawComments = selectedIndexes.map((idx) => {
       const cumV = cumulativeViewsPerRun[idx];
       const proportion = cumViewsSum > 0 ? (cumV / cumViewsSum) : (1 / selectedIndexes.length);
       const base = Math.round(proportion * commentsTotal);
       const noise = randomInt(-1, 1);
-      return Math.max(MIN_COMMENTS_PER_RUN, base + noise);
+      return clamp(base + noise, MIN_COMMENTS_PER_RUN, MAX_COMMENTS_PER_RUN);
     });
 
     // Scale to exact total
     const rawSum = rawComments.reduce((a, b) => a + b, 0);
-    const scaled = rawComments.map(v => Math.max(MIN_COMMENTS_PER_RUN, Math.round((v / Math.max(1, rawSum)) * commentsTotal)));
+    const scaled = rawComments.map(v => clamp(
+      Math.round((v / Math.max(1, rawSum)) * commentsTotal),
+      MIN_COMMENTS_PER_RUN,
+      MAX_COMMENTS_PER_RUN
+    ));
 
-    // Correct rounding
+    // Correct rounding — respect both min and max
     let diff = commentsTotal - scaled.reduce((a, b) => a + b, 0);
     let corrIdx = 0;
     while (diff !== 0 && corrIdx < scaled.length * 10) {
       const target = corrIdx % scaled.length;
-      if (diff > 0) {
+      if (diff > 0 && scaled[target] < MAX_COMMENTS_PER_RUN) {
         scaled[target]++;
         diff--;
-      } else if (scaled[target] > MIN_COMMENTS_PER_RUN) {
+      } else if (diff < 0 && scaled[target] > MIN_COMMENTS_PER_RUN) {
         scaled[target]--;
         diff++;
       }
       corrIdx++;
     }
 
-    // Nudge consecutive duplicates
+    // Nudge consecutive duplicates — respect max
     for (let i = 1; i < scaled.length - 1; i++) {
       if (scaled[i] === scaled[i - 1]) {
-        if (scaled[i + 1] > MIN_COMMENTS_PER_RUN) {
+        if (scaled[i] < MAX_COMMENTS_PER_RUN && scaled[i + 1] > MIN_COMMENTS_PER_RUN) {
           scaled[i] += 1;
           scaled[i + 1] -= 1;
-        } else if (scaled[i] > MIN_COMMENTS_PER_RUN) {
+        } else if (scaled[i] > MIN_COMMENTS_PER_RUN && scaled[i + 1] < MAX_COMMENTS_PER_RUN) {
           scaled[i] -= 1;
           scaled[i + 1] += 1;
         }
       }
     }
-
     // Assign
     selectedIndexes.forEach((runIdx, i) => {
       result[runIdx] = scaled[i];
