@@ -1841,54 +1841,148 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     // =========================================================
   // 🔥 COMMENTS DISTRIBUTION
   // Rules:
-  // - Skip first run
-  // - Sparse distribution
-  // - Minimum 5 per run
-  // - 🔥 FIXED: Never land on same run as likes, shares, or saves
+  // - Skip first 3 runs
+  // - Skip last 2 runs
+  // - Never land on same run as likes, shares, or saves
+  // - Minimum 10 per comment-run (service minimum)
+  // - Spread across cumulative views milestones
+  // - Comments proportional to views at that point
   // =========================================================
   const commentsRuns = (() => {
     const result = Array.from({ length: provisionalRuns.length }, () => 0);
     if (!config.includeComments || commentsTotal <= 0) return result;
 
-    // 🔥 Build available indexes — skip first run AND skip runs that have likes/shares/saves
+    const MIN_COMMENTS_PER_RUN = 10;
+
+    // Build cumulative views
+    let cumViews = 0;
+    const cumulativeViewsPerRun = provisionalRuns.map(r => {
+      cumViews += r.views;
+      return cumViews;
+    });
+    const totalViewsAll = cumulativeViewsPerRun[cumulativeViewsPerRun.length - 1] || 1;
+
+    // 🔥 Available: skip first 3, skip last 2, skip runs with likes/shares/saves
     const availableIndexes = Array.from(
-      { length: provisionalRuns.length - 1 },
-      (_, i) => i + 1
+      { length: provisionalRuns.length },
+      (_, i) => i
     ).filter(i =>
+      i >= 3 &&
+      i < provisionalRuns.length - 2 &&
       likesRuns[i] === 0 &&
       sharesRuns[i] === 0 &&
       savesRuns[i] === 0
     );
 
-    // 🔥 Fallback: if filtering removed everything, allow any run except first
+    // Fallback: if filtering removed everything, allow any run except first 3 and last 2
     const candidateIndexes = availableIndexes.length > 0
       ? availableIndexes
-      : Array.from({ length: provisionalRuns.length - 1 }, (_, i) => i + 1);
+      : Array.from(
+          { length: provisionalRuns.length },
+          (_, i) => i
+        ).filter(i => i >= 3 && i < provisionalRuns.length - 2);
 
-    const maxRuns = Math.min(candidateIndexes.length, Math.ceil(commentsTotal / 5));
-    const activeRuns = randomInt(1, Math.max(1, maxRuns));
+    if (candidateIndexes.length === 0) return result;
 
-    const selectedIndexes = [...candidateIndexes]
-      .sort(() => Math.random() - 0.5)
-      .slice(0, activeRuns)
-      .sort((a, b) => a - b);
+    // 🔥 How many comment-runs can we have?
+    const maxCommentRuns = Math.floor(commentsTotal / MIN_COMMENTS_PER_RUN);
+    if (maxCommentRuns <= 0) return result;
 
-    let remaining = commentsTotal;
+    // 🔥 Place comments at cumulative views milestones
+    // Spread evenly across the cumulative views range
+    const targetCommentRuns = Math.min(maxCommentRuns, candidateIndexes.length);
+    const selectedIndexes: number[] = [];
 
-    for (let i = 0; i < selectedIndexes.length; i++) {
-      const isLast = i === selectedIndexes.length - 1;
-      let value: number;
+    if (targetCommentRuns >= candidateIndexes.length) {
+      // All candidates get comments
+      selectedIndexes.push(...candidateIndexes);
+    } else {
+      // Place at cumulative views milestones
+      const milestoneStep = totalViewsAll / (targetCommentRuns + 1);
 
-      if (isLast) {
-        value = remaining;
-      } else {
-        const maxAllowed = remaining - (selectedIndexes.length - i - 1) * 5;
-        value = Math.min(Math.max(5, maxAllowed), randomInt(5, 10));
+      for (let m = 1; m <= targetCommentRuns; m++) {
+        const targetCumViews = milestoneStep * m;
+
+        // Find candidate closest to this cumulative views target
+        let bestIdx = -1;
+        let bestDiff = Infinity;
+
+        for (const candIdx of candidateIndexes) {
+          if (selectedIndexes.includes(candIdx)) continue;
+          // Don't pick too close to already selected
+          if (selectedIndexes.some(s => Math.abs(s - candIdx) < 2)) continue;
+
+          const diff = Math.abs(cumulativeViewsPerRun[candIdx] - targetCumViews);
+          if (diff < bestDiff) {
+            bestDiff = diff;
+            bestIdx = candIdx;
+          }
+        }
+
+        if (bestIdx !== -1) {
+          selectedIndexes.push(bestIdx);
+        }
       }
-
-      result[selectedIndexes[i]] = Math.max(0, value);
-      remaining = Math.max(0, remaining - value);
     }
+
+    selectedIndexes.sort((a, b) => a - b);
+
+    // Trim if can't cover minimums
+    while (selectedIndexes.length > 1 && commentsTotal < selectedIndexes.length * MIN_COMMENTS_PER_RUN) {
+      selectedIndexes.pop();
+    }
+
+    if (selectedIndexes.length === 0 || commentsTotal < MIN_COMMENTS_PER_RUN) return result;
+
+    // 🔥 Distribute comments proportional to cumulative views at each selected run
+    // Runs later in the order (more cumulative views) get slightly more comments
+    const selectedCumViews = selectedIndexes.map(idx => cumulativeViewsPerRun[idx]);
+    const cumViewsSum = selectedCumViews.reduce((a, b) => a + b, 0);
+
+    const rawComments = selectedIndexes.map((idx) => {
+      const cumV = cumulativeViewsPerRun[idx];
+      const proportion = cumViewsSum > 0 ? (cumV / cumViewsSum) : (1 / selectedIndexes.length);
+      const base = Math.round(proportion * commentsTotal);
+      const noise = randomInt(-1, 1);
+      return Math.max(MIN_COMMENTS_PER_RUN, base + noise);
+    });
+
+    // Scale to exact total
+    const rawSum = rawComments.reduce((a, b) => a + b, 0);
+    const scaled = rawComments.map(v => Math.max(MIN_COMMENTS_PER_RUN, Math.round((v / Math.max(1, rawSum)) * commentsTotal)));
+
+    // Correct rounding
+    let diff = commentsTotal - scaled.reduce((a, b) => a + b, 0);
+    let corrIdx = 0;
+    while (diff !== 0 && corrIdx < scaled.length * 10) {
+      const target = corrIdx % scaled.length;
+      if (diff > 0) {
+        scaled[target]++;
+        diff--;
+      } else if (scaled[target] > MIN_COMMENTS_PER_RUN) {
+        scaled[target]--;
+        diff++;
+      }
+      corrIdx++;
+    }
+
+    // Nudge consecutive duplicates
+    for (let i = 1; i < scaled.length - 1; i++) {
+      if (scaled[i] === scaled[i - 1]) {
+        if (scaled[i + 1] > MIN_COMMENTS_PER_RUN) {
+          scaled[i] += 1;
+          scaled[i + 1] -= 1;
+        } else if (scaled[i] > MIN_COMMENTS_PER_RUN) {
+          scaled[i] -= 1;
+          scaled[i + 1] += 1;
+        }
+      }
+    }
+
+    // Assign
+    selectedIndexes.forEach((runIdx, i) => {
+      result[runIdx] = scaled[i];
+    });
 
     return result;
   })();
