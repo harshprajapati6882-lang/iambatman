@@ -172,12 +172,10 @@ const commentsService = selectedApi?.services.find(
       variancePercent,
       peakHoursBoost,
       quickPreset,
-      delivery:
+            delivery:
         delivery.mode === "custom"
           ? { ...delivery, hours: customHours, label: "Custom" }
-          : delivery.mode === "auto"
-            ? { ...delivery, hours: Math.max(6, Math.min(48, delivery.hours)) }
-            : delivery,
+          : delivery,
       minViewsPerRun,
       manualRunCount: manualRunCount > 0 ? manualRunCount : undefined,
       sharesRatio,
@@ -905,16 +903,17 @@ const commentsService = selectedApi?.services.find(
               {delivery.mode === "custom" && (
                 <input
                   type="number"
+                                    min={1}
+                  max={240}
                   value={customHours}
                   onChange={(e) => {
                     setUseClonedPlan(false);
                     const safeHours = Number.isFinite(Number(e.target.value)) ? Number(e.target.value) : 1;
-                    const clampedHours = Math.max(1, Math.min(96, safeHours));
+                    const clampedHours = Math.max(1, Math.min(240, safeHours));
                     setCustomHours(clampedHours);
                     setDelivery({ mode: "custom", label: "Custom", hours: clampedHours });
                   }}
-                  min={1}
-                  max={240}
+                  
                   placeholder="Hours"
                   className="mt-1 w-20 rounded-lg border border-yellow-500/30 bg-gray-950 px-2 py-1 text-xs text-white focus:border-yellow-500/50 focus:outline-none"
                 />
