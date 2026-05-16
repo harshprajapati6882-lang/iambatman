@@ -914,7 +914,7 @@ const commentsService = selectedApi?.services.find(
                     setDelivery({ mode: "custom", label: "Custom", hours: clampedHours });
                   }}
                   min={1}
-                  max={96}
+                  max={240}
                   placeholder="Hours"
                   className="mt-1 w-20 rounded-lg border border-yellow-500/30 bg-gray-950 px-2 py-1 text-xs text-white focus:border-yellow-500/50 focus:outline-none"
                 />
