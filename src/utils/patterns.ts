@@ -1777,11 +1777,10 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       const offsets = [1, 2, 3];
       for (const offset of offsets) {
         const saveIndex = shareIdx + offset;
-        if (
+               if (
           saveIndex < provisionalRuns.length - 2 &&
           saveIndex > 0 &&
           !selectedIndexes.includes(saveIndex) &&
-          likesRuns[saveIndex] === 0 &&
           sharesRuns[saveIndex] === 0
         ) {
           selectedIndexes.push(saveIndex);
@@ -1794,13 +1793,12 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     const maxSaveRuns = Math.floor(savesTotal / minPerRun);
     if (selectedIndexes.length < maxSaveRuns) {
       // Find all available slots
-      const availableSlots = Array.from(
+            const availableSlots = Array.from(
         { length: provisionalRuns.length },
         (_, i) => i
       ).filter(i =>
         i >= 3 &&
         i < provisionalRuns.length - 2 &&
-        likesRuns[i] === 0 &&
         sharesRuns[i] === 0 &&
         !selectedIndexes.includes(i)
       );
@@ -1817,8 +1815,8 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     // Fallback: if still empty, place every 5 runs from index 5
     if (selectedIndexes.length === 0) {
-      for (let i = 5; i < provisionalRuns.length - 2; i += 5) {
-        if (likesRuns[i] === 0 && sharesRuns[i] === 0) {
+           for (let i = 5; i < provisionalRuns.length - 2; i += 5) {
+        if (sharesRuns[i] === 0) {
           selectedIndexes.push(i);
         }
         if (selectedIndexes.length >= maxSaveRuns) break;
