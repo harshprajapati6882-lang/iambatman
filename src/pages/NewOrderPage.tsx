@@ -123,8 +123,11 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
   const [savesRatio, setSavesRatio] = useState<"equal" | "half" | "third" | "custom">("third");
   const [savesCustomCount, setSavesCustomCount] = useState<number>(50);
 
-  // 🔥 NEW: Likes distribution mode
+    // 🔥 NEW: Likes distribution mode
   const [likesDistribution, setLikesDistribution] = useState<"bracket" | "even-spread">("bracket");
+
+  // 🔥 NEW: Likes boost percentage (0 = default, 50 = +50%, 100 = +100% = double)
+  const [likesBoostPercent, setLikesBoostPercent] = useState<number>(0);
 
   // 🔥 NEW: Fetch min views setting from backend on mount
   useEffect(() => {
@@ -178,7 +181,8 @@ const commentsService = selectedApi?.services.find(
       sharesCustomCount,
       savesCustomCount,
             customDrawnViews: useCustomDrawnViews ? customDrawnViews : undefined,
-      likesDistribution,
+           likesDistribution,
+      likesBoostPercent: likesBoostPercent > 0 ? likesBoostPercent : undefined,
     }),
     [
       postUrl,
@@ -201,7 +205,8 @@ const commentsService = selectedApi?.services.find(
       savesCustomCount,
       customDrawnViews,
       useCustomDrawnViews,
-      likesDistribution,
+       likesDistribution,
+      likesBoostPercent,
     ]
   );
 
@@ -889,7 +894,7 @@ const commentsService = selectedApi?.services.find(
                   ❤️ Likes
                 </button>
 
-                                                {/* 🔥 Likes distribution toggle — only when likes enabled */}
+                                 {/* 🔥 Likes distribution toggle — only when likes enabled */}
                 {includeLikes && (
                   <button
                     type="button"
@@ -906,6 +911,35 @@ const commentsService = selectedApi?.services.find(
                   >
                     {likesDistribution === "bracket" ? "📍 Milestone" : "🌊 Spread"}
                   </button>
+                )}
+
+                {/* 🔥 Likes boost — only when likes enabled */}
+                {includeLikes && (
+                  <div className="flex items-center gap-1">
+                    <select
+                      value={likesBoostPercent}
+                      onChange={(e) => {
+                        setLikesBoostPercent(Number(e.target.value));
+                        setSeed(prev => prev + 1);
+                      }}
+                      className="rounded-md border border-pink-500/30 bg-black px-1.5 py-1 text-[9px] text-pink-300 focus:outline-none focus:border-pink-500/60"
+                    >
+                      <option value={0}>❤️ Default</option>
+                      <option value={25}>+25%</option>
+                      <option value={50}>+50%</option>
+                      <option value={75}>+75%</option>
+                      <option value={100}>+100%</option>
+                      <option value={150}>+150%</option>
+                      <option value={200}>+200%</option>
+                      <option value={300}>+300%</option>
+                      <option value={500}>+500%</option>
+                    </select>
+                    {likesBoostPercent > 0 && (
+                      <span className="text-[9px] text-pink-400">
+                        ≈ {safePlan.runs.reduce((s, r) => s + r.likes, 0)} total
+                      </span>
+                    )}
+                  </div>
                 )}
 
                 <button
