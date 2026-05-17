@@ -821,13 +821,14 @@ const commentsService = selectedApi?.services.find(
                 <input
                   type="number"
                   value={startDelayHours}
-                  onChange={(e) => {
+                                    onChange={(e) => {
                     setUseClonedPlan(false);
                     const safeValue = Number.isFinite(Number(e.target.value)) ? Number(e.target.value) : 0;
-                    setStartDelayHours(Math.max(0, Math.min(168, Math.floor(safeValue))));
+                    setStartDelayHours(Math.max(0, Math.min(168, safeValue)));
                   }}
                   min={0}
                   max={168}
+                  step="0.1"
                   className="w-full rounded-lg border border-yellow-500/30 bg-gray-950 px-2 py-1.5 text-xs text-white focus:border-yellow-500/50 focus:outline-none"
                 />
               </div>
