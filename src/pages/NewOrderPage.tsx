@@ -28,6 +28,13 @@ function createOrderId() {
   return `ORD-${Date.now().toString().slice(-6)}`;
 }
 
+function formatPrice(value: number) {
+  if (!Number.isFinite(value)) return "0";
+  if (value === 0) return "0";
+  if (value < 1) return value.toFixed(3);
+  if (value < 100) return value.toFixed(2);
+  return value.toFixed(0);
+}
 export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrder, onNavigateToOrders }: NewOrderPageProps) {
   const prefillApiId = prefillOrder ? apis.find((api) => api.name === prefillOrder.selectedAPI)?.id ?? "" : "";
   const prefillBundleId = prefillOrder
@@ -1152,19 +1159,18 @@ const commentsService = selectedApi?.services.find(
 
                     return (
                       <>
-                        <span className="text-[10px] text-gray-400">👁️{(totalViewsQty/1000).toFixed(0)}k=₹{viewsPrice.toFixed(0)}</span>
+                        <span className="text-[10px] text-gray-400">👁️{(totalViewsQty/1000).toFixed(0)}k=₹{formatPrice(viewsPrice)}</span>
                         {includeLikes && totalLikesQty > 0 && (
-                          <span className="text-[10px] text-gray-400">❤️{(totalLikesQty/1000).toFixed(1)}k=₹{likesPrice.toFixed(0)}</span>
+                          <span className="text-[10px] text-gray-400">❤️{(totalLikesQty/1000).toFixed(1)}k=₹{formatPrice(likesPrice)}</span>
                         )}
                         {includeShares && totalSharesQty > 0 && (
-                          <span className="text-[10px] text-gray-400">🔄{(totalSharesQty/1000).toFixed(1)}k=₹{sharesPrice.toFixed(0)}</span>
+                          <span className="text-[10px] text-gray-400">🔄{(totalSharesQty/1000).toFixed(1)}k=₹{formatPrice(sharesPrice)}</span>
                         )}
                         {includeSaves && totalSavesQty > 0 && (
-                          <span className="text-[10px] text-gray-400">💾{(totalSavesQty/1000).toFixed(1)}k=₹{savesPrice.toFixed(0)}</span>
-                        )}
+                          <span className="text-[10px] text-gray-400">💾{(totalSavesQty/1000).toFixed(1)}k=₹{formatPrice(savesPrice)}</span>                        )}
                         {includeComments && totalCommentsQty > 0 && (
                           <span className="text-[10px] text-gray-400">
-                            💬{(totalCommentsQty/1000).toFixed(1)}k=₹{commentsPrice.toFixed(0)}
+                            💬{(totalCommentsQty/1000).toFixed(1)}k=₹{formatPrice(commentsPrice)}
                           </span>
                         )}
                       </>
@@ -1206,7 +1212,7 @@ const commentsService = selectedApi?.services.find(
                       const savesPrice = includeSaves ? (totalSavesQty / 1000) * parseFloat(savesService?.rate || "0") : 0;
                       const commentsPrice = includeComments ? (totalCommentsQty / 1000) * parseFloat(commentsService?.rate || "0") : 0;
 
-                      return (viewsPrice + likesPrice + sharesPrice + savesPrice + commentsPrice).toFixed(0);
+                      return formatPrice(viewsPrice + likesPrice + sharesPrice + savesPrice + commentsPrice);
                     })()}
                   </span>
                 </div>
