@@ -923,279 +923,102 @@ export function OrdersPage({
         onClick={onClose}
       >
         <div
-          className="max-h-[92vh] w-full max-w-3xl overflow-auto rounded-2xl border border-yellow-500/30 bg-black shadow-2xl"
+          className="max-h-[92vh] w-full max-w-xl overflow-auto rounded-2xl border border-yellow-500/30 bg-black shadow-2xl"
           onClick={e => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="sticky top-0 z-10 border-b border-gray-800 bg-black px-5 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-lg">🔬</span>
-                <h3 className="text-base font-bold text-yellow-400">Run Diagnostics</h3>
+          <div className="sticky top-0 z-10 border-b border-gray-800 bg-black px-5 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-base">🔬</span>
+              <div>
+                <h3 className="text-sm font-bold text-yellow-400">Run Diagnostics</h3>
+                <p className="text-[10px] text-gray-500 truncate">{order.name}</p>
               </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-xs text-yellow-300 hover:bg-yellow-500/20 transition"
-              >
-                ✕ Close
-              </button>
             </div>
-            <p className="mt-1 text-[10px] text-gray-500 font-mono truncate">{order.name} · {order.schedulerOrderId}</p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-xs text-yellow-300 hover:bg-yellow-500/20 transition"
+            >
+              ✕ Close
+            </button>
           </div>
 
-          <div className="p-5 space-y-5">
-            {/* Health Overview */}
-            <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4">
-              <h4 className="text-xs font-bold text-gray-300 mb-3 uppercase tracking-wider">📊 Order Health</h4>
-              <div className="grid grid-cols-4 gap-3 mb-3">
-                <div className="rounded-lg bg-black px-3 py-2 text-center">
-                  <p className="text-lg font-bold text-white">{totalRuns}</p>
-                  <p className="text-[9px] text-gray-500">Total Runs</p>
-                </div>
-                <div className="rounded-lg bg-black px-3 py-2 text-center">
-                  <p className="text-lg font-bold text-emerald-400">{completedCount}</p>
-                  <p className="text-[9px] text-gray-500">Completed</p>
-                </div>
-                <div className="rounded-lg bg-black px-3 py-2 text-center">
-                  <p className="text-lg font-bold text-red-400">{cancelledCount}</p>
-                  <p className="text-[9px] text-gray-500">Cancelled</p>
-                </div>
-                <div className="rounded-lg bg-black px-3 py-2 text-center">
-                  <p className="text-lg font-bold text-yellow-400">{retriedRuns.length}</p>
-                  <p className="text-[9px] text-gray-500">Had Retries</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 h-2 rounded-full bg-gray-800 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${
-                      healthScore >= 80 ? "bg-emerald-500" :
-                      healthScore >= 50 ? "bg-yellow-500" : "bg-red-500"
-                    }`}
-                    style={{ width: `${healthScore}%` }}
-                  />
-                </div>
-                <span className={`text-xs font-bold ${
-                  healthScore >= 80 ? "text-emerald-400" :
-                  healthScore >= 50 ? "text-yellow-400" : "text-red-400"
-                }`}>{healthScore}% Success</span>
-              </div>
-            </div>
-
-            {/* No issues */}
+          <div className="p-4 space-y-3">
+            {/* All good */}
             {cancelledRuns.length === 0 && retriedRuns.length === 0 && (
-              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-center">
-                <span className="text-2xl">✅</span>
-                <p className="mt-2 text-sm font-medium text-emerald-400">All runs completed successfully!</p>
-                <p className="text-[10px] text-gray-500 mt-1">No issues detected in this order.</p>
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-5 text-center">
+                <span className="text-3xl">✅</span>
+                <p className="mt-2 text-sm font-medium text-emerald-400">No issues found!</p>
+                <p className="text-[10px] text-gray-500 mt-1">All runs completed successfully.</p>
               </div>
             )}
 
-            {/* Error Groups */}
+            {/* Error Groups — only cause + fix */}
             {errorGroups.size > 0 && (
-              <div>
-                <h4 className="text-xs font-bold text-red-400 mb-3 uppercase tracking-wider">❌ Cancelled Runs — Grouped by Cause</h4>
-                <div className="space-y-3">
-                  {Array.from(errorGroups.entries()).map(([category, group]) => (
-                    <div key={category} className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-base">{group.icon}</span>
-                        <span className={`text-sm font-bold ${group.color}`}>{category}</span>
-                        <span className="ml-auto rounded-full bg-red-500/20 px-2 py-0.5 text-[9px] font-bold text-red-300">
-                          {group.runs.length} run{group.runs.length > 1 ? "s" : ""}
-                        </span>
-                      </div>
-
-                      {/* Affected runs */}
-                      <div className="flex flex-wrap gap-1 mb-3">
-                        {group.runs.map(r => (
-                          <span key={r.index} className="rounded-full bg-black/50 border border-red-500/20 px-2 py-0.5 text-[9px] text-red-300">
-                            Run #{r.run.run}
-                            {r.run.likes > 0 && " ❤️"}
-                            {r.run.shares > 0 && " 🔄"}
-                            {r.run.saves > 0 && " 💾"}
-                            {r.run.comments > 0 && " 💬"}
-                            {r.run.views > 0 && ` 👁️${r.run.views}`}
-                          </span>
-                        ))}
-                      </div>
-
-                      {/* Raw error for first run */}
-                      {group.runs[0]?.error && (
-                        <div className="mb-2 rounded-lg bg-black/50 border border-gray-800 px-2 py-1.5">
-                          <p className="text-[9px] text-gray-500 mb-0.5 uppercase tracking-wider">Raw Error:</p>
-                          <p className="text-[10px] text-red-300 font-mono break-all">{group.runs[0].error}</p>
-                        </div>
-                      )}
-
-                      {/* Cause */}
-                      <div className="mb-2">
-                        <p className="text-[9px] text-gray-500 mb-0.5 uppercase tracking-wider font-semibold">🔍 Root Cause:</p>
-                        <p className="text-[10px] text-gray-300 leading-relaxed">{group.cause}</p>
-                      </div>
-
-                      {/* Fix */}
-                      <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
-                        <p className="text-[9px] text-emerald-500 mb-0.5 uppercase tracking-wider font-semibold">✅ How to Fix / Prevent:</p>
-                        <p className="text-[10px] text-emerald-300 leading-relaxed">{group.fix}</p>
-                      </div>
+              <div className="space-y-3">
+                {Array.from(errorGroups.entries()).map(([category, group]) => (
+                  <div key={category} className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 space-y-3">
+                    {/* Title */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">{group.icon}</span>
+                      <span className={`text-sm font-bold ${group.color}`}>{category}</span>
+                      <span className="ml-auto rounded-full bg-red-500/20 px-2 py-0.5 text-[9px] font-bold text-red-300">
+                        {group.runs.length} run{group.runs.length > 1 ? "s" : ""}
+                      </span>
                     </div>
-                  ))}
-                </div>
+
+                    {/* Raw error */}
+                    {group.runs[0]?.error && (
+                      <div className="rounded-lg bg-black/60 border border-gray-800 px-3 py-2">
+                        <p className="text-[9px] text-gray-500 uppercase tracking-wider mb-1">Error Message:</p>
+                        <p className="text-[10px] text-red-300 font-mono break-all leading-relaxed">{group.runs[0].error}</p>
+                      </div>
+                    )}
+
+                    {/* Cause */}
+                    <div>
+                      <p className="text-[9px] text-gray-500 uppercase tracking-wider font-semibold mb-1">🔍 Why it happened:</p>
+                      <p className="text-[10px] text-gray-300 leading-relaxed">{group.cause}</p>
+                    </div>
+
+                    {/* Fix */}
+                    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2.5">
+                      <p className="text-[9px] text-emerald-500 uppercase tracking-wider font-semibold mb-1">✅ How to fix / prevent:</p>
+                      <p className="text-[10px] text-emerald-300 leading-relaxed">{group.fix}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 
-            {/* Retried runs */}
+            {/* Retried runs — compact */}
             {retriedRuns.length > 0 && (
-              <div>
-                <h4 className="text-xs font-bold text-yellow-400 mb-3 uppercase tracking-wider">🔄 Runs That Were Retried</h4>
-                <div className="space-y-2">
+              <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-4">
+                <p className="text-xs font-bold text-yellow-400 mb-2">🔄 Retried Runs ({retriedRuns.length})</p>
+                <div className="space-y-1.5">
                   {retriedRuns.map(r => {
                     const diag = categorizeError(r.error, r.reason);
                     return (
-                      <div key={r.index} className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-3 py-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[10px] font-bold text-yellow-300">Run #{r.run.run}</span>
-                          <span className="rounded-full bg-yellow-500/20 px-2 py-0.5 text-[9px] text-yellow-300">
-                            {r.retries} retr{r.retries > 1 ? "ies" : "y"}
-                          </span>
-                          <span className={`text-[9px] ${diag.color}`}>{diag.icon} {diag.category}</span>
-                          <span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-medium ${
-                            r.status === "completed" ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"
-                          }`}>
-                            {r.status === "completed" ? "✓ Eventually succeeded" : "✗ Failed after retries"}
-                          </span>
-                        </div>
-                        {r.originalTime && r.currentTime && r.originalTime !== r.currentTime && (
-                          <p className="text-[9px] text-gray-600 mt-1">
-                            Originally: {new Date(r.originalTime).toLocaleTimeString()} →
-                            Rescheduled to: {new Date(r.currentTime).toLocaleTimeString()}
-                          </p>
-                        )}
-                        {r.reason && (
-                          <p className="text-[9px] text-yellow-600 mt-0.5 truncate">{r.reason}</p>
-                        )}
+                      <div key={r.index} className="flex items-center gap-2 text-[10px]">
+                        <span className="text-yellow-300 font-medium">Run #{r.run.run}</span>
+                        <span className="text-yellow-600">↻ {r.retries}×</span>
+                        <span className={diag.color}>{diag.icon} {diag.category}</span>
+                        <span className={`ml-auto rounded-full px-1.5 py-0.5 text-[9px] ${
+                          r.status === "completed" ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"
+                        }`}>
+                          {r.status === "completed" ? "✓ Recovered" : "✗ Failed"}
+                        </span>
                       </div>
                     );
                   })}
                 </div>
               </div>
             )}
-
-            {/* All runs detailed table */}
-            <div>
-              <h4 className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-wider">📋 All Runs Detail</h4>
-              <div className="max-h-72 overflow-auto rounded-xl border border-gray-800">
-                <table className="w-full text-[10px] text-left">
-                  <thead className="sticky top-0 bg-gray-900 text-gray-500">
-                    <tr>
-                      <th className="px-3 py-2">#</th>
-                      <th className="px-3 py-2">Scheduled</th>
-                      <th className="px-3 py-2">Views</th>
-                      <th className="px-3 py-2">Eng</th>
-                      <th className="px-3 py-2">Status</th>
-                      <th className="px-3 py-2">Retries</th>
-                      <th className="px-3 py-2">Issue</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {diagRuns.map(r => {
-                      const diag = r.status === "cancelled" ? categorizeError(r.error, r.reason) : null;
-                      return (
-                        <tr key={r.index} className={`border-t border-gray-800 ${
-                          r.status === "cancelled" ? "bg-red-500/5" :
-                          r.status === "completed" ? "bg-emerald-500/5" :
-                          r.retries > 0 ? "bg-yellow-500/5" : ""
-                        }`}>
-                          <td className="px-3 py-1.5 font-medium text-gray-400">#{r.run.run}</td>
-                          <td className="px-3 py-1.5 text-gray-600">
-                            {(r.run.at instanceof Date ? r.run.at : new Date(r.run.at))
-                              .toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                          </td>
-                          <td className="px-3 py-1.5 text-gray-400">{r.run.views}</td>
-                          <td className="px-3 py-1.5 text-gray-600">
-                            {r.run.likes > 0 && <span className="mr-1">❤️{r.run.likes}</span>}
-                            {r.run.shares > 0 && <span className="mr-1">🔄{r.run.shares}</span>}
-                            {r.run.saves > 0 && <span className="mr-1">💾{r.run.saves}</span>}
-                            {r.run.comments > 0 && <span>💬{r.run.comments}</span>}
-                            {!r.run.likes && !r.run.shares && !r.run.saves && !r.run.comments && <span className="text-gray-700">-</span>}
-                          </td>
-                          <td className="px-3 py-1.5">
-                            <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${
-                              r.status === "completed" ? "bg-emerald-500/20 text-emerald-300" :
-                              r.status === "cancelled" ? "bg-red-500/20 text-red-300" :
-                              r.status === "pending" ? "bg-blue-500/20 text-blue-300" :
-                              "bg-yellow-500/20 text-yellow-300"
-                            }`}>
-                              {r.status}
-                            </span>
-                          </td>
-                          <td className="px-3 py-1.5 text-gray-600">
-                            {r.retries > 0 ? (
-                              <span className="text-yellow-400">↻{r.retries}</span>
-                            ) : "-"}
-                          </td>
-                          <td className="px-3 py-1.5 max-w-[140px]">
-                            {diag ? (
-                              <span className={`text-[9px] truncate ${diag.color}`} title={diag.cause}>
-                                {diag.icon} {diag.category}
-                              </span>
-                            ) : r.retries > 0 && r.status === "completed" ? (
-                              <span className="text-[9px] text-emerald-400">✓ Recovered</span>
-                            ) : (
-                              <span className="text-gray-700">-</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Quick fix summary */}
-            {(cancelledRuns.length > 0 || retriedRuns.length > 0) && (
-              <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
-                <h4 className="text-xs font-bold text-blue-400 mb-2 uppercase tracking-wider">💡 Quick Actions</h4>
-                <div className="space-y-2 text-[10px] text-gray-300">
-                  {cancelledCount > 0 && healthScore < 100 && (
-                    <div className="flex items-start gap-2">
-                      <span className="text-blue-400 flex-shrink-0">→</span>
-                      <p>
-                        <span className="text-white font-medium">{cancelledCount} runs were cancelled.</span>
-                        {" "}Use the <span className="text-yellow-300">Clone</span> button to recreate this order
-                        and deliver the missing {cancelledRuns.reduce((s, r) => s + r.run.views, 0).toLocaleString()} views.
-                      </p>
-                    </div>
-                  )}
-                  {errorGroups.has("Active Order Conflict") && (
-                    <div className="flex items-start gap-2">
-                      <span className="text-blue-400 flex-shrink-0">→</span>
-                      <p>
-                        <span className="text-white font-medium">Active order conflicts detected.</span>
-                        {" "}Try using a longer delivery time (48h+) or increase min views per run to reduce run count.
-                      </p>
-                    </div>
-                  )}
-                  {errorGroups.has("Provider Server Error") && (
-                    <div className="flex items-start gap-2">
-                      <span className="text-blue-400 flex-shrink-0">→</span>
-                      <p>
-                        <span className="text-white font-medium">Provider was down during execution.</span>
-                        {" "}Check if the SMM panel is stable. Clone and retry during off-peak hours.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>
-    );
-  }
+    );  }
     function SingleOrderPopup({ order }: { order: CreatedOrder }) {
     const [providerStatuses, setProviderStatuses] = useState<ProviderRunStatus[]>([]);
     const [checkingProvider, setCheckingProvider] = useState(false);
