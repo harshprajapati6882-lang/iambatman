@@ -1113,37 +1113,43 @@ const commentsService = selectedApi?.services.find(
                 
                 {/* Price Items */}
                 <div className="flex items-center gap-1 flex-wrap flex-1">
-                  {(() => {
+                                    {(() => {
                     const selectedBundle = bundles.find(b => b.id === selectedBundleId);
-                    const selectedApi = apis.find(a => a.id === selectedApiId);
-                    
-                    if (!selectedBundle || !selectedApi) return null;
-                    
-                    const viewsService = selectedApi.services.find(s => s.id === selectedBundle.serviceIds.views);
-                    const likesService = selectedApi.services.find(s => s.id === selectedBundle.serviceIds.likes);
-                    const sharesService = selectedApi.services.find(s => s.id === selectedBundle.serviceIds.shares);
-                    const savesService = selectedApi.services.find(s => s.id === selectedBundle.serviceIds.saves);
-                    const commentsService = selectedApi.services.find(s => s.id === selectedBundle.serviceIds.comments);
-                    const commentsMin = Number(commentsService?.min || 0);
-                    
+                    if (!selectedBundle) return null;
+
+                    // 🔥 Per-service API lookup — respects multi-API bundles
+                    const getServiceForType = (type: 'views' | 'likes' | 'shares' | 'saves' | 'comments') => {
+                      const overrideApiId = selectedBundle.serviceApis?.[type];
+                      const apiId = overrideApiId || selectedBundle.apiId || selectedApiId;
+                      const api = apis.find(a => a.id === apiId);
+                      const serviceId = selectedBundle.serviceIds[type];
+                      return api?.services.find(s => s.id === serviceId);
+                    };
+
+                    const viewsService = getServiceForType('views');
+                    const likesService = getServiceForType('likes');
+                    const sharesService = getServiceForType('shares');
+                    const savesService = getServiceForType('saves');
+                    const commentsService = getServiceForType('comments');
+
                     const totalViewsQty = safePlan.runs.reduce((sum, run) => sum + (run.views || 0), 0);
                     const totalLikesQty = safePlan.runs.reduce((sum, run) => sum + (run.likes || 0), 0);
                     const totalSharesQty = safePlan.runs.reduce((sum, run) => sum + (run.shares || 0), 0);
                     const totalSavesQty = safePlan.runs.reduce((sum, run) => sum + (run.saves || 0), 0);
                     const totalCommentsQty = safePlan.runs.reduce((sum, run) => sum + (run.comments || 0), 0);
-                    
+
                     const viewsRate = parseFloat(viewsService?.rate || "0");
                     const likesRate = parseFloat(likesService?.rate || "0");
                     const sharesRate = parseFloat(sharesService?.rate || "0");
                     const savesRate = parseFloat(savesService?.rate || "0");
                     const commentsRate = parseFloat(commentsService?.rate || "0");
-                    
+
                     const viewsPrice = (totalViewsQty / 1000) * viewsRate;
                     const likesPrice = includeLikes ? (totalLikesQty / 1000) * likesRate : 0;
                     const sharesPrice = includeShares ? (totalSharesQty / 1000) * sharesRate : 0;
                     const savesPrice = includeSaves ? (totalSavesQty / 1000) * savesRate : 0;
                     const commentsPrice = includeComments ? (totalCommentsQty / 1000) * commentsRate : 0;
-                    
+
                     return (
                       <>
                         <span className="text-[10px] text-gray-400">👁️{(totalViewsQty/1000).toFixed(0)}k=₹{viewsPrice.toFixed(0)}</span>
@@ -1158,7 +1164,7 @@ const commentsService = selectedApi?.services.find(
                         )}
                         {includeComments && totalCommentsQty > 0 && (
                           <span className="text-[10px] text-gray-400">
-                          💬{(totalCommentsQty/1000).toFixed(1)}k=₹{commentsPrice.toFixed(0)}
+                            💬{(totalCommentsQty/1000).toFixed(1)}k=₹{commentsPrice.toFixed(0)}
                           </span>
                         )}
                       </>
@@ -1169,37 +1175,38 @@ const commentsService = selectedApi?.services.find(
                 {/* Total */}
                                 <div className="rounded-md border border-yellow-400/60 bg-yellow-500/20 px-3 py-1.5 shadow-sm shadow-yellow-500/10">
                   <span className="text-sm font-bold text-yellow-200">
-                    ₹{(() => {
+                                        ₹{(() => {
                       const selectedBundle = bundles.find(b => b.id === selectedBundleId);
-                      const selectedApi = apis.find(a => a.id === selectedApiId);
-                      
-                      if (!selectedBundle || !selectedApi) return "0";
-                      
-                      const viewsService = selectedApi.services.find(s => s.id === selectedBundle.serviceIds.views);
-const likesService = selectedApi.services.find(s => s.id === selectedBundle.serviceIds.likes);
-const sharesService = selectedApi.services.find(s => s.id === selectedBundle.serviceIds.shares);
-const savesService = selectedApi.services.find(s => s.id === selectedBundle.serviceIds.saves);
-const commentsService = selectedApi.services.find(s => s.id === selectedBundle.serviceIds.comments);
+                      if (!selectedBundle) return "0";
 
-const totalViewsQty = safePlan.runs.reduce((sum, run) => sum + (run.views || 0), 0);
-const totalLikesQty = safePlan.runs.reduce((sum, run) => sum + (run.likes || 0), 0);
-const totalSharesQty = safePlan.runs.reduce((sum, run) => sum + (run.shares || 0), 0);
-const totalSavesQty = safePlan.runs.reduce((sum, run) => sum + (run.saves || 0), 0);
-const totalCommentsQty = safePlan.runs.reduce((sum, run) => sum + (run.comments || 0), 0);
+                      // 🔥 Per-service API lookup — respects multi-API bundles
+                      const getServiceForType = (type: 'views' | 'likes' | 'shares' | 'saves' | 'comments') => {
+                        const overrideApiId = selectedBundle.serviceApis?.[type];
+                        const apiId = overrideApiId || selectedBundle.apiId || selectedApiId;
+                        const api = apis.find(a => a.id === apiId);
+                        const serviceId = selectedBundle.serviceIds[type];
+                        return api?.services.find(s => s.id === serviceId);
+                      };
 
-const viewsRate = parseFloat(viewsService?.rate || "0");
-const likesRate = parseFloat(likesService?.rate || "0");
-const sharesRate = parseFloat(sharesService?.rate || "0");
-const savesRate = parseFloat(savesService?.rate || "0");
-const commentsRate = parseFloat(commentsService?.rate || "0");
+                      const viewsService = getServiceForType('views');
+                      const likesService = getServiceForType('likes');
+                      const sharesService = getServiceForType('shares');
+                      const savesService = getServiceForType('saves');
+                      const commentsService = getServiceForType('comments');
 
-const viewsPrice = (totalViewsQty / 1000) * viewsRate;
-const likesPrice = includeLikes ? (totalLikesQty / 1000) * likesRate : 0;
-const sharesPrice = includeShares ? (totalSharesQty / 1000) * sharesRate : 0;
-const savesPrice = includeSaves ? (totalSavesQty / 1000) * savesRate : 0;
-const commentsPrice = includeComments ? (totalCommentsQty / 1000) * commentsRate : 0;
+                      const totalViewsQty = safePlan.runs.reduce((sum, run) => sum + (run.views || 0), 0);
+                      const totalLikesQty = safePlan.runs.reduce((sum, run) => sum + (run.likes || 0), 0);
+                      const totalSharesQty = safePlan.runs.reduce((sum, run) => sum + (run.shares || 0), 0);
+                      const totalSavesQty = safePlan.runs.reduce((sum, run) => sum + (run.saves || 0), 0);
+                      const totalCommentsQty = safePlan.runs.reduce((sum, run) => sum + (run.comments || 0), 0);
 
-return (viewsPrice + likesPrice + sharesPrice + savesPrice + commentsPrice).toFixed(0);
+                      const viewsPrice = (totalViewsQty / 1000) * parseFloat(viewsService?.rate || "0");
+                      const likesPrice = includeLikes ? (totalLikesQty / 1000) * parseFloat(likesService?.rate || "0") : 0;
+                      const sharesPrice = includeShares ? (totalSharesQty / 1000) * parseFloat(sharesService?.rate || "0") : 0;
+                      const savesPrice = includeSaves ? (totalSavesQty / 1000) * parseFloat(savesService?.rate || "0") : 0;
+                      const commentsPrice = includeComments ? (totalCommentsQty / 1000) * parseFloat(commentsService?.rate || "0") : 0;
+
+                      return (viewsPrice + likesPrice + sharesPrice + savesPrice + commentsPrice).toFixed(0);
                     })()}
                   </span>
                 </div>
