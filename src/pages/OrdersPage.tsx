@@ -196,6 +196,7 @@ export function OrdersPage({
     const [openedGroupId, setOpenedGroupId] = useState<string | null>(null);
   const openedGroupIdRef = useRef<string | null>(null);
   const [showBulkCancel, setShowBulkCancel] = useState(false);
+  const [diagnosticsOrder, setDiagnosticsOrder] = useState<CreatedOrder | null>(null);
   const [bulkCancelLinks, setBulkCancelLinks] = useState("");
   const [bulkCancelResults, setBulkCancelResults] = useState<Array<{ link: string; found: boolean; orderName?: string; cancelled?: boolean; error?: string }> | null>(null);
   const [bulkCancelBusy, setBulkCancelBusy] = useState(false);
@@ -559,7 +560,13 @@ export function OrdersPage({
           {!isCancelled && status === "running" && (<button onClick={(e) => { e.stopPropagation(); onControlOrder(order, "pause"); }} disabled={isControlling} className="flex items-center gap-1 rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-[10px] font-medium text-orange-300 hover:bg-orange-500/20 transition disabled:opacity-50">{isControlling ? "⏳" : "⏸️"} Pause</button>)}
           {!isCancelled && status === "paused" && (<button onClick={(e) => { e.stopPropagation(); onControlOrder(order, "resume"); }} disabled={isControlling} className="flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-300 hover:bg-emerald-500/20 transition disabled:opacity-50">{isControlling ? "⏳" : "▶️"} Resume</button>)}
           {!isCancelled && status !== "completed" && (<button onClick={(e) => { e.stopPropagation(); if (window.confirm(`Cancel this order?\n\nLink: ${order.link.slice(0, 50)}...`)) { onControlOrder(order, "cancel"); } }} disabled={isControlling} className="flex items-center gap-1 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] font-medium text-red-300 hover:bg-red-500/20 transition disabled:opacity-50">{isControlling ? "⏳" : "❌"} Cancel</button>)}
-          <button onClick={(e) => { e.stopPropagation(); onCloneOrder(order); }} className="flex items-center gap-1 rounded-md border border-gray-600 bg-black px-2 py-1 text-[10px] font-medium text-gray-400 hover:text-white hover:border-gray-500 transition">📋 Clone</button>
+                    <button onClick={(e) => { e.stopPropagation(); onCloneOrder(order); }} className="flex items-center gap-1 rounded-md border border-gray-600 bg-black px-2 py-1 text-[10px] font-medium text-gray-400 hover:text-white hover:border-gray-500 transition">📋 Clone</button>
+          <button
+            onClick={(e) => { e.stopPropagation(); setDiagnosticsOrder(order); }}
+            className="flex items-center gap-1 rounded-md border border-purple-500/30 bg-purple-500/10 px-2 py-1 text-[10px] font-medium text-purple-400 hover:bg-purple-500/20 transition"
+          >
+            🔬 Diagnose
+          </button>
                     {/* Open Link */}
           <a
             href={order.link}
@@ -754,7 +761,441 @@ export function OrdersPage({
       </div>
     );
   }
+      // 🔥 Run Diagnostics Modal
+  function RunDiagnosticsPopup({ order, onClose }: { order: CreatedOrder; onClose: () => void }) {
+    const runs = order.runs || [];
+    const runStatuses = order.runStatuses || [];
+    const runErrors = order.runErrors || [];
+    const runRetries = order.runRetries || [];
+    const runOriginalTimes = order.runOriginalTimes || [];
+    const runCurrentTimes = order.runCurrentTimes || [];
+    const runReasons = order.runReasons || [];
+    const runActualExecutedTimes = order.runActualExecutedTimes || [];
 
+    // Build diagnostics for each run
+    const diagRuns = runs.map((run, i) => ({
+      run,
+      index: i,
+      status: runStatuses[i] || "pending",
+      error: runErrors[i] || "",
+      retries: runRetries[i] || 0,
+      originalTime: runOriginalTimes[i] || "",
+      currentTime: runCurrentTimes[i] || "",
+      reason: runReasons[i] || "",
+      actualExecutedAt: runActualExecutedTimes[i] || "",
+    }));
+
+    const cancelledRuns = diagRuns.filter(r => r.status === "cancelled");
+    const retriedRuns = diagRuns.filter(r => r.retries > 0);
+    const completedRuns = diagRuns.filter(r => r.status === "completed");
+    const pendingRuns = diagRuns.filter(r => r.status === "pending");
+
+    // Analyze error patterns
+    function categorizeError(error: string, reason: string): {
+      category: string;
+      icon: string;
+      color: string;
+      cause: string;
+      fix: string;
+    } {
+      const text = (error + " " + reason).toLowerCase();
+
+      if (text.includes("active order") || text.includes("please wait")) {
+        return {
+          category: "Active Order Conflict",
+          icon: "⚡",
+          color: "text-yellow-400",
+          cause: "The SMM provider had an active/pending order for the same link when this run was attempted. The provider only allows one active order per link at a time.",
+          fix: "Increase the interval between runs for this link. Use a longer delivery time (e.g. 48h instead of 24h) to give previous orders more time to complete. Or use a different service ID that allows concurrent orders.",
+        };
+      }
+      if (text.includes("502") || text.includes("bad gateway") || text.includes("503") || text.includes("504")) {
+        return {
+          category: "Provider Server Error",
+          icon: "🔴",
+          color: "text-red-400",
+          cause: "The SMM panel API returned a 502/503/504 error meaning their servers were temporarily down or overloaded at the time of execution.",
+          fix: "This is a provider-side issue. The backend already retries up to 4 times with 5min gaps. If it keeps failing, check if the provider panel is down. You may need to manually resume this order or create a new order for the missed views.",
+        };
+      }
+      if (text.includes("timeout") || text.includes("timedout") || text.includes("econnaborted")) {
+        return {
+          category: "Request Timeout",
+          icon: "⏱️",
+          color: "text-orange-400",
+          cause: "The SMM panel took too long to respond (over 45 seconds). This usually happens when the provider server is slow or overloaded.",
+          fix: "Backend retries automatically. If timeouts persist, the provider may be having issues. Check their status page. Consider switching to a faster/more reliable provider for this service.",
+        };
+      }
+      if (text.includes("cancelled") && text.includes("views")) {
+        return {
+          category: "Views Run Cancelled",
+          icon: "👁️",
+          color: "text-red-400",
+          cause: "The corresponding VIEWS run for this time slot was cancelled, so this engagement run was also cancelled to avoid placing likes/shares/saves without views.",
+          fix: "This is by design — engagement only fires after views complete. If the views run failed/was cancelled, check why views failed first and fix that root cause.",
+        };
+      }
+      if (text.includes("waiting for views") || text.includes("views run")) {
+        return {
+          category: "Waiting for Views",
+          icon: "⏳",
+          color: "text-blue-400",
+          cause: "This engagement run (likes/shares/saves) was postponed because the corresponding VIEWS run for the same time slot had not completed yet.",
+          fix: "This is normal behavior — engagement waits for views to complete first. If it kept retrying without success, the views run may have failed. Check the views run status for the same time slot.",
+        };
+      }
+      if (text.includes("quantity") && text.includes("minimum")) {
+        return {
+          category: "Below Minimum Quantity",
+          icon: "📉",
+          color: "text-purple-400",
+          cause: "The quantity for this run was below the service minimum (e.g. 10 for likes). The run was skipped to prevent a provider error.",
+          fix: "Increase the total order quantity so each run has enough to meet the service minimum. Or increase the minimum views per run setting so fewer runs are created with higher quantities each.",
+        };
+      }
+      if (text.includes("order cancelled") || text.includes("order was cancelled")) {
+        return {
+          category: "Order Manually Cancelled",
+          icon: "🚫",
+          color: "text-gray-400",
+          cause: "You manually cancelled this order, so all pending runs were cancelled.",
+          fix: "If cancelled by mistake, create a new order with the same settings using the Clone button.",
+        };
+      }
+      if (text.includes("zero quantity") || text.includes("0 quantity")) {
+        return {
+          category: "Zero Quantity",
+          icon: "0️⃣",
+          color: "text-gray-400",
+          cause: "This run had 0 quantity assigned to it, likely because the pattern distributed 0 views/likes/etc to this time slot.",
+          fix: "Regenerate the pattern. If it keeps happening, increase the minimum views per run or the total order quantity.",
+        };
+      }
+      if (text.includes("max retries") || text.includes("max retry")) {
+        return {
+          category: "Max Retries Reached",
+          icon: "🔁",
+          color: "text-red-400",
+          cause: "The run was retried the maximum number of times (4-6 retries) but still failed each time.",
+          fix: "Check if the provider has a prolonged outage or if the link has a persistent conflict. Try creating a new order with adjusted settings or a different service ID.",
+        };
+      }
+      if (text.includes("network") || text.includes("econnreset") || text.includes("econnrefused")) {
+        return {
+          category: "Network Error",
+          icon: "🌐",
+          color: "text-orange-400",
+          cause: "A network error occurred while trying to reach the SMM provider. This could be a temporary connectivity issue between the backend server and the provider.",
+          fix: "Backend retries automatically. If it persists, check the provider API URL is correct and the provider is reachable. The backend server (Render) may have had a temporary network issue.",
+        };
+      }
+
+      // Generic
+      return {
+        category: "Unknown Error",
+        icon: "❓",
+        color: "text-gray-400",
+        cause: error || reason || "No specific error message captured.",
+        fix: "Check the raw error message above. If the issue is unclear, try cancelling and recreating this order with the same settings.",
+      };
+    }
+
+    // Overall order health summary
+    const totalRuns = runs.length;
+    const completedCount = completedRuns.length;
+    const cancelledCount = cancelledRuns.length;
+    const healthScore = totalRuns > 0 ? Math.round((completedCount / totalRuns) * 100) : 0;
+
+    // Group cancelled runs by error category
+    const errorGroups = new Map<string, { category: string; icon: string; color: string; cause: string; fix: string; runs: typeof cancelledRuns }>();
+    cancelledRuns.forEach(r => {
+      const diag = categorizeError(r.error, r.reason);
+      if (!errorGroups.has(diag.category)) {
+        errorGroups.set(diag.category, { ...diag, runs: [] });
+      }
+      errorGroups.get(diag.category)!.runs.push(r);
+    });
+
+    return (
+      <div
+        className="fixed inset-0 z-[60] flex items-center justify-center bg-black/95 backdrop-blur-sm px-4 py-6"
+        onClick={onClose}
+      >
+        <div
+          className="max-h-[92vh] w-full max-w-3xl overflow-auto rounded-2xl border border-yellow-500/30 bg-black shadow-2xl"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="sticky top-0 z-10 border-b border-gray-800 bg-black px-5 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🔬</span>
+                <h3 className="text-base font-bold text-yellow-400">Run Diagnostics</h3>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-xs text-yellow-300 hover:bg-yellow-500/20 transition"
+              >
+                ✕ Close
+              </button>
+            </div>
+            <p className="mt-1 text-[10px] text-gray-500 font-mono truncate">{order.name} · {order.schedulerOrderId}</p>
+          </div>
+
+          <div className="p-5 space-y-5">
+            {/* Health Overview */}
+            <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4">
+              <h4 className="text-xs font-bold text-gray-300 mb-3 uppercase tracking-wider">📊 Order Health</h4>
+              <div className="grid grid-cols-4 gap-3 mb-3">
+                <div className="rounded-lg bg-black px-3 py-2 text-center">
+                  <p className="text-lg font-bold text-white">{totalRuns}</p>
+                  <p className="text-[9px] text-gray-500">Total Runs</p>
+                </div>
+                <div className="rounded-lg bg-black px-3 py-2 text-center">
+                  <p className="text-lg font-bold text-emerald-400">{completedCount}</p>
+                  <p className="text-[9px] text-gray-500">Completed</p>
+                </div>
+                <div className="rounded-lg bg-black px-3 py-2 text-center">
+                  <p className="text-lg font-bold text-red-400">{cancelledCount}</p>
+                  <p className="text-[9px] text-gray-500">Cancelled</p>
+                </div>
+                <div className="rounded-lg bg-black px-3 py-2 text-center">
+                  <p className="text-lg font-bold text-yellow-400">{retriedRuns.length}</p>
+                  <p className="text-[9px] text-gray-500">Had Retries</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-2 rounded-full bg-gray-800 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      healthScore >= 80 ? "bg-emerald-500" :
+                      healthScore >= 50 ? "bg-yellow-500" : "bg-red-500"
+                    }`}
+                    style={{ width: `${healthScore}%` }}
+                  />
+                </div>
+                <span className={`text-xs font-bold ${
+                  healthScore >= 80 ? "text-emerald-400" :
+                  healthScore >= 50 ? "text-yellow-400" : "text-red-400"
+                }`}>{healthScore}% Success</span>
+              </div>
+            </div>
+
+            {/* No issues */}
+            {cancelledRuns.length === 0 && retriedRuns.length === 0 && (
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-center">
+                <span className="text-2xl">✅</span>
+                <p className="mt-2 text-sm font-medium text-emerald-400">All runs completed successfully!</p>
+                <p className="text-[10px] text-gray-500 mt-1">No issues detected in this order.</p>
+              </div>
+            )}
+
+            {/* Error Groups */}
+            {errorGroups.size > 0 && (
+              <div>
+                <h4 className="text-xs font-bold text-red-400 mb-3 uppercase tracking-wider">❌ Cancelled Runs — Grouped by Cause</h4>
+                <div className="space-y-3">
+                  {Array.from(errorGroups.entries()).map(([category, group]) => (
+                    <div key={category} className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-base">{group.icon}</span>
+                        <span className={`text-sm font-bold ${group.color}`}>{category}</span>
+                        <span className="ml-auto rounded-full bg-red-500/20 px-2 py-0.5 text-[9px] font-bold text-red-300">
+                          {group.runs.length} run{group.runs.length > 1 ? "s" : ""}
+                        </span>
+                      </div>
+
+                      {/* Affected runs */}
+                      <div className="flex flex-wrap gap-1 mb-3">
+                        {group.runs.map(r => (
+                          <span key={r.index} className="rounded-full bg-black/50 border border-red-500/20 px-2 py-0.5 text-[9px] text-red-300">
+                            Run #{r.run.run}
+                            {r.run.likes > 0 && " ❤️"}
+                            {r.run.shares > 0 && " 🔄"}
+                            {r.run.saves > 0 && " 💾"}
+                            {r.run.comments > 0 && " 💬"}
+                            {r.run.views > 0 && ` 👁️${r.run.views}`}
+                          </span>
+                        ))}
+                      </div>
+
+                      {/* Raw error for first run */}
+                      {group.runs[0]?.error && (
+                        <div className="mb-2 rounded-lg bg-black/50 border border-gray-800 px-2 py-1.5">
+                          <p className="text-[9px] text-gray-500 mb-0.5 uppercase tracking-wider">Raw Error:</p>
+                          <p className="text-[10px] text-red-300 font-mono break-all">{group.runs[0].error}</p>
+                        </div>
+                      )}
+
+                      {/* Cause */}
+                      <div className="mb-2">
+                        <p className="text-[9px] text-gray-500 mb-0.5 uppercase tracking-wider font-semibold">🔍 Root Cause:</p>
+                        <p className="text-[10px] text-gray-300 leading-relaxed">{group.cause}</p>
+                      </div>
+
+                      {/* Fix */}
+                      <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
+                        <p className="text-[9px] text-emerald-500 mb-0.5 uppercase tracking-wider font-semibold">✅ How to Fix / Prevent:</p>
+                        <p className="text-[10px] text-emerald-300 leading-relaxed">{group.fix}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Retried runs */}
+            {retriedRuns.length > 0 && (
+              <div>
+                <h4 className="text-xs font-bold text-yellow-400 mb-3 uppercase tracking-wider">🔄 Runs That Were Retried</h4>
+                <div className="space-y-2">
+                  {retriedRuns.map(r => {
+                    const diag = categorizeError(r.error, r.reason);
+                    return (
+                      <div key={r.index} className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-3 py-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[10px] font-bold text-yellow-300">Run #{r.run.run}</span>
+                          <span className="rounded-full bg-yellow-500/20 px-2 py-0.5 text-[9px] text-yellow-300">
+                            {r.retries} retr{r.retries > 1 ? "ies" : "y"}
+                          </span>
+                          <span className={`text-[9px] ${diag.color}`}>{diag.icon} {diag.category}</span>
+                          <span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-medium ${
+                            r.status === "completed" ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"
+                          }`}>
+                            {r.status === "completed" ? "✓ Eventually succeeded" : "✗ Failed after retries"}
+                          </span>
+                        </div>
+                        {r.originalTime && r.currentTime && r.originalTime !== r.currentTime && (
+                          <p className="text-[9px] text-gray-600 mt-1">
+                            Originally: {new Date(r.originalTime).toLocaleTimeString()} →
+                            Rescheduled to: {new Date(r.currentTime).toLocaleTimeString()}
+                          </p>
+                        )}
+                        {r.reason && (
+                          <p className="text-[9px] text-yellow-600 mt-0.5 truncate">{r.reason}</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* All runs detailed table */}
+            <div>
+              <h4 className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-wider">📋 All Runs Detail</h4>
+              <div className="max-h-72 overflow-auto rounded-xl border border-gray-800">
+                <table className="w-full text-[10px] text-left">
+                  <thead className="sticky top-0 bg-gray-900 text-gray-500">
+                    <tr>
+                      <th className="px-3 py-2">#</th>
+                      <th className="px-3 py-2">Scheduled</th>
+                      <th className="px-3 py-2">Views</th>
+                      <th className="px-3 py-2">Eng</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">Retries</th>
+                      <th className="px-3 py-2">Issue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {diagRuns.map(r => {
+                      const diag = r.status === "cancelled" ? categorizeError(r.error, r.reason) : null;
+                      return (
+                        <tr key={r.index} className={`border-t border-gray-800 ${
+                          r.status === "cancelled" ? "bg-red-500/5" :
+                          r.status === "completed" ? "bg-emerald-500/5" :
+                          r.retries > 0 ? "bg-yellow-500/5" : ""
+                        }`}>
+                          <td className="px-3 py-1.5 font-medium text-gray-400">#{r.run.run}</td>
+                          <td className="px-3 py-1.5 text-gray-600">
+                            {(r.run.at instanceof Date ? r.run.at : new Date(r.run.at))
+                              .toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          </td>
+                          <td className="px-3 py-1.5 text-gray-400">{r.run.views}</td>
+                          <td className="px-3 py-1.5 text-gray-600">
+                            {r.run.likes > 0 && <span className="mr-1">❤️{r.run.likes}</span>}
+                            {r.run.shares > 0 && <span className="mr-1">🔄{r.run.shares}</span>}
+                            {r.run.saves > 0 && <span className="mr-1">💾{r.run.saves}</span>}
+                            {r.run.comments > 0 && <span>💬{r.run.comments}</span>}
+                            {!r.run.likes && !r.run.shares && !r.run.saves && !r.run.comments && <span className="text-gray-700">-</span>}
+                          </td>
+                          <td className="px-3 py-1.5">
+                            <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${
+                              r.status === "completed" ? "bg-emerald-500/20 text-emerald-300" :
+                              r.status === "cancelled" ? "bg-red-500/20 text-red-300" :
+                              r.status === "pending" ? "bg-blue-500/20 text-blue-300" :
+                              "bg-yellow-500/20 text-yellow-300"
+                            }`}>
+                              {r.status}
+                            </span>
+                          </td>
+                          <td className="px-3 py-1.5 text-gray-600">
+                            {r.retries > 0 ? (
+                              <span className="text-yellow-400">↻{r.retries}</span>
+                            ) : "-"}
+                          </td>
+                          <td className="px-3 py-1.5 max-w-[140px]">
+                            {diag ? (
+                              <span className={`text-[9px] truncate ${diag.color}`} title={diag.cause}>
+                                {diag.icon} {diag.category}
+                              </span>
+                            ) : r.retries > 0 && r.status === "completed" ? (
+                              <span className="text-[9px] text-emerald-400">✓ Recovered</span>
+                            ) : (
+                              <span className="text-gray-700">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Quick fix summary */}
+            {(cancelledRuns.length > 0 || retriedRuns.length > 0) && (
+              <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
+                <h4 className="text-xs font-bold text-blue-400 mb-2 uppercase tracking-wider">💡 Quick Actions</h4>
+                <div className="space-y-2 text-[10px] text-gray-300">
+                  {cancelledCount > 0 && healthScore < 100 && (
+                    <div className="flex items-start gap-2">
+                      <span className="text-blue-400 flex-shrink-0">→</span>
+                      <p>
+                        <span className="text-white font-medium">{cancelledCount} runs were cancelled.</span>
+                        {" "}Use the <span className="text-yellow-300">Clone</span> button to recreate this order
+                        and deliver the missing {cancelledRuns.reduce((s, r) => s + r.run.views, 0).toLocaleString()} views.
+                      </p>
+                    </div>
+                  )}
+                  {errorGroups.has("Active Order Conflict") && (
+                    <div className="flex items-start gap-2">
+                      <span className="text-blue-400 flex-shrink-0">→</span>
+                      <p>
+                        <span className="text-white font-medium">Active order conflicts detected.</span>
+                        {" "}Try using a longer delivery time (48h+) or increase min views per run to reduce run count.
+                      </p>
+                    </div>
+                  )}
+                  {errorGroups.has("Provider Server Error") && (
+                    <div className="flex items-start gap-2">
+                      <span className="text-blue-400 flex-shrink-0">→</span>
+                      <p>
+                        <span className="text-white font-medium">Provider was down during execution.</span>
+                        {" "}Check if the SMM panel is stable. Clone and retry during off-peak hours.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
     function SingleOrderPopup({ order }: { order: CreatedOrder }) {
     const [providerStatuses, setProviderStatuses] = useState<ProviderRunStatus[]>([]);
     const [checkingProvider, setCheckingProvider] = useState(false);
@@ -806,7 +1247,7 @@ export function OrdersPage({
                 <p className="text-[9px] text-yellow-600">Order Cost</p>
               </div>
               {/* 🔥 NEW: Check Provider Status Button */}
-              {order.schedulerOrderId && (
+                            {order.schedulerOrderId && (
                 <button
                   type="button"
                   onClick={handleCheckProvider}
@@ -816,6 +1257,13 @@ export function OrdersPage({
                   {checkingProvider ? "⏳ Checking..." : "🔍 Check Provider"}
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => setDiagnosticsOrder(order)}
+                className="rounded-lg border border-purple-500/40 bg-purple-500/10 px-3 py-1.5 text-xs font-medium text-purple-300 hover:bg-purple-500/20 transition"
+              >
+                🔬 Diagnose
+              </button>
               <button
                 type="button"
                 onClick={() => setOpenedGroupId(null)}
@@ -1144,9 +1592,17 @@ export function OrdersPage({
           </motion.div>
         )}
       </AnimatePresence>
-      <AnimatePresence>
+            <AnimatePresence>
         {openedGroup && (openedGroup.isBatch ? (<BatchDetailPopup group={openedGroup} />) : (<SingleOrderPopup order={openedGroup.orders[0]} />))}
       </AnimatePresence>
+
+      {/* 🔥 Run Diagnostics Popup */}
+      {diagnosticsOrder && (
+        <RunDiagnosticsPopup
+          order={diagnosticsOrder}
+          onClose={() => setDiagnosticsOrder(null)}
+        />
+      )}
     </div>
   );
 }
