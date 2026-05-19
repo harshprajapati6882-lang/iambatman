@@ -1404,7 +1404,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     return Math.max(10, Math.floor(likesTotal / 2));
   })();
 
-  const savesTotal = (() => {
+    const savesTotal = (() => {
     if (!config.includeSaves) return 0;
     const ratio = config.savesRatio || "third";
     if (ratio === "equal") return Math.max(10, likesTotal);
@@ -1412,6 +1412,16 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     if (ratio === "third") return Math.max(10, Math.floor(likesTotal / 3));
     if (ratio === "custom") return Math.max(10, config.savesCustomCount || 0);
     return Math.max(10, Math.floor(likesTotal / 3));
+  })();
+
+  const repostsTotal = (() => {
+    if (!config.includeReposts) return 0;
+    const ratio = config.repostsRatio || "half";
+    if (ratio === "equal") return Math.max(10, likesTotal);
+    if (ratio === "half") return Math.max(10, Math.floor(likesTotal / 2));
+    if (ratio === "third") return Math.max(10, Math.floor(likesTotal / 3));
+    if (ratio === "custom") return Math.max(10, config.repostsCustomCount || 0);
+    return Math.max(10, Math.floor(likesTotal / 2));
   })();
 
   let commentsTotal = 0;
@@ -1878,7 +1888,114 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     return result;
   })();
 
-    // =========================================================
+   // =========================================================
+  // 🔥 REPOSTS DISTRIBUTION
+  // Same logic as shares — strategic placement
+  // After every 3rd like-run, place 1 repost-run
+  // No overlap with shares or saves
+  // Min 10 per repost-run
+  // =========================================================
+  const repostsRuns = (() => {
+    const result = Array.from({ length: provisionalRuns.length }, () => 0);
+    if (!config.includeReposts || repostsTotal <= 0 || provisionalRuns.length <= 4) return result;
+
+    const minPerRun = 10;
+
+    const likeRunIndexes = likesRuns
+      .map((val, idx) => (val > 0 ? idx : -1))
+      .filter(idx => idx !== -1);
+
+    const selectedIndexes: number[] = [];
+
+    // After every 3rd like-run, place 1 repost
+    for (let i = 2; i < likeRunIndexes.length; i += 3) {
+      const afterLikeIndex = likeRunIndexes[i];
+      for (const offset of [1, 2, 3, 4]) {
+        const repostIndex = afterLikeIndex + offset;
+        if (
+          repostIndex < provisionalRuns.length - 2 &&
+          repostIndex > 0 &&
+          !selectedIndexes.includes(repostIndex) &&
+          sharesRuns[repostIndex] === 0 &&
+          savesRuns[repostIndex] === 0
+        ) {
+          selectedIndexes.push(repostIndex);
+          break;
+        }
+      }
+    }
+
+    // Add extras if needed
+    const maxRepostRuns = Math.floor(repostsTotal / minPerRun);
+    if (selectedIndexes.length < maxRepostRuns) {
+      const availableSlots = Array.from(
+        { length: provisionalRuns.length },
+        (_, i) => i
+      ).filter(i =>
+        i >= 3 &&
+        i < provisionalRuns.length - 2 &&
+        sharesRuns[i] === 0 &&
+        savesRuns[i] === 0 &&
+        !selectedIndexes.includes(i)
+      );
+
+      const needed = maxRepostRuns - selectedIndexes.length;
+      if (needed > 0 && availableSlots.length > 0) {
+        const step = Math.max(1, Math.floor(availableSlots.length / needed));
+        for (let j = 0; j < availableSlots.length && selectedIndexes.length < maxRepostRuns; j += step) {
+          selectedIndexes.push(availableSlots[j]);
+        }
+      }
+    }
+
+    // Fallback
+    if (selectedIndexes.length === 0) {
+      for (let i = 6; i < provisionalRuns.length - 2; i += 6) {
+        if (sharesRuns[i] === 0 && savesRuns[i] === 0) {
+          selectedIndexes.push(i);
+        }
+        if (selectedIndexes.length >= maxRepostRuns) break;
+      }
+    }
+
+    selectedIndexes.sort((a, b) => a - b);
+
+    while (selectedIndexes.length > 1 && repostsTotal < selectedIndexes.length * minPerRun) {
+      selectedIndexes.pop();
+    }
+
+    if (selectedIndexes.length === 0 || repostsTotal < minPerRun) return result;
+
+    // Distribute proportional to views
+    const selectedViews = selectedIndexes.map(idx => provisionalRuns[idx].views);
+    const viewsSum = selectedViews.reduce((a, b) => a + b, 0);
+
+    const rawReposts = selectedIndexes.map((idx) => {
+      const proportion = viewsSum > 0 ? (provisionalRuns[idx].views / viewsSum) : (1 / selectedIndexes.length);
+      const base = Math.round(proportion * repostsTotal);
+      return Math.max(minPerRun, base + randomInt(-1, 1));
+    });
+
+    const rawSum = rawReposts.reduce((a, b) => a + b, 0);
+    const scaled = rawReposts.map(v => Math.max(minPerRun, Math.round((v / Math.max(1, rawSum)) * repostsTotal)));
+
+    let diff = repostsTotal - scaled.reduce((a, b) => a + b, 0);
+    let corrIdx = 0;
+    while (diff !== 0 && corrIdx < scaled.length * 10) {
+      const target = corrIdx % scaled.length;
+      if (diff > 0) { scaled[target]++; diff--; }
+      else if (scaled[target] > minPerRun) { scaled[target]--; diff++; }
+      corrIdx++;
+    }
+
+    selectedIndexes.forEach((runIdx, i) => {
+      result[runIdx] = scaled[i];
+    });
+
+    return result;
+  })();
+
+  // =========================================================
   // 🔥 COMMENTS DISTRIBUTION
   // Rules:
   // - Skip first 3 runs
@@ -1904,7 +2021,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     const totalViewsAll = cumulativeViewsPerRun[cumulativeViewsPerRun.length - 1] || 1;
 
     // 🔥 Available: skip first 3, skip last 2, skip runs with likes/shares/saves
-    const availableIndexes = Array.from(
+        const availableIndexes = Array.from(
       { length: provisionalRuns.length },
       (_, i) => i
     ).filter(i =>
@@ -1912,7 +2029,8 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       i < provisionalRuns.length - 2 &&
       likesRuns[i] === 0 &&
       sharesRuns[i] === 0 &&
-      savesRuns[i] === 0
+      savesRuns[i] === 0 &&
+      repostsRuns[i] === 0
     );
 
     // Fallback: if filtering removed everything, allow any run except first 3 and last 2
@@ -1922,7 +2040,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
           { length: provisionalRuns.length },
           (_, i) => i
         ).filter(i => i >= 3 && i < provisionalRuns.length - 2);
-
+    
     if (candidateIndexes.length === 0) return result;
 
     // 🔥 How many comment-runs can we have?
@@ -2033,11 +2151,12 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   // =========================================================
   // 🔥 BUILD FINAL RUNS
   // =========================================================
-  let cumulativeViews = 0;
+   let cumulativeViews = 0;
   let cumulativeLikes = 0;
   let cumulativeShares = 0;
   let cumulativeSaves = 0;
   let cumulativeComments = 0;
+  let cumulativeReposts = 0;
 
   const runs: RunStep[] = provisionalRuns.map((run, index) => {
     cumulativeViews += run.views;
@@ -2045,6 +2164,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     cumulativeShares += sharesRuns[index];
     cumulativeSaves += savesRuns[index];
     cumulativeComments += commentsRuns[index];
+    cumulativeReposts += repostsRuns[index];
 
     return {
       run: index + 1,
@@ -2055,11 +2175,13 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       shares: sharesRuns[index],
       saves: savesRuns[index],
       comments: commentsRuns[index],
+      reposts: repostsRuns[index],
       cumulativeViews,
       cumulativeLikes,
       cumulativeShares,
       cumulativeSaves,
       cumulativeComments,
+      cumulativeReposts,
     };
   });
 
