@@ -80,13 +80,15 @@ function hydrateOrderDates(orders: CreatedOrder[]): CreatedOrder[] {
       likes: Number.isFinite(run?.likes) ? run.likes : 0,
       shares: Number.isFinite(run?.shares) ? run.shares : 0,
       saves: Number.isFinite(run?.saves) ? run.saves : 0,
-      comments: Number.isFinite(run?.comments) ? run.comments : 0, // ✅ ADD
+           comments: Number.isFinite(run?.comments) ? run.comments : 0,
+      reposts: Number.isFinite(run?.reposts) ? run.reposts : 0,
 
       cumulativeViews: Number.isFinite(run?.cumulativeViews) ? run.cumulativeViews : 0,
       cumulativeLikes: Number.isFinite(run?.cumulativeLikes) ? run.cumulativeLikes : 0,
       cumulativeShares: Number.isFinite(run?.cumulativeShares) ? run.cumulativeShares : 0,
       cumulativeSaves: Number.isFinite(run?.cumulativeSaves) ? run.cumulativeSaves : 0,
-      cumulativeComments: Number.isFinite(run?.cumulativeComments) ? run.cumulativeComments : 0, // ✅ ADD
+      cumulativeComments: Number.isFinite(run?.cumulativeComments) ? run.cumulativeComments : 0,
+      cumulativeReposts: Number.isFinite(run?.cumulativeReposts) ? run.cumulativeReposts : 0,
     }))
       : [];
 
@@ -682,7 +684,7 @@ export default function App() {
       <BundlesPage
         apis={apis}
         bundles={bundles}
-                onAddBundle={(bundle) => {
+                  onAddBundle={(bundle) => {
           const next: Bundle[] = [
             ...bundles,
             {
@@ -695,13 +697,14 @@ export default function App() {
                 shares: bundle.shares,
                 saves: bundle.saves,
                 comments: bundle.comments,
+                reposts: bundle.reposts,
               },
               serviceApis: bundle.serviceApis,
             },
           ];
           persistBundles(next);
-        }}    
-                onUpdateBundle={(id, bundle) => {
+        }}  
+                       onUpdateBundle={(id, bundle) => {
           const next: Bundle[] = bundles.map((item) =>
             item.id === id
               ? {
@@ -714,6 +717,7 @@ export default function App() {
                     shares: bundle.shares,
                     saves: bundle.saves,
                     comments: bundle.comments,
+                    reposts: bundle.reposts,
                   },
                   serviceApis: bundle.serviceApis,
                 }
