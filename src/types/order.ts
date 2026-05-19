@@ -24,7 +24,10 @@ export interface OrderConfig {
   includeLikes: boolean;
   includeShares: boolean;
   includeSaves: boolean;
-  includeComments: boolean;
+   includeComments: boolean;
+  includeReposts: boolean;
+  repostsRatio?: "equal" | "half" | "third" | "custom";
+  repostsCustomCount?: number;
   variancePercent: number;
   peakHoursBoost: boolean;
   quickPreset: QuickPatternPreset | null;
@@ -48,12 +51,14 @@ export interface RunStep {
   likes: number;
   shares: number;
   saves: number;
-  comments: number;
+   comments: number;
+  reposts: number;
   cumulativeViews: number;
   cumulativeLikes: number;
   cumulativeShares: number;
   cumulativeSaves: number;
   cumulativeComments: number;
+  cumulativeReposts: number;
 }
 
 export interface PatternPlan {
@@ -101,12 +106,13 @@ export interface Bundle {
   id: string;
   apiId: string; // kept for backward compat (primary/default api)
   name: string;
-  serviceIds: {
+    serviceIds: {
     views: string;
     likes: string;
     shares: string;
     saves: string;
     comments: string;
+    reposts: string;
   };
   // 🔥 NEW: Per-service API override
   serviceApis?: {
@@ -115,6 +121,7 @@ export interface Bundle {
     shares?: string;
     saves?: string;
     comments?: string;
+    reposts?: string;
   };
 }
 
@@ -155,6 +162,7 @@ export interface CreatedOrder {
     shares: number;
     saves: number;
     comments: number;
+    reposts: number;
   };
   serviceId: string;
   selectedAPI: string | null;
