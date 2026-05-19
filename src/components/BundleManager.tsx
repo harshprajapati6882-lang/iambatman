@@ -214,8 +214,10 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
   const [sharesService, setSharesService] = useState("");
   const [savesApi, setSavesApi] = useState("");
   const [savesService, setSavesService] = useState("");
-  const [commentsApi, setCommentsApi] = useState("");
+    const [commentsApi, setCommentsApi] = useState("");
   const [commentsService, setCommentsService] = useState("");
+  const [repostsApi, setRepostsApi] = useState("");
+  const [repostsService, setRepostsService] = useState("");
 
   const resetForm = () => {
     setName("");
@@ -224,7 +226,8 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
     setLikesApi(""); setLikesService("");
     setSharesApi(""); setSharesService("");
     setSavesApi(""); setSavesService("");
-    setCommentsApi(""); setCommentsService("");
+       setCommentsApi(""); setCommentsService("");
+    setRepostsApi(""); setRepostsService("");
     setEditingBundleId(null);
     setShowForm(false);
   };
@@ -236,7 +239,8 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
     setLikesService("");
     setSharesService("");
     setSavesService("");
-    setCommentsService("");
+       setCommentsService("");
+    setRepostsService("");
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -244,7 +248,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
     if (!name.trim() || !defaultApiId) return;
     if (!viewsService || !likesService || !sharesService || !savesService || !commentsService) return;
 
-    const payload = {
+      const payload = {
       name: name.trim(),
       apiId: defaultApiId,
       views: viewsService,
@@ -252,12 +256,14 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
       shares: sharesService,
       saves: savesService,
       comments: commentsService,
+      reposts: repostsService,
       serviceApis: {
         views: viewsApi || defaultApiId,
         likes: likesApi || defaultApiId,
         shares: sharesApi || defaultApiId,
         saves: savesApi || defaultApiId,
         comments: commentsApi || defaultApiId,
+        reposts: repostsApi || defaultApiId,
       },
     };
 
@@ -344,18 +350,24 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
                 selectedApiId={savesApi} selectedServiceId={savesService}
                 onApiChange={setSavesApi} onServiceChange={setSavesService}
               />
-              <ServiceRow
+                            <ServiceRow
                 emoji="💬" label="Comments"
                 apis={apis} defaultApiId={defaultApiId}
                 selectedApiId={commentsApi} selectedServiceId={commentsService}
                 onApiChange={setCommentsApi} onServiceChange={setCommentsService}
+              />
+              <ServiceRow
+                emoji="🔁" label="Reposts"
+                apis={apis} defaultApiId={defaultApiId}
+                selectedApiId={repostsApi} selectedServiceId={repostsService}
+                onApiChange={setRepostsApi} onServiceChange={setRepostsService}
               />
             </>
           )}
 
           <button
             type="submit"
-            disabled={!defaultApiId || !viewsService || !likesService || !sharesService || !savesService || !commentsService}
+                     disabled={!defaultApiId || !viewsService || !likesService || !sharesService || !savesService || !commentsService || !repostsService}
             className="w-full rounded-lg border border-yellow-500/50 bg-yellow-500/20 px-3 py-2.5 text-sm font-medium text-yellow-300 transition hover:bg-yellow-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {editingBundleId ? "Update Bundle" : "Save Bundle"}
@@ -382,12 +394,13 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
           const getApiName = (apiId: string) => apis.find(a => a.id === apiId)?.name ?? "Unknown";
           const defaultApiName = getApiName(bundle.apiId);
 
-          const serviceRows = [
+                   const serviceRows = [
             { emoji: "👁️", label: "Views", serviceId: bundle.serviceIds.views, apiId: bundle.serviceApis?.views || bundle.apiId },
             { emoji: "❤️", label: "Likes", serviceId: bundle.serviceIds.likes, apiId: bundle.serviceApis?.likes || bundle.apiId },
             { emoji: "🔄", label: "Shares", serviceId: bundle.serviceIds.shares, apiId: bundle.serviceApis?.shares || bundle.apiId },
             { emoji: "💾", label: "Saves", serviceId: bundle.serviceIds.saves, apiId: bundle.serviceApis?.saves || bundle.apiId },
             { emoji: "💬", label: "Comments", serviceId: bundle.serviceIds.comments, apiId: bundle.serviceApis?.comments || bundle.apiId },
+            { emoji: "🔁", label: "Reposts", serviceId: bundle.serviceIds.reposts, apiId: bundle.serviceApis?.reposts || bundle.apiId },
           ];
 
           return (
@@ -428,8 +441,10 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
                     setSharesService(bundle.serviceIds.shares);
                     setSavesApi(bundle.serviceApis?.saves || bundle.apiId);
                     setSavesService(bundle.serviceIds.saves);
-                    setCommentsApi(bundle.serviceApis?.comments || bundle.apiId);
+                                       setCommentsApi(bundle.serviceApis?.comments || bundle.apiId);
                     setCommentsService(bundle.serviceIds.comments || "");
+                    setRepostsApi(bundle.serviceApis?.reposts || bundle.apiId);
+                    setRepostsService(bundle.serviceIds.reposts || "");
                     setShowForm(true);
                   }}
                   className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-1.5 text-xs text-yellow-300 transition hover:bg-yellow-500/20"
