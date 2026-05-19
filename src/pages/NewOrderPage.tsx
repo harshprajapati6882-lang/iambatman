@@ -137,8 +137,13 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
     // 🔥 NEW: Likes distribution mode
   const [likesDistribution, setLikesDistribution] = useState<"bracket" | "even-spread">("bracket");
 
-  // 🔥 NEW: Likes boost percentage (0 = default, 50 = +50%, 100 = +100% = double)
+    // 🔥 NEW: Likes boost percentage (0 = default, 50 = +50%, 100 = +100% = double)
   const [likesBoostPercent, setLikesBoostPercent] = useState<number>(0);
+
+  // 🔥 NEW: Reposts
+  const [includeReposts, setIncludeReposts] = useState(false);
+  const [repostsRatio, setRepostsRatio] = useState<"equal" | "half" | "third" | "custom">("half");
+  const [repostsCustomCount, setRepostsCustomCount] = useState<number>(50);
 
   // 🔥 NEW: Fetch min views setting from backend on mount
   useEffect(() => {
@@ -176,6 +181,9 @@ const commentsService = selectedApi?.services.find(
       includeShares,
       includeSaves,
       includeComments,
+      includeReposts,
+      repostsRatio,
+      repostsCustomCount,
       variancePercent,
       peakHoursBoost,
       quickPreset,
@@ -201,6 +209,9 @@ const commentsService = selectedApi?.services.find(
       includeShares,
       includeSaves,
       includeComments,
+      includeReposts,
+      repostsRatio,
+      repostsCustomCount,
       variancePercent,
       peakHoursBoost,
       quickPreset,
@@ -986,7 +997,7 @@ const commentsService = selectedApi?.services.find(
                   💾 Saves
                 </button>
 
-                                <button
+                <button
                   type="button"
                   onClick={() => { setIncludeComments(!includeComments); }}
                   className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
@@ -996,6 +1007,18 @@ const commentsService = selectedApi?.services.find(
                   }`}
                 >
                   💬 Comments
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setIncludeReposts(!includeReposts); }}
+                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
+                    includeReposts
+                      ? "border border-cyan-500 bg-cyan-500/20 text-cyan-300"
+                      : "border border-gray-600 bg-black text-gray-500"
+                  }`}
+                >
+                  🔁 Reposts
                 </button>
 
                 <div className="ml-auto">
@@ -1094,6 +1117,46 @@ const commentsService = selectedApi?.services.find(
                     )}
                     <span className="text-[9px] text-gray-600 ml-auto">
                       ≈ {safePlan.runs.reduce((s, r) => s + r.saves, 0)} total
+                    </span>
+                  </div>
+                </div>
+              )}
+                         {/* 🔥 NEW: Reposts ratio - only when reposts enabled */}
+              {includeReposts && (
+                <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-3 py-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] text-cyan-400 font-medium">🔁 Reposts =</span>
+                    {(["equal", "half", "third", "custom"] as const).map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => {
+                          setRepostsRatio(option);
+                          setSeed(prev => prev + 1);
+                        }}
+                        className={`rounded-md px-2 py-0.5 text-[9px] font-medium transition ${
+                          repostsRatio === option
+                            ? "border border-cyan-500 bg-cyan-500/20 text-cyan-300"
+                            : "border border-cyan-500/20 bg-black text-gray-500 hover:text-cyan-300"
+                        }`}
+                      >
+                        {option === "equal" ? "= Likes" : option === "half" ? "½ Likes" : option === "third" ? "⅓ Likes" : "Custom #"}
+                      </button>
+                    ))}
+                    {repostsRatio === "custom" && (
+                      <input
+                        type="number"
+                        value={repostsCustomCount}
+                        onChange={(e) => {
+                          setRepostsCustomCount(Math.max(10, Number(e.target.value)));
+                          setSeed(prev => prev + 1);
+                        }}
+                        min={10}
+                        className="w-16 rounded-md border border-cyan-500/30 bg-black px-2 py-0.5 text-[9px] text-white focus:outline-none"
+                      />
+                    )}
+                    <span className="text-[9px] text-gray-600 ml-auto">
+                      ≈ {safePlan.runs.reduce((s, r) => s + (r.reposts || 0), 0)} total
                     </span>
                   </div>
                 </div>
@@ -1342,7 +1405,8 @@ const commentsService = selectedApi?.services.find(
                   const totalLikes = (safePlan?.runs || []).reduce((acc, run) => acc + run.likes, 0);
                   const totalShares = (safePlan?.runs || []).reduce((acc, run) => acc + run.shares, 0);
                   const totalSaves = (safePlan?.runs || []).reduce((acc, run) => acc + run.saves, 0);
-                  const totalCommentsQty = (safePlan?.runs || []).reduce((acc, run) => acc + (run.comments || 0), 0);
+                                   const totalCommentsQty = (safePlan?.runs || []).reduce((acc, run) => acc + (run.comments || 0), 0);
+                  const totalRepostsQty = (safePlan?.runs || []).reduce((acc, run) => acc + (run.reposts || 0), 0);
                   if (includeLikes && totalLikes < 10) { setCreateError("Likes must be at least 10."); return; }
                   if (includeShares && totalShares < 10) { setCreateError("Shares must be at least 10."); return; }
                   if (includeSaves && totalSaves < 10) { setCreateError("Saves must be at least 10."); return; }
@@ -1374,18 +1438,23 @@ const commentsService = selectedApi?.services.find(
               return { apiUrl: selectedApi.url, apiKey: selectedApi.key };
             };
 
-            const servicesPayload: {
+                        const servicesPayload: {
               views: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string };
               likes?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string };
               shares?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string };
               saves?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string };
               comments?: { serviceId: string; runs: Array<{ time: string; comments: string }>; apiUrl?: string; apiKey?: string };
+              reposts?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string };
             } = {
               views: { serviceId: viewsServiceId, runs: viewRuns, ...getServiceApi('views') },
             };
+                       const repostsServiceId = selectedBundle.serviceIds.reposts?.trim();
+            const repostsRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(0, Math.floor(run.reposts || 0)) }));
+
             if (includeLikes) servicesPayload.likes = { serviceId: likesServiceId, runs: likesRuns, ...getServiceApi('likes') };
             if (includeShares) servicesPayload.shares = { serviceId: sharesServiceId, runs: sharesRuns, ...getServiceApi('shares') };
             if (includeSaves) servicesPayload.saves = { serviceId: savesServiceId, runs: savesRuns, ...getServiceApi('saves') };
+            if (includeReposts && repostsServiceId) servicesPayload.reposts = { serviceId: repostsServiceId, runs: repostsRuns, ...getServiceApi('reposts') };
                         if (includeComments && filteredCommentsRuns.length > 0) {
               servicesPayload.comments = {
                 serviceId: commentsServiceId!,
@@ -1408,7 +1477,7 @@ const commentsService = selectedApi?.services.find(
                       if (activeLinks.has(normalizedTarget) || createdLinks.has(normalizedTarget)) { failedCount += 1; lastError = "Duplicate link."; continue; }
                       try {
                         const result = await createSmmOrder({ name: orderName.trim() || undefined, apiUrl: selectedApi.url, apiKey: selectedApi.key, link: trimmedUrl, services: servicesPayload });
-                        const order: CreatedOrder = { id: createOrderId(), name: orderName.trim() || `Mission #${createOrderId()}`, batchId, batchIndex: index + 1, batchTotal: targets.length, batchLinks: targets.length > 1 ? targets : undefined, schedulerOrderId: result.schedulerOrderId, smmOrderId: result.orderId ?? "Scheduled", link: trimmedUrl, totalViews: quantity, startDelayHours, patternType: safePlan.patternType, patternName: safePlan.patternName, runs: safePlan?.runs || [], engagement: { likes: totalLikes, shares: totalShares, saves: totalSaves, comments: totalCommentsQty }, serviceId: viewsServiceId, selectedAPI: selectedApi.name, selectedBundle: selectedBundle.name, status: result.status === "completed" ? "completed" : "running", completedRuns: typeof result.completedRuns === "number" ? result.completedRuns : 0, runStatuses: (safePlan?.runs || []).map(() => "pending"), createdAt: new Date().toISOString(), lastUpdatedAt: new Date().toISOString() };
+                                               const order: CreatedOrder = { id: createOrderId(), name: orderName.trim() || `Mission #${createOrderId()}`, batchId, batchIndex: index + 1, batchTotal: targets.length, batchLinks: targets.length > 1 ? targets : undefined, schedulerOrderId: result.schedulerOrderId, smmOrderId: result.orderId ?? "Scheduled", link: trimmedUrl, totalViews: quantity, startDelayHours, patternType: safePlan.patternType, patternName: safePlan.patternName, runs: safePlan?.runs || [], engagement: { likes: totalLikes, shares: totalShares, saves: totalSaves, comments: totalCommentsQty, reposts: totalRepostsQty }, serviceId: viewsServiceId, selectedAPI: selectedApi.name, selectedBundle: selectedBundle.name, status: result.status === "completed" ? "completed" : "running", completedRuns: typeof result.completedRuns === "number" ? result.completedRuns : 0, runStatuses: (safePlan?.runs || []).map(() => "pending"), createdAt: new Date().toISOString(), lastUpdatedAt: new Date().toISOString() };
                         onCreateOrder(order);
                         createdLinks.add(normalizedTarget);
                         successCount += 1;
