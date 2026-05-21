@@ -44,14 +44,26 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string }> =
 
 function calculateOrderPrice(order: CreatedOrder, apis: ApiPanel[], bundles: Bundle[]): number {
   const bundle = bundles.find(b => b.name === order.selectedBundle);
-  const api = apis.find(a => a.name === order.selectedAPI);
-  if (!bundle || !api) return 0;
+  if (!bundle) return 0;
 
-  const viewsService = api.services.find(s => s.id === bundle.serviceIds.views);
-  const likesService = api.services.find(s => s.id === bundle.serviceIds.likes);
-  const sharesService = api.services.find(s => s.id === bundle.serviceIds.shares);
-  const savesService = api.services.find(s => s.id === bundle.serviceIds.saves);
-  const commentsService = api.services.find(s => s.id === bundle.serviceIds.comments);
+  // 🔥 Per-service API resolution — respects multi-API bundles
+  const resolveService = (type: 'views' | 'likes' | 'shares' | 'saves' | 'comments') => {
+    // Check if bundle has a per-service API override
+    const overrideApiId = bundle.serviceApis?.[type];
+    // Find the API (use override if set, otherwise fall back to bundle's primary apiId)
+    const apiId = overrideApiId || bundle.apiId;
+    // Also try matching by the order's selectedAPI name as last resort
+    const api = apis.find(a => a.id === apiId) || apis.find(a => a.name === order.selectedAPI);
+    if (!api) return null;
+    const serviceId = bundle.serviceIds[type];
+    return api.services.find(s => s.id === serviceId) || null;
+  };
+
+  const viewsService = resolveService('views');
+  const likesService = resolveService('likes');
+  const sharesService = resolveService('shares');
+  const savesService = resolveService('saves');
+  const commentsService = resolveService('comments');
 
   const runs = order.runs || [];
   const totalViews = runs.reduce((sum, r) => sum + (r.views || 0), 0);
