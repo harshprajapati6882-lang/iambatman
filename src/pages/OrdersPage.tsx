@@ -48,22 +48,28 @@ function calculateOrderPrice(order: CreatedOrder, apis: ApiPanel[], bundles: Bun
 
   // 🔥 Per-service API resolution — respects multi-API bundles
   const resolveService = (type: 'views' | 'likes' | 'shares' | 'saves' | 'comments') => {
-    // Check if bundle has a per-service API override
     const overrideApiId = bundle.serviceApis?.[type];
-    // Find the API (use override if set, otherwise fall back to bundle's primary apiId)
     const apiId = overrideApiId || bundle.apiId;
-    // Also try matching by the order's selectedAPI name as last resort
     const api = apis.find(a => a.id === apiId) || apis.find(a => a.name === order.selectedAPI);
-    if (!api) return null;
+    if (!api) return { service: null, api: null };
     const serviceId = bundle.serviceIds[type];
-    return api.services.find(s => s.id === serviceId) || null;
+    return { service: api.services.find(s => s.id === serviceId) || null, api };
   };
 
-  const viewsService = resolveService('views');
-  const likesService = resolveService('likes');
-  const sharesService = resolveService('shares');
-  const savesService = resolveService('saves');
-  const commentsService = resolveService('comments');
+  // 🔥 Currency conversion: yoyomedia.in charges in USD, others in INR
+  const USD_TO_INR = 85;
+  const getRateInINR = (info: { service: any; api: any }) => {
+    const rawRate = parseFloat(info.service?.rate || "0");
+    const apiUrl = info.api?.url || "";
+    const isUSD = apiUrl.toLowerCase().includes("yoyomedia");
+    return isUSD ? rawRate * USD_TO_INR : rawRate;
+  };
+
+  const viewsInfo = resolveService('views');
+  const likesInfo = resolveService('likes');
+  const sharesInfo = resolveService('shares');
+  const savesInfo = resolveService('saves');
+  const commentsInfo = resolveService('comments');
 
   const runs = order.runs || [];
   const totalViews = runs.reduce((sum, r) => sum + (r.views || 0), 0);
@@ -72,11 +78,11 @@ function calculateOrderPrice(order: CreatedOrder, apis: ApiPanel[], bundles: Bun
   const totalSaves = runs.reduce((sum, r) => sum + (r.saves || 0), 0);
   const totalComments = runs.reduce((sum, r) => sum + (r.comments || 0), 0);
 
-  return (totalViews / 1000) * parseFloat(viewsService?.rate || "0")
-    + (totalLikes / 1000) * parseFloat(likesService?.rate || "0")
-    + (totalShares / 1000) * parseFloat(sharesService?.rate || "0")
-    + (totalSaves / 1000) * parseFloat(savesService?.rate || "0")
-    + (totalComments / 1000) * parseFloat(commentsService?.rate || "0");
+  return (totalViews / 1000) * getRateInINR(viewsInfo)
+    + (totalLikes / 1000) * getRateInINR(likesInfo)
+    + (totalShares / 1000) * getRateInINR(sharesInfo)
+    + (totalSaves / 1000) * getRateInINR(savesInfo)
+    + (totalComments / 1000) * getRateInINR(commentsInfo);
 }
 
 // 🔥 MODULE-LEVEL: No stale closures possible
