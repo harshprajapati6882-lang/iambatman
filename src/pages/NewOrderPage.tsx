@@ -1456,28 +1456,39 @@ const commentsService = selectedApi?.services.find(
               return { apiUrl: selectedApi.url, apiKey: selectedApi.key };
             };
 
-                        const servicesPayload: {
-              views: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string };
-              likes?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string };
-              shares?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string };
-              saves?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string };
-              comments?: { serviceId: string; runs: Array<{ time: string; comments: string }>; apiUrl?: string; apiKey?: string };
-              reposts?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string };
+                                   // 🔥 Extract service minimums from bundle services
+            const getServiceMin = (type: 'views' | 'likes' | 'shares' | 'saves' | 'comments' | 'reposts') => {
+              const overrideApiId = selectedBundle?.serviceApis?.[type];
+              const apiId = overrideApiId || selectedBundle?.apiId || selectedApiId;
+              const api = apis.find(a => a.id === apiId);
+              const serviceId = selectedBundle?.serviceIds[type];
+              const service = api?.services.find(s => s.id === serviceId);
+              return service?.min || null;
+            };
+
+            const servicesPayload: {
+              views: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
+              likes?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
+              shares?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
+              saves?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
+              comments?: { serviceId: string; runs: Array<{ time: string; comments: string }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
+              reposts?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
             } = {
-              views: { serviceId: viewsServiceId, runs: viewRuns, ...getServiceApi('views') },
+              views: { serviceId: viewsServiceId, runs: viewRuns, ...getServiceApi('views'), serviceMin: getServiceMin('views') },
             };
                        const repostsServiceId = selectedBundle.serviceIds.reposts?.trim();
             const repostsRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(0, Math.floor(run.reposts || 0)) }));
 
-            if (includeLikes) servicesPayload.likes = { serviceId: likesServiceId, runs: likesRuns, ...getServiceApi('likes') };
-            if (includeShares) servicesPayload.shares = { serviceId: sharesServiceId, runs: sharesRuns, ...getServiceApi('shares') };
-            if (includeSaves) servicesPayload.saves = { serviceId: savesServiceId, runs: savesRuns, ...getServiceApi('saves') };
-            if (includeReposts && repostsServiceId) servicesPayload.reposts = { serviceId: repostsServiceId, runs: repostsRuns, ...getServiceApi('reposts') };
+                        if (includeLikes) servicesPayload.likes = { serviceId: likesServiceId, runs: likesRuns, ...getServiceApi('likes'), serviceMin: getServiceMin('likes') };
+            if (includeShares) servicesPayload.shares = { serviceId: sharesServiceId, runs: sharesRuns, ...getServiceApi('shares'), serviceMin: getServiceMin('shares') };
+            if (includeSaves) servicesPayload.saves = { serviceId: savesServiceId, runs: savesRuns, ...getServiceApi('saves'), serviceMin: getServiceMin('saves') };
+            if (includeReposts && repostsServiceId) servicesPayload.reposts = { serviceId: repostsServiceId, runs: repostsRuns, ...getServiceApi('reposts'), serviceMin: getServiceMin('reposts') };
                         if (includeComments && filteredCommentsRuns.length > 0) {
               servicesPayload.comments = {
                 serviceId: commentsServiceId!,
                 runs: filteredCommentsRuns,
                 ...getServiceApi('comments'),
+                serviceMin: getServiceMin('comments'),
               };
             }
                   setIsCreatingOrder(true);
