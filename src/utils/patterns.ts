@@ -919,6 +919,35 @@ function generateViewRunsFromCurve(
     ? phasedRuns  // skip redistribution — would flatten curve
     : redistributeForMinimum(phasedRuns, minViewsPerRun);
   const finalRuns = nudgeConsecutiveDuplicates(minimumSafe, minViewsPerRun);
+    // 🔥 Inject organic micro-bursts: ~15% of runs get 20-80 views instead of the minimum
+  // Real traffic has natural variation — some runs are tiny, some are large
+  // Only applies when we have 10+ runs and the minimum is 80+
+  if (finalRuns.length >= 10 && minViewsPerRun >= 80) {
+    const MICRO_BURST_RATIO = 0.15;
+    const burstCount = Math.max(1, Math.floor(finalRuns.length * MICRO_BURST_RATIO));
+    const burstIndices = new Set<number>();
+    while (burstIndices.size < burstCount) {
+      const candidate = randomInt(2, finalRuns.length - 3);
+      if (!burstIndices.has(candidate)) burstIndices.add(candidate);
+    }
+    let redistributedViews = 0;
+    for (const idx of burstIndices) {
+      const microAmount = randomInt(20, Math.min(80, finalRuns[idx] - 1));
+      redistributedViews += finalRuns[idx] - microAmount;
+      finalRuns[idx] = microAmount;
+    }
+    if (redistributedViews > 0) {
+      const normalRuns = finalRuns.length - burstCount;
+      const perRunAdd = Math.floor(redistributedViews / normalRuns);
+      let leftover = redistributedViews - perRunAdd * normalRuns;
+      for (let i = 0; i < finalRuns.length; i++) {
+        if (burstIndices.has(i)) continue;
+        finalRuns[i] += perRunAdd;
+        if (leftover > 0) { finalRuns[i]++; leftover--; }
+      }
+    }
+  }
+
   if (finalRuns.length > 1 && finalRuns.every((value) => value === finalRuns[0])) {
     finalRuns[0] += 1;
     let adjusted = false;
