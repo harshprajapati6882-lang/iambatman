@@ -165,12 +165,31 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
     fetchMinViews();
   }, []);
 
-  // 🔥 UPDATED: Config now includes minViewsPerRun
+   // 🔥 UPDATED: Config now includes minViewsPerRun
   const selectedApi = apis.find(a => a.id === selectedApiId);
 const selectedBundle = bundles.find(b => b.id === selectedBundleId);
 
 const commentsService = selectedApi?.services.find(
   s => s.id === selectedBundle?.serviceIds.comments
+);
+
+// 🔥 Extract the ACTUAL service minimum from the selected bundle's views service
+// This ensures no run goes below what the SMM panel requires
+const getActualServiceMin = () => {
+  if (!selectedBundle || !selectedApi) return null;
+  // Check if views use a different API via serviceApis
+  const viewsApiId = selectedBundle.serviceApis?.views || selectedBundle.apiId || selectedApiId;
+  const viewsApi = apis.find(a => a.id === viewsApiId);
+  const viewsServiceId = selectedBundle.serviceIds.views;
+  const viewsService = viewsApi?.services.find(s => s.id === viewsServiceId);
+  return viewsService?.min || null;
+};
+
+const actualServiceMin = getActualServiceMin();
+// 🔥 Use the HIGHER of: actual service minimum vs user's slider setting
+const effectiveMinViews = Math.max(
+  minViewsPerRun,
+  actualServiceMin || 0
 );
   
      const config: OrderConfig = useMemo(
@@ -192,7 +211,7 @@ const commentsService = selectedApi?.services.find(
         delivery.mode === "custom"
           ? { ...delivery, hours: customHours, label: "Custom" }
           : delivery,
-      minViewsPerRun,
+      minViewsPerRun: effectiveMinViews,
       manualRunCount: manualRunCount > 0 ? manualRunCount : undefined,
       sharesRatio,
       savesRatio,
