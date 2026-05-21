@@ -1187,20 +1187,29 @@ const commentsService = selectedApi?.services.find(
                     const selectedBundle = bundles.find(b => b.id === selectedBundleId);
                     if (!selectedBundle) return null;
 
-                    // 🔥 Per-service API lookup — respects multi-API bundles
+                                       // 🔥 Per-service API lookup — respects multi-API bundles
                     const getServiceForType = (type: 'views' | 'likes' | 'shares' | 'saves' | 'comments') => {
                       const overrideApiId = selectedBundle.serviceApis?.[type];
                       const apiId = overrideApiId || selectedBundle.apiId || selectedApiId;
                       const api = apis.find(a => a.id === apiId);
                       const serviceId = selectedBundle.serviceIds[type];
-                      return api?.services.find(s => s.id === serviceId);
+                      return { service: api?.services.find(s => s.id === serviceId) || null, api };
                     };
 
-                    const viewsService = getServiceForType('views');
-                    const likesService = getServiceForType('likes');
-                    const sharesService = getServiceForType('shares');
-                    const savesService = getServiceForType('saves');
-                    const commentsService = getServiceForType('comments');
+                    // 🔥 Currency conversion: yoyomedia.in charges in USD, everything else in INR
+                    const USD_TO_INR = 85;
+                    const getRateInINR = (serviceInfo: ReturnType<typeof getServiceForType>) => {
+                      const rawRate = parseFloat(serviceInfo.service?.rate || "0");
+                      const apiUrl = serviceInfo.api?.url || "";
+                      const isUSD = apiUrl.toLowerCase().includes("yoyomedia");
+                      return isUSD ? rawRate * USD_TO_INR : rawRate;
+                    };
+
+                    const viewsInfo = getServiceForType('views');
+                    const likesInfo = getServiceForType('likes');
+                    const sharesInfo = getServiceForType('shares');
+                    const savesInfo = getServiceForType('saves');
+                    const commentsInfo = getServiceForType('comments');
 
                     const totalViewsQty = safePlan.runs.reduce((sum, run) => sum + (run.views || 0), 0);
                     const totalLikesQty = safePlan.runs.reduce((sum, run) => sum + (run.likes || 0), 0);
@@ -1208,11 +1217,11 @@ const commentsService = selectedApi?.services.find(
                     const totalSavesQty = safePlan.runs.reduce((sum, run) => sum + (run.saves || 0), 0);
                     const totalCommentsQty = safePlan.runs.reduce((sum, run) => sum + (run.comments || 0), 0);
 
-                    const viewsRate = parseFloat(viewsService?.rate || "0");
-                    const likesRate = parseFloat(likesService?.rate || "0");
-                    const sharesRate = parseFloat(sharesService?.rate || "0");
-                    const savesRate = parseFloat(savesService?.rate || "0");
-                    const commentsRate = parseFloat(commentsService?.rate || "0");
+                    const viewsRate = getRateInINR(viewsInfo);
+                    const likesRate = getRateInINR(likesInfo);
+                    const sharesRate = getRateInINR(sharesInfo);
+                    const savesRate = getRateInINR(savesInfo);
+                    const commentsRate = getRateInINR(commentsInfo);
 
                     const viewsPrice = (totalViewsQty / 1000) * viewsRate;
                     const likesPrice = includeLikes ? (totalLikesQty / 1000) * likesRate : 0;
@@ -1248,20 +1257,29 @@ const commentsService = selectedApi?.services.find(
                       const selectedBundle = bundles.find(b => b.id === selectedBundleId);
                       if (!selectedBundle) return "0";
 
-                      // 🔥 Per-service API lookup — respects multi-API bundles
+                                           // 🔥 Per-service API lookup — respects multi-API bundles
                       const getServiceForType = (type: 'views' | 'likes' | 'shares' | 'saves' | 'comments') => {
                         const overrideApiId = selectedBundle.serviceApis?.[type];
                         const apiId = overrideApiId || selectedBundle.apiId || selectedApiId;
                         const api = apis.find(a => a.id === apiId);
                         const serviceId = selectedBundle.serviceIds[type];
-                        return api?.services.find(s => s.id === serviceId);
+                        return { service: api?.services.find(s => s.id === serviceId) || null, api };
                       };
 
-                      const viewsService = getServiceForType('views');
-                      const likesService = getServiceForType('likes');
-                      const sharesService = getServiceForType('shares');
-                      const savesService = getServiceForType('saves');
-                      const commentsService = getServiceForType('comments');
+                      // 🔥 Currency conversion: yoyomedia.in charges in USD, everything else in INR
+                      const USD_TO_INR = 85;
+                      const getRateInINR = (serviceInfo: ReturnType<typeof getServiceForType>) => {
+                        const rawRate = parseFloat(serviceInfo.service?.rate || "0");
+                        const apiUrl = serviceInfo.api?.url || "";
+                        const isUSD = apiUrl.toLowerCase().includes("yoyomedia");
+                        return isUSD ? rawRate * USD_TO_INR : rawRate;
+                      };
+
+                      const viewsInfo = getServiceForType('views');
+                      const likesInfo = getServiceForType('likes');
+                      const sharesInfo = getServiceForType('shares');
+                      const savesInfo = getServiceForType('saves');
+                      const commentsInfo = getServiceForType('comments');
 
                       const totalViewsQty = safePlan.runs.reduce((sum, run) => sum + (run.views || 0), 0);
                       const totalLikesQty = safePlan.runs.reduce((sum, run) => sum + (run.likes || 0), 0);
@@ -1269,11 +1287,11 @@ const commentsService = selectedApi?.services.find(
                       const totalSavesQty = safePlan.runs.reduce((sum, run) => sum + (run.saves || 0), 0);
                       const totalCommentsQty = safePlan.runs.reduce((sum, run) => sum + (run.comments || 0), 0);
 
-                      const viewsPrice = (totalViewsQty / 1000) * parseFloat(viewsService?.rate || "0");
-                      const likesPrice = includeLikes ? (totalLikesQty / 1000) * parseFloat(likesService?.rate || "0") : 0;
-                      const sharesPrice = includeShares ? (totalSharesQty / 1000) * parseFloat(sharesService?.rate || "0") : 0;
-                      const savesPrice = includeSaves ? (totalSavesQty / 1000) * parseFloat(savesService?.rate || "0") : 0;
-                      const commentsPrice = includeComments ? (totalCommentsQty / 1000) * parseFloat(commentsService?.rate || "0") : 0;
+                      const viewsPrice = (totalViewsQty / 1000) * getRateInINR(viewsInfo);
+                      const likesPrice = includeLikes ? (totalLikesQty / 1000) * getRateInINR(likesInfo) : 0;
+                      const sharesPrice = includeShares ? (totalSharesQty / 1000) * getRateInINR(sharesInfo) : 0;
+                      const savesPrice = includeSaves ? (totalSavesQty / 1000) * getRateInINR(savesInfo) : 0;
+                      const commentsPrice = includeComments ? (totalCommentsQty / 1000) * getRateInINR(commentsInfo) : 0;
 
                       return formatPrice(viewsPrice + likesPrice + sharesPrice + savesPrice + commentsPrice);
                     })()}
