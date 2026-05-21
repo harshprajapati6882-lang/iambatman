@@ -5,6 +5,7 @@ import { checkProviderOrderStatus, type ProviderRunStatus } from "../utils/api";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { OrderCard } from "../components/OrderCard";
 import { RunTable } from "../components/RunTable";
+import { getUsdToInrRate } from "./BundlesPage";
 
 interface OrdersPageProps {
   orders: CreatedOrder[];
@@ -56,8 +57,8 @@ function calculateOrderPrice(order: CreatedOrder, apis: ApiPanel[], bundles: Bun
     return { service: api.services.find(s => s.id === serviceId) || null, api };
   };
 
-  // 🔥 Currency conversion: yoyomedia.in charges in USD, others in INR
-  const USD_TO_INR = 85;
+   // 🔥 Currency conversion: yoyomedia.in charges in USD, others in INR
+  const USD_TO_INR = getUsdToInrRate();
   const getRateInINR = (info: { service: any; api: any }) => {
     const rawRate = parseFloat(info.service?.rate || "0");
     const apiUrl = info.api?.url || "";
