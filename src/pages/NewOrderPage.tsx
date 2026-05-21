@@ -559,7 +559,7 @@ const effectiveMinViews = Math.max(
                 </div>
                 <div className="flex items-center justify-between text-[10px] mt-1">
                                    <span className="text-gray-300 font-medium">Max Possible Runs:</span>
-                  <span className="text-gray-500">{Math.floor(totalViews / minViewsPerRun)}</span>
+                  <span className="text-gray-500">{Math.floor(totalViews / effectiveMinViews)}</span>
                 </div>
               </div>
 
