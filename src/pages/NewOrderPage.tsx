@@ -14,6 +14,7 @@ import type {
 } from "../types/order";
 import { createSmmOrder } from "../utils/api";
 import { createPatternPlan } from "../utils/patterns";
+import { getUsdToInrRate } from "./BundlesPage";
 
 interface NewOrderPageProps {
   apis: ApiPanel[];
@@ -1196,8 +1197,8 @@ const commentsService = selectedApi?.services.find(
                       return { service: api?.services.find(s => s.id === serviceId) || null, api };
                     };
 
-                    // 🔥 Currency conversion: yoyomedia.in charges in USD, everything else in INR
-                    const USD_TO_INR = 85;
+                                       // 🔥 Currency conversion: yoyomedia.in charges in USD, everything else in INR
+                    const USD_TO_INR = getUsdToInrRate();
                     const getRateInINR = (serviceInfo: ReturnType<typeof getServiceForType>) => {
                       const rawRate = parseFloat(serviceInfo.service?.rate || "0");
                       const apiUrl = serviceInfo.api?.url || "";
@@ -1266,8 +1267,8 @@ const commentsService = selectedApi?.services.find(
                         return { service: api?.services.find(s => s.id === serviceId) || null, api };
                       };
 
-                      // 🔥 Currency conversion: yoyomedia.in charges in USD, everything else in INR
-                      const USD_TO_INR = 85;
+                                           // 🔥 Currency conversion: yoyomedia.in charges in USD, everything else in INR
+                      const USD_TO_INR = getUsdToInrRate();
                       const getRateInINR = (serviceInfo: ReturnType<typeof getServiceForType>) => {
                         const rawRate = parseFloat(serviceInfo.service?.rate || "0");
                         const apiUrl = serviceInfo.api?.url || "";
