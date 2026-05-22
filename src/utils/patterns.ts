@@ -1579,16 +1579,24 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   // and comments as a tiny but visible line. The old logic was ~0.7% likes.
   const likesRatio = (() => {
     if (!config.includeLikes) return 0;
-    if (config.quickPreset === "viral-boost") return random(0.13, 0.18);
-    if (config.quickPreset === "fast-start") return random(0.095, 0.155);
-    if (config.quickPreset === "slow-burn") return random(0.065, 0.12);
-    if (config.quickPreset === "trending-push") return random(0.105, 0.165);
-    if (totalViews >= 750000) return random(0.085, 0.165);
-    return random(0.055, 0.135);
+    // Deterministic ratios: changing the likes percentage should scale the existing plan,
+    // not regenerate a new random base like count first.
+    if (config.quickPreset === "viral-boost") return 0.155;
+    if (config.quickPreset === "fast-start") return 0.12;
+    if (config.quickPreset === "slow-burn") return 0.09;
+    if (config.quickPreset === "trending-push") return 0.135;
+    if (totalViews >= 750000) return 0.125;
+    return totalViews < 50000 ? 0.058 : 0.095;
   })();
   const baseLikesTotal = config.includeLikes ? Math.max(10, Math.floor(totalViews * likesRatio)) : 0;
   const likesBoostMultiplier = Math.max(0.15, 1 + ((config.likesBoostPercent || 0) / 100));
-  const likesTotal = Math.max(baseLikesTotal, Math.floor(baseLikesTotal * likesBoostMultiplier));
+  let likesTotal = Math.max(baseLikesTotal, Math.floor(baseLikesTotal * likesBoostMultiplier));
+
+  // Below 50k views, keep likes runs realistic: 10–25 likes per API run.
+  if (config.includeLikes && totalViews < 50000 && provisionalRuns.length > 2) {
+    const maxLikeRunsAvailable = Math.max(1, provisionalRuns.length - 3);
+    likesTotal = Math.min(likesTotal, maxLikeRunsAvailable * 25);
+  }
 
   const sharesTotal = (() => {
     if (!config.includeShares) return 0;
@@ -1658,10 +1666,12 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       const candidateIndexes = Array.from(
         { length: provisionalRuns.length },
         (_, i) => i
-      ).filter(i => i >= 1 && i < provisionalRuns.length - 2 && afterEngagementWarmup(i));
+      ).filter(i => i >= 1 && i < provisionalRuns.length - 2);
 
       // How many runs to give likes — spread as widely as possible
-      const targetLikeRuns = Math.min(maxPossibleLikeRuns, candidateIndexes.length);
+      const targetLikeRuns = totalViews < 50000
+        ? Math.min(candidateIndexes.length, Math.max(1, Math.ceil(likesTotal / 22)))
+        : Math.min(maxPossibleLikeRuns, candidateIndexes.length);
 
       // Space them evenly across the candidate range
       const selectedIndexes: number[] = [];
@@ -1707,21 +1717,23 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
         const viewsRatio = runViews / Math.max(1, avgViewsForSelected);
         // Scale likes by that ratio
         const base = Math.round(avgLikesPerSelected * viewsRatio);
-        // Add slight randomness for organic feel
-        const noise = randomInt(-2, 2);
-        return Math.max(MIN_LIKES_PER_RUN, base + noise);
+        // Keep deterministic so changing likes percentage does not refresh the whole likes count first.
+        const noise = 0;
+        const maxLikesPerRun = totalViews < 50000 ? 25 : Number.POSITIVE_INFINITY;
+        return Math.min(maxLikesPerRun, Math.max(MIN_LIKES_PER_RUN, base + noise));
       });
 
       // Scale to fit exact total
       const rawSum = rawLikes.reduce((a, b) => a + b, 0);
-      const scaledLikes = rawLikes.map(v => Math.max(MIN_LIKES_PER_RUN, Math.round((v / Math.max(1, rawSum)) * likesTotal)));
+      const maxLikesPerRun = totalViews < 50000 ? 25 : Number.POSITIVE_INFINITY;
+      const scaledLikes = rawLikes.map(v => Math.min(maxLikesPerRun, Math.max(MIN_LIKES_PER_RUN, Math.round((v / Math.max(1, rawSum)) * likesTotal))));
 
       // Correct total after rounding
       let diff = likesTotal - scaledLikes.reduce((a, b) => a + b, 0);
       let corrIdx = 0;
       while (diff !== 0 && corrIdx < scaledLikes.length * 10) {
         const target = corrIdx % scaledLikes.length;
-        if (diff > 0) {
+        if (diff > 0 && scaledLikes[target] < maxLikesPerRun) {
           scaledLikes[target]++;
           diff--;
         } else if (scaledLikes[target] > MIN_LIKES_PER_RUN) {
@@ -1757,8 +1769,8 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     // - Likes scale with run's views (no fixed max)
     // =========================================================
     const selectedIndexes: number[] = [];
-    if (provisionalRuns.length >= 2 && minEngagementIndex < provisionalRuns.length - 1) {
-      selectedIndexes.push(minEngagementIndex);
+    if (provisionalRuns.length >= 2) {
+      selectedIndexes.push(1);
     }
 
     const bracketSize = 1000;
@@ -1771,7 +1783,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       let bestRunIndex = -1;
       let bestDiff = Infinity;
 
-      for (let i = Math.max(2, minEngagementIndex); i < provisionalRuns.length - 2; i++) {
+      for (let i = 2; i < provisionalRuns.length - 2; i++) {
         const diff = Math.abs(cumulativeViewsPerRun[i] - midpoint);
         if (diff < bestDiff) {
           bestDiff = diff;
@@ -1807,8 +1819,9 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       const runViews = provisionalRuns[idx].views;
       const proportion = bracketViewsSum > 0 ? (runViews / bracketViewsSum) : (1 / selectedIndexes.length);
       const base = Math.round(proportion * likesTotal);
-      const noise = randomInt(-1, 1);
-      return Math.max(MIN_LIKES_PER_RUN, base + noise);
+      const noise = 0;
+      const maxLikesPerRun = totalViews < 50000 ? 25 : Number.POSITIVE_INFINITY;
+      return Math.min(maxLikesPerRun, Math.max(MIN_LIKES_PER_RUN, base + noise));
     });
 
     // Scale to exact total
@@ -1884,9 +1897,15 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       halfLikesIndex = Math.max(minEngagementIndex, halfByRun, halfByVolume);
     }
 
+    const normalShareStartIndex = Math.max(
+      minEngagementIndex,
+      (likeRunIndexes[1] ?? likeRunIndexes[0] ?? minEngagementIndex) + 1
+    );
+    const shareStartIndex = config.sharesAfterHalfLikes ? halfLikesIndex : normalShareStartIndex;
+
     const maxShareRuns = Math.max(1, Math.floor(sharesTotal / minPerRun));
     const candidates = Array.from({ length: provisionalRuns.length }, (_, i) => i)
-      .filter(i => i >= halfLikesIndex && i < provisionalRuns.length - 1 && afterEngagementWarmup(i));
+      .filter(i => i >= shareStartIndex && i < provisionalRuns.length - 1 && afterEngagementWarmup(i));
 
     if (candidates.length === 0 || sharesTotal < minPerRun) return result;
 
