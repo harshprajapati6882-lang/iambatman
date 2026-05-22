@@ -130,6 +130,7 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
   // 🔥 NEW: Shares ratio
   const [sharesRatio, setSharesRatio] = useState<"equal" | "half" | "third" | "custom">("half");
   const [sharesCustomCount, setSharesCustomCount] = useState<number>(100);
+  const [sharesAfterHalfLikes, setSharesAfterHalfLikes] = useState(false);
 
     // 🔥 NEW: Saves ratio
   const [savesRatio, setSavesRatio] = useState<"equal" | "half" | "third" | "custom">("third");
@@ -214,6 +215,7 @@ const effectiveMinViews = Math.max(
       minViewsPerRun: effectiveMinViews,
       manualRunCount: manualRunCount > 0 ? manualRunCount : undefined,
       sharesRatio,
+      sharesAfterHalfLikes,
       savesRatio,
       sharesCustomCount,
       savesCustomCount,
@@ -240,6 +242,7 @@ const effectiveMinViews = Math.max(
       minViewsPerRun,
       manualRunCount,
       sharesRatio,
+      sharesAfterHalfLikes,
       savesRatio,
       sharesCustomCount,
       savesCustomCount,
@@ -972,8 +975,12 @@ const effectiveMinViews = Math.max(
                     <select
                       value={likesBoostPercent}
                       onChange={(e) => {
+                        const currentViews = safePlan.runs.map(r => r.views);
+                        if (currentViews.length > 0 && currentViews.some(v => v > 0)) {
+                          setLockedViews(currentViews);
+                          setIsViewsLocked(true);
+                        }
                         setLikesBoostPercent(Number(e.target.value));
-                        setSeed(prev => prev + 1);
                       }}
                       className="rounded-md border border-pink-500/30 bg-black px-1.5 py-1 text-[9px] text-pink-300 focus:outline-none focus:border-pink-500/60"
                     >
@@ -1097,6 +1104,22 @@ const effectiveMinViews = Math.max(
                         className="w-16 rounded-md border border-blue-500/30 bg-black px-2 py-0.5 text-[9px] text-white focus:outline-none"
                       />
                     )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSharesAfterHalfLikes(prev => !prev);
+                        setUseClonedPlan(false);
+                        setSeed(prev => prev + 1);
+                      }}
+                      className={`rounded-md px-2 py-0.5 text-[9px] font-medium transition ${
+                        sharesAfterHalfLikes
+                          ? "border border-orange-400 bg-orange-500/20 text-orange-300"
+                          : "border border-blue-500/20 bg-black text-gray-500 hover:text-orange-300"
+                      }`}
+                      title="When enabled, shares start after roughly half of likes. Useful for short orders."
+                    >
+                      ⏱ After ½ Likes
+                    </button>
                     <span className="text-[9px] text-gray-600 ml-auto">
                       ≈ {safePlan.runs.reduce((s, r) => s + r.shares, 0)} total
                     </span>
