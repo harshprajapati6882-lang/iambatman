@@ -180,18 +180,55 @@ function buildSmoothGraphData(plan: PatternPlan) {
 
 function buildSteppedGraphData(plan: PatternPlan) {
   const safeRuns = plan?.runs || [];
+  const final = safeRuns[safeRuns.length - 1];
+  const totalViews = Math.max(1, final?.cumulativeViews || safeRuns.reduce((sum, r) => sum + (r.views || 0), 0));
+  const totalLikes = Math.max(0, final?.cumulativeLikes || safeRuns.reduce((sum, r) => sum + (r.likes || 0), 0));
+  const totalShares = Math.max(0, final?.cumulativeShares || safeRuns.reduce((sum, r) => sum + (r.shares || 0), 0));
+  const totalSaves = Math.max(0, final?.cumulativeSaves || safeRuns.reduce((sum, r) => sum + (r.saves || 0), 0));
+  const totalComments = Math.max(0, final?.cumulativeComments || safeRuns.reduce((sum, r) => sum + (r.comments || 0), 0));
+
+  // Option 3: screenshot-style synthetic visual scale.
+  // Actual totals remain real in stats/tooltip, but smaller metrics are lifted visually
+  // so their curves resemble creator analytics screenshots.
+  const visualHeight = {
+    likes: totalViews * 0.56,
+    shares: totalViews * 0.18,
+    saves: totalViews * 0.11,
+    comments: totalViews * 0.045,
+  };
+
   return safeRuns.map((run) => ({
     time: run.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     views: run.cumulativeViews || 0,
-    likes: (run.cumulativeLikes || 0) * 10,
-    shares: (run.cumulativeShares || 0) * 10,
-    saves: (run.cumulativeSaves || 0) * 10,
-    comments: (run.cumulativeComments || 0) * 10,
+    likesVisual: totalLikes > 0 ? ((run.cumulativeLikes || 0) / totalLikes) * visualHeight.likes : 0,
+    sharesVisual: totalShares > 0 ? ((run.cumulativeShares || 0) / totalShares) * visualHeight.shares : 0,
+    savesVisual: totalSaves > 0 ? ((run.cumulativeSaves || 0) / totalSaves) * visualHeight.saves : 0,
+    commentsVisual: totalComments > 0 ? ((run.cumulativeComments || 0) / totalComments) * visualHeight.comments : 0,
+    viewsRaw: run.cumulativeViews || 0,
+    likesRaw: run.cumulativeLikes || 0,
+    sharesRaw: run.cumulativeShares || 0,
+    savesRaw: run.cumulativeSaves || 0,
+    commentsRaw: run.cumulativeComments || 0,
   }));
+}
+
+function compactNumber(value: number) {
+  if (!Number.isFinite(value)) return "0";
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}K`;
+  return String(Math.round(value));
 }
 
 const SteppedTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload || !payload.length) return null;
+
+  const rawKeyFor = (dataKey: string) => {
+    if (dataKey === "likesVisual") return "likesRaw";
+    if (dataKey === "sharesVisual") return "sharesRaw";
+    if (dataKey === "savesVisual") return "savesRaw";
+    if (dataKey === "commentsVisual") return "commentsRaw";
+    return "viewsRaw";
+  };
 
   const filtered = payload.filter(
     (entry: any) => !String(entry.name || "").startsWith("planned-")
@@ -202,20 +239,24 @@ const SteppedTooltip = ({ active, payload, label }: any) => {
   return (
     <div
       style={{
-        background: "#000000",
-        border: "1px solid #eab308",
+        background: "#fffaf3",
+        border: "1px solid rgba(210, 180, 140, 0.55)",
         borderRadius: "0.75rem",
-        color: "#d1d5db",
+        color: "#27211b",
         fontSize: "12px",
         padding: "8px 12px",
+        boxShadow: "0 12px 30px rgba(0,0,0,0.16)",
       }}
     >
-      <p style={{ marginBottom: 4, color: "#9ca3af" }}>{label}</p>
-      {filtered.map((entry: any) => (
-        <p key={entry.name} style={{ color: entry.color, margin: "2px 0" }}>
-          {entry.name}: {Math.round(entry.value)}
-        </p>
-      ))}
+      <p style={{ marginBottom: 4, color: "#7c6f64" }}>{label}</p>
+      {filtered.map((entry: any) => {
+        const raw = entry.payload?.[rawKeyFor(entry.dataKey)] ?? entry.value;
+        return (
+          <p key={entry.name} style={{ color: entry.color, margin: "2px 0" }}>
+            {entry.name}: {compactNumber(Math.round(raw))}
+          </p>
+        );
+      })}
     </div>
   );
 };
@@ -245,9 +286,17 @@ export function GrowthGraph({
     () => ({ ...plan, runs: plan?.runs || [] }),
     [plan]
   );
-  const smoothData = useMemo(() => buildSmoothGraphData(safePlan), [safePlan]);
   const steppedData = useMemo(() => buildSteppedGraphData(safePlan), [safePlan]);
-  const curveType = lineTypeForPattern(safePlan.patternType);
+  const graphTotals = useMemo(() => {
+    const last = safePlan.runs[safePlan.runs.length - 1];
+    return {
+      views: last?.cumulativeViews || safePlan.runs.reduce((sum, run) => sum + (run.views || 0), 0),
+      likes: last?.cumulativeLikes || safePlan.runs.reduce((sum, run) => sum + (run.likes || 0), 0),
+      comments: last?.cumulativeComments || safePlan.runs.reduce((sum, run) => sum + (run.comments || 0), 0),
+      shares: last?.cumulativeShares || safePlan.runs.reduce((sum, run) => sum + (run.shares || 0), 0),
+      saves: last?.cumulativeSaves || safePlan.runs.reduce((sum, run) => sum + (run.saves || 0), 0),
+    };
+  }, [safePlan]);
 
     const handleSaveFavourite = () => {
     const name = favouriteName.trim() || `${safePlan.patternName} · ${safePlan.totalRuns} runs`;
@@ -308,14 +357,14 @@ export function GrowthGraph({
   };
 
   return (
-    <section className="rounded-2xl border border-yellow-500/20 bg-gradient-to-br from-gray-900 to-black p-5">
+    <section className="rounded-2xl border border-orange-200/70 bg-gradient-to-br from-[#fffaf3] via-[#f7f3ed] to-[#eee9e2] p-5 text-stone-900 shadow-xl shadow-black/10">
       {/* Header */}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3 flex-wrap">
-          <h2 className="text-lg font-semibold text-yellow-400">📈 Growth Projection</h2>
+          <h2 className="text-lg font-semibold text-stone-950">📈 Viral Analytics Projection</h2>
 
                     <div className="inline-flex rounded-lg border border-yellow-500/30 bg-black px-2 py-1 text-[10px] font-medium text-yellow-300">
-            📊 Stepped Graph
+📊 Screenshot-style Graph
           </div>
 
           {/* 🔥 Favourite controls — only in stepped mode */}
@@ -492,6 +541,21 @@ export function GrowthGraph({
         </motion.div>
       )}
 
+      {/* Screenshot-style top metrics */}
+      <div className="mb-3 grid grid-cols-4 overflow-hidden rounded-xl border border-orange-200/70 bg-white/35 text-center shadow-inner shadow-white/40">
+        {[
+          { label: "Views", value: graphTotals.views, color: "border-pink-300", text: "text-stone-950" },
+          { label: "Likes", value: graphTotals.likes, color: "border-blue-300", text: "text-stone-950" },
+          { label: "Comments", value: graphTotals.comments, color: "border-cyan-300", text: "text-stone-950" },
+          { label: "Shares", value: graphTotals.shares, color: "border-orange-300", text: "text-stone-950" },
+        ].map((item) => (
+          <div key={item.label} className={`border-b-2 ${item.color} px-2 py-2`}>
+            <div className="text-[10px] font-medium text-stone-500">{item.label}</div>
+            <div className={`text-sm font-semibold ${item.text}`}>{compactNumber(item.value)}</div>
+          </div>
+        ))}
+      </div>
+
       {/* Chart */}
       <motion.div
         key={`${safePlan.patternId}-${safePlan.totalRuns}-${graphMode}`}
@@ -502,28 +566,27 @@ export function GrowthGraph({
       >
                 <ResponsiveContainer width="100%" height="100%">
           <LineChart data={steppedData} margin={{ top: 14, right: 20, left: 0, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#111" opacity={0.3} />
-            <XAxis dataKey="time" stroke="#666" tick={{ fill: "#9ca3af", fontSize: 11 }} />
-            <YAxis stroke="#666" tick={{ fill: "#9ca3af", fontSize: 11 }} width={52} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#d8d0c5" opacity={0.45} />
+            <XAxis dataKey="time" stroke="#9a8f84" tick={{ fill: "#8a7e72", fontSize: 11 }} />
+            <YAxis stroke="#9a8f84" tick={{ fill: "#8a7e72", fontSize: 11 }} width={52} tickFormatter={compactNumber} />
             <Tooltip content={<SteppedTooltip />} />
-            <Legend wrapperStyle={{ fontSize: "12px", color: "#d1d5db" }} />
-            <Line type="monotone" dataKey="views" stroke="#3b82f6" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-views" legendType="none" tooltipType="none" />
-            <Line type="monotone" dataKey="likes" stroke="#ec4899" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-likes" legendType="none" tooltipType="none" />
-            <Line type="monotone" dataKey="shares" stroke="#22c55e" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-shares" legendType="none" tooltipType="none" />
-            <Line type="monotone" dataKey="saves" stroke="#eab308" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-saves" legendType="none" tooltipType="none" />
-            <Line type="monotone" dataKey="comments" stroke="#a855f7" opacity={0.1} dot={false} strokeDasharray="5 5" name="planned-comments" legendType="none" tooltipType="none" />
-            <Line type="monotone" dataKey="views" stroke="#3b82f6" strokeWidth={2} dot={false} name="Views" isAnimationActive animationDuration={900} />
-            <Line type="monotone" dataKey="likes" stroke="#ec4899" strokeWidth={2} dot={false} name="Likes" isAnimationActive animationDuration={900} />
-            <Line type="monotone" dataKey="shares" stroke="#22c55e" strokeWidth={2} dot={false} name="Shares" isAnimationActive animationDuration={900} />
-            <Line type="monotone" dataKey="saves" stroke="#eab308" strokeWidth={2} dot={false} name="Saves" isAnimationActive animationDuration={900} />
-            <Line type="monotone" dataKey="comments" stroke="#a855f7" strokeWidth={2} dot={false} name="Comments" isAnimationActive animationDuration={900} />
+            <Legend wrapperStyle={{ fontSize: "12px", color: "#44382e" }} />
+            <Line type="monotone" dataKey="views" stroke="#d86bd8" opacity={0.13} dot={false} strokeDasharray="5 5" name="planned-views" legendType="none" tooltipType="none" />
+            <Line type="monotone" dataKey="likesVisual" stroke="#7188de" opacity={0.13} dot={false} strokeDasharray="5 5" name="planned-likes" legendType="none" tooltipType="none" />
+            <Line type="monotone" dataKey="commentsVisual" stroke="#54d5de" opacity={0.13} dot={false} strokeDasharray="5 5" name="planned-comments" legendType="none" tooltipType="none" />
+            <Line type="monotone" dataKey="sharesVisual" stroke="#e6a263" opacity={0.13} dot={false} strokeDasharray="5 5" name="planned-shares" legendType="none" tooltipType="none" />
+            <Line type="monotone" dataKey="views" stroke="#d86bd8" strokeWidth={2.4} dot={false} name="Views" isAnimationActive animationDuration={900} />
+            <Line type="monotone" dataKey="likesVisual" stroke="#7188de" strokeWidth={2.1} dot={false} name="Likes" isAnimationActive animationDuration={900} />
+            <Line type="monotone" dataKey="commentsVisual" stroke="#54d5de" strokeWidth={2} dot={false} name="Comments" isAnimationActive animationDuration={900} />
+            <Line type="monotone" dataKey="sharesVisual" stroke="#e6a263" strokeWidth={2} dot={false} name="Shares" isAnimationActive animationDuration={900} />
+            {graphTotals.saves > 0 && <Line type="monotone" dataKey="savesVisual" stroke="#22c55e" strokeWidth={1.6} dot={false} name="Saves" isAnimationActive animationDuration={900} />}
           </LineChart>
         </ResponsiveContainer>
       </motion.div>
 
       <div className="mt-2 flex items-center justify-between">
                 <p className="text-[9px] text-gray-600">
-          📊 Stepped: Per-run cumulative view (same as Orders page)
+📊 Visual scale matches creator analytics screenshots; tooltip/top stats show real planned totals.
         </p>        {graphMode === "stepped" && (
           <p className="text-[9px] text-pink-600">
             🤍 Save config to reuse with any view count
