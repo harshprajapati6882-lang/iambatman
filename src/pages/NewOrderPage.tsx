@@ -420,7 +420,7 @@ const effectiveMinViews = Math.max(
                         <h3 className="text-xs font-bold text-yellow-300 mb-2 tracking-wide">📋 Order Details</h3>
             
             {/* Order Name & URL */}
-            <div className="grid grid-cols-2 gap-2 mb-2">
+            <div className="mb-3 grid grid-cols-2 gap-3 rounded-xl border border-gray-800 bg-black/35 p-3">
               <div>
                 <label className="text-[10px] text-gray-300 mb-1 block font-medium">Order Name</label>
                 <input
@@ -854,13 +854,21 @@ const effectiveMinViews = Math.max(
           />
 
           {/* Advanced Controls - Below Schedule Preview */}
-          <div className="rounded-xl border border-yellow-500/20 bg-gradient-to-br from-gray-900 to-black p-3">
-                       <h3 className="text-xs font-bold text-yellow-300 mb-2 tracking-wide">⚙️ Advanced Controls</h3>
+          <div className="rounded-2xl border border-yellow-500/25 bg-gradient-to-br from-gray-950 via-gray-900 to-black p-4 shadow-lg shadow-black/30">
+            <div className="mb-3 flex items-center justify-between gap-2 border-b border-yellow-500/10 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-yellow-300 tracking-wide">⚙️ Advanced Controls</h3>
+                <p className="text-[10px] text-gray-500">Timing, delivery shape, and engagement configuration in one place.</p>
+              </div>
+              <span className="rounded-lg border border-yellow-500/25 bg-yellow-500/10 px-2.5 py-1 text-[10px] font-semibold text-yellow-300">
+                {safePlan.totalRuns} runs
+              </span>
+            </div>
             
             {/* Row 1: Start Delay & Variance */}
             <div className="grid grid-cols-2 gap-2 mb-2">
               <div>
-                <label className="text-[10px] text-gray-300 mb-1 block font-medium">Start Delay (hours)</label>
+                <label className="text-[10px] text-gray-300 mb-1 block font-semibold uppercase tracking-wide">Start Delay</label>
                 <input
                   type="number"
                   value={startDelayHours}
@@ -876,7 +884,7 @@ const effectiveMinViews = Math.max(
                 />
               </div>
               <div>
-                <label className="text-[10px] text-gray-300 mb-1 block font-medium">Variance: {variancePercent}%</label>
+                <label className="text-[10px] text-gray-300 mb-1 block font-semibold uppercase tracking-wide">Variance: {variancePercent}%</label>
                 <input
                   type="range"
                   value={variancePercent}
@@ -892,8 +900,8 @@ const effectiveMinViews = Math.max(
             </div>
 
             {/* Row 2: Delivery Speed */}
-            <div className="mb-2">
-              <label className="text-[10px] text-gray-300 mb-1 block font-medium">Delivery Speed</label>
+            <div className="mb-3 rounded-xl border border-gray-800 bg-black/35 p-3">
+              <label className="text-[10px] text-gray-300 mb-2 block font-semibold uppercase tracking-wide">Delivery Speed</label>
               <div className="flex gap-1 flex-wrap">
                 {deliveryOptions.map((option) => (
                   <button
@@ -933,294 +941,311 @@ const effectiveMinViews = Math.max(
               )}
             </div>
 
-                        {/* Row 3: Engagement Toggles + Peak Hours */}
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="text-[10px] text-gray-300 font-semibold">Engagement:</label>
-
-                              <button
-                  type="button"
-                  onClick={() => { setIncludeLikes(!includeLikes); }}
-                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
-                    includeLikes
-                      ? "border border-pink-500 bg-pink-500/20 text-pink-300"
-                      : "border border-gray-600 bg-black text-gray-500"
-                  }`}
-                >
-                  ❤️ Likes
-                </button>
-
-                                 {/* 🔥 Likes distribution toggle — only when likes enabled */}
-                {includeLikes && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLikesDistribution(prev => prev === "bracket" ? "even-spread" : "bracket");
-                      setSeed(prev => prev + 1);
-                    }}
-                    className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[9px] font-medium transition ${
-                      likesDistribution === "even-spread"
-                        ? "border border-pink-400 bg-pink-500/20 text-pink-300"
-                        : "border border-pink-500/30 bg-black text-pink-400/60"
-                    }`}
-                    title={likesDistribution === "bracket" ? "Likes at view milestones (1500, 2500...)" : "Likes spread across all runs proportionally"}
-                  >
-                    {likesDistribution === "bracket" ? "📍 Milestone" : "🌊 Spread"}
-                  </button>
-                )}
-
-                {/* 🔥 Likes boost — only when likes enabled */}
-                {includeLikes && (
-                  <div className="flex items-center gap-1">
-                    <select
-                      value={likesBoostPercent}
-                      onChange={(e) => {
-                        const currentViews = safePlan.runs.map(r => r.views);
-                        if (currentViews.length > 0 && currentViews.some(v => v > 0)) {
-                          setLockedViews(currentViews);
-                          setIsViewsLocked(true);
-                        }
-                        setLikesBoostPercent(Number(e.target.value));
-                      }}
-                      className="rounded-md border border-pink-500/30 bg-black px-1.5 py-1 text-[9px] text-pink-300 focus:outline-none focus:border-pink-500/60"
-                    >
-                      <option value={-75}>Very Low -75%</option>
-                      <option value={-50}>Low -50%</option>
-                      <option value={-25}>Soft -25%</option>
-                      <option value={0}>❤️ Default</option>
-                      <option value={25}>+25%</option>
-                      <option value={50}>+50%</option>
-                      <option value={75}>+75%</option>
-                      <option value={100}>+100%</option>
-                      <option value={150}>+150%</option>
-                      <option value={200}>+200%</option>
-                      <option value={300}>+300%</option>
-                      <option value={500}>+500%</option>
-                    </select>
-                    {likesBoostPercent !== 0 && (
-                      <span className="text-[9px] text-pink-400">
-                        ≈ {safePlan.runs.reduce((s, r) => s + r.likes, 0)} total
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => { setIncludeShares(!includeShares); }}
-                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
-                    includeShares
-                      ? "border border-blue-500 bg-blue-500/20 text-blue-300"
-                      : "border border-gray-600 bg-black text-gray-500"
-                  }`}
-                >
-                  🔄 Shares
-                </button>
-
-                                <button
-                  type="button"
-                  onClick={() => { setIncludeSaves(!includeSaves); }}
-                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
-                    includeSaves
-                      ? "border border-purple-500 bg-purple-500/20 text-purple-300"
-                      : "border border-gray-600 bg-black text-gray-500"
-                  }`}
-                >
-                  💾 Saves
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => { setIncludeComments(!includeComments); }}
-                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
-                    includeComments
-                      ? "border border-pink-500 bg-pink-500/20 text-pink-300"
-                      : "border border-gray-600 bg-black text-gray-500"
-                  }`}
-                >
-                  💬 Comments
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => { setIncludeReposts(!includeReposts); }}
-                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
-                    includeReposts
-                      ? "border border-cyan-500 bg-cyan-500/20 text-cyan-300"
-                      : "border border-gray-600 bg-black text-gray-500"
-                  }`}
-                >
-                  🔁 Reposts
-                </button>
-
-                <div className="ml-auto">
-                                  <button
-                    type="button"
-                    onClick={() => { setPeakHoursBoost(!peakHoursBoost); }}
-                    className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition ${
-                      peakHoursBoost
-                        ? "border border-orange-500 bg-orange-500/20 text-orange-300"
-                        : "border border-gray-600 bg-black text-gray-500"
-                    }`}
-                  >
-                    🔥 Peak Hours
-                  </button>
+            {/* Engagement Controls - clearer grouped UI */}
+            <div className="mt-3 rounded-xl border border-yellow-500/20 bg-black/40 p-3 shadow-inner shadow-yellow-500/5">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-yellow-300">Engagement Stack</h4>
+                  <p className="text-[9px] text-gray-500">Toggle services and tune ratios without hunting through one long row.</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => { setPeakHoursBoost(!peakHoursBoost); }}
+                  className={`rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold transition ${
+                    peakHoursBoost
+                      ? "border-orange-400/60 bg-orange-500/20 text-orange-300 shadow-sm shadow-orange-500/10"
+                      : "border-gray-700 bg-gray-950 text-gray-500 hover:border-orange-500/40 hover:text-orange-300"
+                  }`}
+                >
+                  🔥 Peak Hours {peakHoursBoost ? "ON" : "OFF"}
+                </button>
               </div>
 
-              {/* 🔥 NEW: Shares ratio - only when shares enabled */}
-              {includeShares && (
-                <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] text-blue-400 font-medium">🔄 Shares =</span>
-                    {(["equal", "half", "third", "custom"] as const).map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        onClick={() => {
-                          setSharesRatio(option);
-                          setUseClonedPlan(false);
-                          setSeed(prev => prev + 1);
-                        }}
-                        className={`rounded-md px-2 py-0.5 text-[9px] font-medium transition ${
-                          sharesRatio === option
-                            ? "border border-blue-500 bg-blue-500/20 text-blue-300"
-                            : "border border-blue-500/20 bg-black text-gray-500 hover:text-blue-300"
-                        }`}
-                      >
-                        {option === "equal" ? "Viral" : option === "half" ? "Normal" : option === "third" ? "Tiny" : "Custom #"}
-                      </button>
-                    ))}
-                    {sharesRatio === "custom" && (
-                      <input
-                        type="number"
-                        value={sharesCustomCount}
-                        onChange={(e) => {
-                          setSharesCustomCount(Math.max(10, Number(e.target.value)));
-                          setUseClonedPlan(false);
-                          setSeed(prev => prev + 1);
-                        }}
-                        min={10}
-                        className="w-16 rounded-md border border-blue-500/30 bg-black px-2 py-0.5 text-[9px] text-white focus:outline-none"
-                      />
-                    )}
+              <div className="grid gap-2 md:grid-cols-2">
+                {/* Likes */}
+                <div className={`rounded-xl border p-3 transition ${includeLikes ? "border-pink-500/40 bg-pink-500/10" : "border-gray-800 bg-gray-950/80"}`}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        setSharesAfterHalfLikes(prev => !prev);
-                        setUseClonedPlan(false);
-                        setSeed(prev => prev + 1);
-                      }}
-                      className={`rounded-md px-2 py-0.5 text-[9px] font-medium transition ${
-                        sharesAfterHalfLikes
-                          ? "border border-orange-400 bg-orange-500/20 text-orange-300"
-                          : "border border-blue-500/20 bg-black text-gray-500 hover:text-orange-300"
+                      onClick={() => { setIncludeLikes(!includeLikes); }}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${
+                        includeLikes
+                          ? "border-pink-400/70 bg-pink-500/20 text-pink-200"
+                          : "border-gray-700 bg-black text-gray-500 hover:text-pink-300"
                       }`}
-                      title="When enabled, shares start after roughly half of likes. Useful for short orders."
                     >
-                      ⏱ After ½ Likes
+                      ❤️ Likes {includeLikes ? "ON" : "OFF"}
                     </button>
-                    <span className="text-[9px] text-gray-600 ml-auto">
-                      ≈ {safePlan.runs.reduce((s, r) => s + r.shares, 0)} total
+                    <span className="rounded-md border border-pink-500/20 bg-black/50 px-2 py-0.5 text-[10px] text-pink-300">
+                      ≈ {safePlan.runs.reduce((s, r) => s + r.likes, 0)}
                     </span>
                   </div>
-                </div>
-              )}
 
-              {/* 🔥 NEW: Saves ratio - only when saves enabled */}
-              {includeSaves && (
-                <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 px-3 py-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] text-purple-400 font-medium">💾 Saves =</span>
-                    {(["equal", "half", "third", "custom"] as const).map((option) => (
+                  {includeLikes && (
+                    <div className="grid gap-2 sm:grid-cols-2">
                       <button
-                        key={option}
                         type="button"
                         onClick={() => {
-                          setSavesRatio(option);
+                          setLikesDistribution(prev => prev === "bracket" ? "even-spread" : "bracket");
+                          setSeed(prev => prev + 1);
+                        }}
+                        className={`rounded-lg border px-2 py-1.5 text-[10px] font-semibold transition ${
+                          likesDistribution === "even-spread"
+                            ? "border-pink-400/70 bg-pink-500/20 text-pink-200"
+                            : "border-pink-500/30 bg-black text-pink-400/70"
+                        }`}
+                        title={likesDistribution === "bracket" ? "Likes at view milestones (1500, 2500...)" : "Likes spread across all runs proportionally"}
+                      >
+                        {likesDistribution === "bracket" ? "📍 Milestone" : "🌊 Spread"}
+                      </button>
+
+                      <select
+                        value={likesBoostPercent}
+                        onChange={(e) => {
+                          const currentViews = safePlan.runs.map(r => r.views);
+                          if (currentViews.length > 0 && currentViews.some(v => v > 0)) {
+                            setLockedViews(currentViews);
+                            setIsViewsLocked(true);
+                          }
+                          setLikesBoostPercent(Number(e.target.value));
+                        }}
+                        className="rounded-lg border border-pink-500/30 bg-black px-2 py-1.5 text-[10px] font-semibold text-pink-200 focus:border-pink-500/60 focus:outline-none"
+                      >
+                        <option value={-75}>Very Low -75%</option>
+                        <option value={-50}>Low -50%</option>
+                        <option value={-25}>Soft -25%</option>
+                        <option value={0}>Default</option>
+                        <option value={25}>+25%</option>
+                        <option value={50}>+50%</option>
+                        <option value={75}>+75%</option>
+                        <option value={100}>+100%</option>
+                        <option value={150}>+150%</option>
+                        <option value={200}>+200%</option>
+                        <option value={300}>+300%</option>
+                        <option value={500}>+500%</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* Shares */}
+                <div className={`rounded-xl border p-3 transition ${includeShares ? "border-blue-500/40 bg-blue-500/10" : "border-gray-800 bg-gray-950/80"}`}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setIncludeShares(!includeShares); }}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${
+                        includeShares
+                          ? "border-blue-400/70 bg-blue-500/20 text-blue-200"
+                          : "border-gray-700 bg-black text-gray-500 hover:text-blue-300"
+                      }`}
+                    >
+                      🔄 Shares {includeShares ? "ON" : "OFF"}
+                    </button>
+                    <span className="rounded-md border border-blue-500/20 bg-black/50 px-2 py-0.5 text-[10px] text-blue-300">
+                      ≈ {safePlan.runs.reduce((s, r) => s + r.shares, 0)}
+                    </span>
+                  </div>
+
+                  {includeShares && (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap gap-1.5">
+                        {(["equal", "half", "third", "custom"] as const).map((option) => (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => {
+                              setSharesRatio(option);
+                              setUseClonedPlan(false);
+                              setSeed(prev => prev + 1);
+                            }}
+                            className={`rounded-md px-2 py-1 text-[9px] font-semibold transition ${
+                              sharesRatio === option
+                                ? "border border-blue-400 bg-blue-500/20 text-blue-200"
+                                : "border border-blue-500/20 bg-black text-gray-500 hover:text-blue-300"
+                            }`}
+                          >
+                            {option === "equal" ? "Viral" : option === "half" ? "Normal" : option === "third" ? "Tiny" : "Custom #"}
+                          </button>
+                        ))}
+                        {sharesRatio === "custom" && (
+                          <input
+                            type="number"
+                            value={sharesCustomCount}
+                            onChange={(e) => {
+                              setSharesCustomCount(Math.max(10, Number(e.target.value)));
+                              setUseClonedPlan(false);
+                              setSeed(prev => prev + 1);
+                            }}
+                            min={10}
+                            className="w-20 rounded-md border border-blue-500/30 bg-black px-2 py-1 text-[10px] text-white focus:outline-none"
+                          />
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSharesAfterHalfLikes(prev => !prev);
                           setUseClonedPlan(false);
                           setSeed(prev => prev + 1);
                         }}
-                        className={`rounded-md px-2 py-0.5 text-[9px] font-medium transition ${
-                          savesRatio === option
-                            ? "border border-purple-500 bg-purple-500/20 text-purple-300"
-                            : "border border-purple-500/20 bg-black text-gray-500 hover:text-purple-300"
+                        className={`w-full rounded-lg border px-2 py-1.5 text-[10px] font-semibold transition ${
+                          sharesAfterHalfLikes
+                            ? "border-orange-400/70 bg-orange-500/20 text-orange-200"
+                            : "border-gray-700 bg-black text-gray-500 hover:text-orange-300"
                         }`}
+                        title="When enabled, shares start after roughly half of likes. Useful for short orders."
                       >
-                        {option === "equal" ? "Viral" : option === "half" ? "Normal" : option === "third" ? "Tiny" : "Custom #"}
+                        ⏱ After ½ Likes: {sharesAfterHalfLikes ? "ON" : "OFF"}
                       </button>
-                    ))}
-                    {savesRatio === "custom" && (
-                      <input
-                        type="number"
-                        value={savesCustomCount}
-                        onChange={(e) => {
-                          setSavesCustomCount(Math.max(10, Number(e.target.value)));
-                          setUseClonedPlan(false);
-                          setSeed(prev => prev + 1);
-                        }}
-                        min={10}
-                        className="w-16 rounded-md border border-purple-500/30 bg-black px-2 py-0.5 text-[9px] text-white focus:outline-none"
-                      />
-                    )}
-                    <span className="text-[9px] text-gray-600 ml-auto">
-                      ≈ {safePlan.runs.reduce((s, r) => s + r.saves, 0)} total
+                    </div>
+                  )}
+                </div>
+
+                {/* Saves */}
+                <div className={`rounded-xl border p-3 transition ${includeSaves ? "border-purple-500/40 bg-purple-500/10" : "border-gray-800 bg-gray-950/80"}`}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setIncludeSaves(!includeSaves); }}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${
+                        includeSaves
+                          ? "border-purple-400/70 bg-purple-500/20 text-purple-200"
+                          : "border-gray-700 bg-black text-gray-500 hover:text-purple-300"
+                      }`}
+                    >
+                      💾 Saves {includeSaves ? "ON" : "OFF"}
+                    </button>
+                    <span className="rounded-md border border-purple-500/20 bg-black/50 px-2 py-0.5 text-[10px] text-purple-300">
+                      ≈ {safePlan.runs.reduce((s, r) => s + r.saves, 0)}
                     </span>
                   </div>
+                  {includeSaves && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {(["equal", "half", "third", "custom"] as const).map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() => {
+                            setSavesRatio(option);
+                            setUseClonedPlan(false);
+                            setSeed(prev => prev + 1);
+                          }}
+                          className={`rounded-md px-2 py-1 text-[9px] font-semibold transition ${
+                            savesRatio === option
+                              ? "border border-purple-400 bg-purple-500/20 text-purple-200"
+                              : "border border-purple-500/20 bg-black text-gray-500 hover:text-purple-300"
+                          }`}
+                        >
+                          {option === "equal" ? "Viral" : option === "half" ? "Normal" : option === "third" ? "Tiny" : "Custom #"}
+                        </button>
+                      ))}
+                      {savesRatio === "custom" && (
+                        <input
+                          type="number"
+                          value={savesCustomCount}
+                          onChange={(e) => {
+                            setSavesCustomCount(Math.max(10, Number(e.target.value)));
+                            setUseClonedPlan(false);
+                            setSeed(prev => prev + 1);
+                          }}
+                          min={10}
+                          className="w-20 rounded-md border border-purple-500/30 bg-black px-2 py-1 text-[10px] text-white focus:outline-none"
+                        />
+                      )}
+                    </div>
+                  )}
                 </div>
-              )}
-                         {/* 🔥 NEW: Reposts ratio - only when reposts enabled */}
-              {includeReposts && (
-                <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-3 py-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] text-cyan-400 font-medium">🔁 Reposts =</span>
-                    {(["equal", "half", "third", "custom"] as const).map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        onClick={() => {
-                          setRepostsRatio(option);
-                          setSeed(prev => prev + 1);
-                        }}
-                        className={`rounded-md px-2 py-0.5 text-[9px] font-medium transition ${
-                          repostsRatio === option
-                            ? "border border-cyan-500 bg-cyan-500/20 text-cyan-300"
-                            : "border border-cyan-500/20 bg-black text-gray-500 hover:text-cyan-300"
-                        }`}
-                      >
-                        {option === "equal" ? "Viral" : option === "half" ? "Normal" : option === "third" ? "Tiny" : "Custom #"}
-                      </button>
-                    ))}
-                    {repostsRatio === "custom" && (
-                      <input
-                        type="number"
-                        value={repostsCustomCount}
-                        onChange={(e) => {
-                          setRepostsCustomCount(Math.max(10, Number(e.target.value)));
-                          setSeed(prev => prev + 1);
-                        }}
-                        min={10}
-                        className="w-16 rounded-md border border-cyan-500/30 bg-black px-2 py-0.5 text-[9px] text-white focus:outline-none"
-                      />
-                    )}
-                    <span className="text-[9px] text-gray-600 ml-auto">
-                      ≈ {safePlan.runs.reduce((s, r) => s + (r.reposts || 0), 0)} total
+
+                {/* Comments */}
+                <div className={`rounded-xl border p-3 transition ${includeComments ? "border-pink-500/40 bg-pink-500/10" : "border-gray-800 bg-gray-950/80"}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setIncludeComments(!includeComments); }}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${
+                        includeComments
+                          ? "border-pink-400/70 bg-pink-500/20 text-pink-200"
+                          : "border-gray-700 bg-black text-gray-500 hover:text-pink-300"
+                      }`}
+                    >
+                      💬 Comments {includeComments ? "ON" : "OFF"}
+                    </button>
+                    <span className="rounded-md border border-pink-500/20 bg-black/50 px-2 py-0.5 text-[10px] text-pink-300">
+                      ≈ {safePlan.runs.reduce((s, r) => s + r.comments, 0)}
                     </span>
                   </div>
+                  <p className="mt-2 text-[9px] text-gray-500">Uses the comment box below. More unique comments = safer delivery.</p>
                 </div>
-              )}
+
+                {/* Reposts */}
+                <div className={`rounded-xl border p-3 transition md:col-span-2 ${includeReposts ? "border-cyan-500/40 bg-cyan-500/10" : "border-gray-800 bg-gray-950/80"}`}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setIncludeReposts(!includeReposts); }}
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${
+                        includeReposts
+                          ? "border-cyan-400/70 bg-cyan-500/20 text-cyan-200"
+                          : "border-gray-700 bg-black text-gray-500 hover:text-cyan-300"
+                      }`}
+                    >
+                      🔁 Reposts {includeReposts ? "ON" : "OFF"}
+                    </button>
+                    <span className="rounded-md border border-cyan-500/20 bg-black/50 px-2 py-0.5 text-[10px] text-cyan-300">
+                      ≈ {safePlan.runs.reduce((s, r) => s + (r.reposts || 0), 0)}
+                    </span>
+                  </div>
+                  {includeReposts && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {(["equal", "half", "third", "custom"] as const).map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() => {
+                            setRepostsRatio(option);
+                            setSeed(prev => prev + 1);
+                          }}
+                          className={`rounded-md px-2 py-1 text-[9px] font-semibold transition ${
+                            repostsRatio === option
+                              ? "border border-cyan-400 bg-cyan-500/20 text-cyan-200"
+                              : "border border-cyan-500/20 bg-black text-gray-500 hover:text-cyan-300"
+                          }`}
+                        >
+                          {option === "equal" ? "Viral" : option === "half" ? "Normal" : option === "third" ? "Tiny" : "Custom #"}
+                        </button>
+                      ))}
+                      {repostsRatio === "custom" && (
+                        <input
+                          type="number"
+                          value={repostsCustomCount}
+                          onChange={(e) => {
+                            setRepostsCustomCount(Math.max(10, Number(e.target.value)));
+                            setSeed(prev => prev + 1);
+                          }}
+                          min={10}
+                          className="w-20 rounded-md border border-cyan-500/30 bg-black px-2 py-1 text-[10px] text-white focus:outline-none"
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
-<div className="mt-2">
-  <label className="text-[10px] text-gray-300 mb-1 block font-medium">
-    💬 Custom Comments (one per line)
-  </label>
+<div className="mt-2 rounded-xl border border-yellow-500/20 bg-gradient-to-br from-gray-950 to-black p-3">
+  <div className="mb-2 flex items-center justify-between">
+    <label className="text-[10px] text-gray-300 font-semibold uppercase tracking-wide">
+      💬 Custom Comments
+    </label>
+    <span className="text-[9px] text-gray-600">one per line</span>
+  </div>
   <textarea
     value={customComments}
     onChange={(e) => setCustomComments(e.target.value)}
     rows={3}
     placeholder={"Nice post!\n🔥🔥\nAmazing"}
-    className="w-full rounded-lg border border-yellow-500/30 bg-gray-950 px-2 py-1.5 text-xs text-white"
+    className="w-full rounded-lg border border-yellow-500/30 bg-black px-3 py-2 text-xs text-white placeholder-gray-700 outline-none focus:border-yellow-500/60"
   />
 </div>
           {/* Price Calculator - Compact Horizontal */}
