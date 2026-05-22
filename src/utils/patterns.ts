@@ -1013,6 +1013,14 @@ function clipCurveValue(style: ClipCurveStyle, t: number): number {
 }
 
 function pickClipCurveStyle(preset: QuickPatternPreset | null, totalViews: number, durationHours: number): ClipCurveStyle {
+  if (totalViews < 50000) {
+    if (preset === "viral-boost") return Math.random() < 0.55 ? "early-surge-tail" : "steady-organic";
+    if (preset === "fast-start") return Math.random() < 0.65 ? "early-surge-tail" : "steady-organic";
+    if (preset === "slow-burn") return Math.random() < 0.65 ? "long-s-curve" : "steady-organic";
+    if (preset === "trending-push") return Math.random() < 0.55 ? "steady-organic" : "long-s-curve";
+    return ["steady-organic", "long-s-curve", "early-surge-tail"][randomInt(0, 2)] as ClipCurveStyle;
+  }
+
   if (preset === "viral-boost") return Math.random() < 0.55 ? "instant-spike-tail" : "two-step-spike";
   if (preset === "fast-start") return Math.random() < 0.65 ? "early-surge-tail" : "instant-spike-tail";
   if (preset === "slow-burn") return Math.random() < 0.55 ? "long-s-curve" : "late-explosion";
@@ -1065,7 +1073,7 @@ function generateClipStyleViewRuns(
       (style === "instant-spike-tail" && t < 0.2) ||
       (style === "long-s-curve" && t > 0.34 && t < 0.68);
 
-    if (hotZone && Math.random() < 0.18 + variance * 0.18) organicNoise *= random(1.18, 1.72);
+    if (hotZone && totalViews >= 50000 && Math.random() < 0.18 + variance * 0.18) organicNoise *= random(1.18, 1.72);
 
     return delta * organicNoise;
   });
@@ -1590,7 +1598,9 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   })();
   const baseLikesTotal = config.includeLikes ? Math.max(10, Math.floor(totalViews * likesRatio)) : 0;
   const likesBoostMultiplier = Math.max(0.15, 1 + ((config.likesBoostPercent || 0) / 100));
-  let likesTotal = Math.max(baseLikesTotal, Math.floor(baseLikesTotal * likesBoostMultiplier));
+  let likesTotal = config.includeLikes
+    ? Math.max(10, Math.floor(baseLikesTotal * likesBoostMultiplier))
+    : 0;
 
   // Below 50k views, keep likes runs realistic: 10–25 likes per API run.
   if (config.includeLikes && totalViews < 50000 && provisionalRuns.length > 2) {
@@ -1826,14 +1836,15 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     // Scale to exact total
     const bracketRawSum = rawBracketLikes.reduce((a, b) => a + b, 0);
-    const bracketScaled = rawBracketLikes.map(v => Math.max(MIN_LIKES_PER_RUN, Math.round((v / Math.max(1, bracketRawSum)) * likesTotal)));
+    const bracketMaxLikesPerRun = totalViews < 50000 ? 25 : Number.POSITIVE_INFINITY;
+    const bracketScaled = rawBracketLikes.map(v => Math.min(bracketMaxLikesPerRun, Math.max(MIN_LIKES_PER_RUN, Math.round((v / Math.max(1, bracketRawSum)) * likesTotal))));
 
     // Correct rounding
     let bracketDiff = likesTotal - bracketScaled.reduce((a, b) => a + b, 0);
     let bracketIdx = 0;
     while (bracketDiff !== 0 && bracketIdx < bracketScaled.length * 10) {
       const target = bracketIdx % bracketScaled.length;
-      if (bracketDiff > 0) {
+      if (bracketDiff > 0 && bracketScaled[target] < bracketMaxLikesPerRun) {
         bracketScaled[target]++;
         bracketDiff--;
       } else if (bracketScaled[target] > MIN_LIKES_PER_RUN) {
@@ -1846,7 +1857,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     // 🔥 Nudge consecutive duplicates
     for (let i = 1; i < bracketScaled.length - 1; i++) {
       if (bracketScaled[i] === bracketScaled[i - 1]) {
-        if (bracketScaled[i + 1] > MIN_LIKES_PER_RUN) {
+        if (bracketScaled[i] < bracketMaxLikesPerRun && bracketScaled[i + 1] > MIN_LIKES_PER_RUN) {
           bracketScaled[i] += 1;
           bracketScaled[i + 1] -= 1;
         } else if (bracketScaled[i] > MIN_LIKES_PER_RUN) {
