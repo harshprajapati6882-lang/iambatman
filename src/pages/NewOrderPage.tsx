@@ -131,6 +131,7 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
   const [sharesRatio, setSharesRatio] = useState<"equal" | "half" | "third" | "custom">("half");
   const [sharesCustomCount, setSharesCustomCount] = useState<number>(100);
   const [sharesAfterHalfLikes, setSharesAfterHalfLikes] = useState(false);
+  const [sharesBoostPercent, setSharesBoostPercent] = useState<number>(0);
 
     // 🔥 NEW: Saves ratio
   const [savesRatio, setSavesRatio] = useState<"equal" | "half" | "third" | "custom">("third");
@@ -216,6 +217,7 @@ const effectiveMinViews = Math.max(
       manualRunCount: manualRunCount > 0 ? manualRunCount : undefined,
       sharesRatio,
       sharesAfterHalfLikes,
+      sharesBoostPercent: sharesBoostPercent !== 0 ? sharesBoostPercent : undefined,
       savesRatio,
       sharesCustomCount,
       savesCustomCount,
@@ -243,6 +245,7 @@ const effectiveMinViews = Math.max(
       manualRunCount,
       sharesRatio,
       sharesAfterHalfLikes,
+      sharesBoostPercent,
       savesRatio,
       sharesCustomCount,
       savesCustomCount,
@@ -1128,6 +1131,28 @@ const effectiveMinViews = Math.max(
                           />
                         )}
                       </div>
+                      <select
+                        value={sharesBoostPercent}
+                        onChange={(e) => {
+                          setSharesBoostPercent(Number(e.target.value));
+                          setUseClonedPlan(false);
+                          setSeed(prev => prev + 1);
+                        }}
+                        className="w-full rounded-lg border border-blue-500/30 bg-black px-2 py-1.5 text-[10px] font-semibold text-blue-200 focus:border-blue-500/60 focus:outline-none"
+                        title="Increase or reduce total shares"
+                      >
+                        <option value={-75}>Shares Very Low -75%</option>
+                        <option value={-50}>Shares Low -50%</option>
+                        <option value={-25}>Shares Soft -25%</option>
+                        <option value={0}>Shares Default</option>
+                        <option value={25}>Shares +25%</option>
+                        <option value={50}>Shares +50%</option>
+                        <option value={75}>Shares +75%</option>
+                        <option value={100}>Shares +100%</option>
+                        <option value={150}>Shares +150%</option>
+                        <option value={200}>Shares +200%</option>
+                        <option value={300}>Shares +300%</option>
+                      </select>
                       <button
                         type="button"
                         onClick={() => {
@@ -1559,7 +1584,7 @@ const effectiveMinViews = Math.max(
                     const required = Math.floor(run.comments || 0);
                     if (required <= 0) return { time: run.at.toISOString(), comments: "" };
                     let finalComments: string[] = [];
-                    if (commentList.length === 0) { finalComments = ["Nice post"]; }
+                    if (commentList.length === 0) { finalComments = Array.from({ length: required }, () => "Nice post"); }
                     else if (commentList.length >= required) { finalComments = commentList.slice(0, required); }
                     else { while (finalComments.length < required) { finalComments.push(commentList[finalComments.length % commentList.length]); } }
                     return { time: run.at.toISOString(), comments: finalComments.join("\n") };
