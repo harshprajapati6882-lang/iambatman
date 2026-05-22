@@ -549,10 +549,10 @@ function pickPatternProfile(presetType: PatternType | undefined): OrganicPattern
 
 function resolveDurationHours(config: OrderConfig): number {
   if (config.delivery.mode === "custom" || config.delivery.mode === "preset") return config.delivery.hours;
-  // Viral clipping campaigns look most natural over days, not hours.
-  // Auto scales from ~2 days for small orders to ~21–28 days for million-view pushes.
-  const automatic = 36 + Math.sqrt(Math.max(800, config.totalViews)) / 2.6;
-  return clamp(automatic, 36, 672);
+  // Viral clipping campaigns can be made in 1–4 days too.
+  // Auto stays short for small/medium orders and stretches only for very large pushes.
+  const automatic = 18 + Math.sqrt(Math.max(800, config.totalViews)) / 8;
+  return clamp(automatic, 24, 168);
 }
 
 function pickWeightedIndex(weights: number[]): number {
@@ -1560,6 +1560,20 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   });
 
   const totalViews = provisionalRuns.reduce((acc, run) => acc + run.views, 0);
+
+  // 🔥 Realistic first-hours behavior from your screenshots:
+  // first 3–5 hours have very low/negligible engagement. Views can start,
+  // but likes/shares/comments wait until the post has some traction.
+  const engagementWarmupMin = randomInt(180, 300);
+  const firstRunMs = provisionalRuns[0]?.at.getTime() ?? now.getTime();
+  const warmupIndexRaw = provisionalRuns.findIndex((run, index) =>
+    index > 0 && run.at.getTime() - firstRunMs >= engagementWarmupMin * 60_000
+  );
+  const minEngagementIndex = warmupIndexRaw >= 0
+    ? warmupIndexRaw
+    : Math.min(Math.max(1, Math.floor(provisionalRuns.length * 0.22)), Math.max(1, provisionalRuns.length - 2));
+  const afterEngagementWarmup = (index: number) => index >= minEngagementIndex;
+
   // 🔥 Screenshot-style viral engagement ratios.
   // Reference analytics showed likes around 7%–17% of views, shares much smaller,
   // and comments as a tiny but visible line. The old logic was ~0.7% likes.
@@ -1644,7 +1658,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       const candidateIndexes = Array.from(
         { length: provisionalRuns.length },
         (_, i) => i
-      ).filter(i => i >= 1 && i < provisionalRuns.length - 2);
+      ).filter(i => i >= 1 && i < provisionalRuns.length - 2 && afterEngagementWarmup(i));
 
       // How many runs to give likes — spread as widely as possible
       const targetLikeRuns = Math.min(maxPossibleLikeRuns, candidateIndexes.length);
@@ -1743,8 +1757,8 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     // - Likes scale with run's views (no fixed max)
     // =========================================================
     const selectedIndexes: number[] = [];
-    if (provisionalRuns.length >= 2) {
-      selectedIndexes.push(1);
+    if (provisionalRuns.length >= 2 && minEngagementIndex < provisionalRuns.length - 1) {
+      selectedIndexes.push(minEngagementIndex);
     }
 
     const bracketSize = 1000;
@@ -1757,7 +1771,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       let bestRunIndex = -1;
       let bestDiff = Infinity;
 
-      for (let i = 2; i < provisionalRuns.length - 2; i++) {
+      for (let i = Math.max(2, minEngagementIndex); i < provisionalRuns.length - 2; i++) {
         const diff = Math.abs(cumulativeViewsPerRun[i] - midpoint);
         if (diff < bestDiff) {
           bestDiff = diff;
@@ -1845,7 +1859,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   // =========================================================
   const sharesRuns = (() => {
     const result = Array.from({ length: provisionalRuns.length }, () => 0);
-    if (!config.includeShares || sharesTotal <= 0 || provisionalRuns.length <= 4) return result;
+    if (!config.includeShares || sharesTotal <= 0 || provisionalRuns.length <= 1) return result;
 
     const minPerRun = 10;
 
@@ -1861,10 +1875,10 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       for (const offset of [1, 2, 3]) {
         const shareIndex = afterLikeIndex + offset;
         if (
-          shareIndex < provisionalRuns.length - 2 &&
+          shareIndex < provisionalRuns.length - 1 &&
           shareIndex > 0 &&
-          !selectedIndexes.includes(shareIndex) &&
-          likesRuns[shareIndex] === 0
+          afterEngagementWarmup(shareIndex) &&
+          !selectedIndexes.includes(shareIndex)
         ) {
           selectedIndexes.push(shareIndex);
           break;
@@ -1880,9 +1894,8 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
         { length: provisionalRuns.length },
         (_, i) => i
       ).filter(i =>
-        i >= 3 &&
-        i < provisionalRuns.length - 2 &&
-        likesRuns[i] === 0 &&
+        i >= Math.max(1, minEngagementIndex) &&
+        i < provisionalRuns.length - 1 &&
         !selectedIndexes.includes(i)
       );
 
@@ -1945,7 +1958,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   // =========================================================
   const savesRuns = (() => {
     const result = Array.from({ length: provisionalRuns.length }, () => 0);
-    if (!config.includeSaves || savesTotal <= 0 || provisionalRuns.length <= 4) return result;
+    if (!config.includeSaves || savesTotal <= 0 || provisionalRuns.length <= 1) return result;
 
     const minPerRun = 10;
 
@@ -1961,10 +1974,10 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       for (const offset of offsets) {
         const saveIndex = shareIdx + offset;
                if (
-          saveIndex < provisionalRuns.length - 2 &&
+          saveIndex < provisionalRuns.length - 1 &&
           saveIndex > 0 &&
-          !selectedIndexes.includes(saveIndex) &&
-          sharesRuns[saveIndex] === 0
+          afterEngagementWarmup(saveIndex) &&
+          !selectedIndexes.includes(saveIndex)
         ) {
           selectedIndexes.push(saveIndex);
           break;
@@ -1980,9 +1993,8 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
         { length: provisionalRuns.length },
         (_, i) => i
       ).filter(i =>
-        i >= 3 &&
-        i < provisionalRuns.length - 2 &&
-        sharesRuns[i] === 0 &&
+        i >= Math.max(1, minEngagementIndex) &&
+        i < provisionalRuns.length - 1 &&
         !selectedIndexes.includes(i)
       );
 
@@ -2198,8 +2210,8 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       { length: provisionalRuns.length },
       (_, i) => i
     ).filter(i =>
-      i >= 3 &&
-      i < provisionalRuns.length - 2 &&
+      i >= Math.max(1, minEngagementIndex) &&
+      i < provisionalRuns.length - 1 &&
       likesRuns[i] === 0 &&
       sharesRuns[i] === 0 &&
       savesRuns[i] === 0 &&
@@ -2212,7 +2224,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       : Array.from(
           { length: provisionalRuns.length },
           (_, i) => i
-        ).filter(i => i >= 3 && i < provisionalRuns.length - 2);
+        ).filter(i => i >= Math.max(1, minEngagementIndex) && i < provisionalRuns.length - 1);
     
     if (candidateIndexes.length === 0) return result;
 
