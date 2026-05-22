@@ -1587,7 +1587,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     return random(0.055, 0.135);
   })();
   const baseLikesTotal = config.includeLikes ? Math.max(10, Math.floor(totalViews * likesRatio)) : 0;
-  const likesBoostMultiplier = 1 + ((config.likesBoostPercent || 0) / 100);
+  const likesBoostMultiplier = Math.max(0.15, 1 + ((config.likesBoostPercent || 0) / 100));
   const likesTotal = Math.max(baseLikesTotal, Math.floor(baseLikesTotal * likesBoostMultiplier));
 
   const sharesTotal = (() => {
@@ -1862,88 +1862,80 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     if (!config.includeShares || sharesTotal <= 0 || provisionalRuns.length <= 1) return result;
 
     const minPerRun = 10;
-
     const likeRunIndexes = likesRuns
       .map((val, idx) => (val > 0 ? idx : -1))
       .filter(idx => idx !== -1);
 
-    const selectedIndexes: number[] = [];
-
-    // Step 1: After every 2nd like-run
-    for (let i = 1; i < likeRunIndexes.length; i += 2) {
-      const afterLikeIndex = likeRunIndexes[i];
-      for (const offset of [1, 2, 3]) {
-        const shareIndex = afterLikeIndex + offset;
-        if (
-          shareIndex < provisionalRuns.length - 1 &&
-          shareIndex > 0 &&
-          afterEngagementWarmup(shareIndex) &&
-          !selectedIndexes.includes(shareIndex)
-        ) {
-          selectedIndexes.push(shareIndex);
+    // Shares should NOT appear before likes have real traction.
+    // Start shares after roughly half of the like-runs / like volume has happened.
+    let halfLikesIndex = Math.max(minEngagementIndex, Math.floor(provisionalRuns.length * 0.55));
+    if (likeRunIndexes.length > 0) {
+      const halfByRun = likeRunIndexes[Math.floor(likeRunIndexes.length * 0.5)] ?? likeRunIndexes[0];
+      let cumulativeLikeSeen = 0;
+      const halfLikeTotal = likesTotal * 0.5;
+      let halfByVolume = halfByRun;
+      for (let i = 0; i < likesRuns.length; i += 1) {
+        cumulativeLikeSeen += likesRuns[i] || 0;
+        if (cumulativeLikeSeen >= halfLikeTotal) {
+          halfByVolume = i;
           break;
         }
       }
+      halfLikesIndex = Math.max(minEngagementIndex, halfByRun, halfByVolume);
     }
 
-    // Step 2: If sharesTotal needs MORE runs than we have, add extras
-    const maxShareRuns = Math.floor(sharesTotal / minPerRun);
-    if (selectedIndexes.length < maxShareRuns) {
-      // Find all available slots (no likes, no existing shares, not first 3, not last 2)
-      const availableSlots = Array.from(
-        { length: provisionalRuns.length },
-        (_, i) => i
-      ).filter(i =>
-        i >= Math.max(1, minEngagementIndex) &&
-        i < provisionalRuns.length - 1 &&
-        !selectedIndexes.includes(i)
-      );
+    const maxShareRuns = Math.max(1, Math.floor(sharesTotal / minPerRun));
+    const candidates = Array.from({ length: provisionalRuns.length }, (_, i) => i)
+      .filter(i => i >= halfLikesIndex && i < provisionalRuns.length - 1 && afterEngagementWarmup(i));
 
-      // Pick evenly spaced from available
-      const needed = maxShareRuns - selectedIndexes.length;
-      if (needed > 0 && availableSlots.length > 0) {
-        const step = Math.max(1, Math.floor(availableSlots.length / needed));
-        for (let j = 0; j < availableSlots.length && selectedIndexes.length < maxShareRuns; j += step) {
-          selectedIndexes.push(availableSlots[j]);
+    if (candidates.length === 0 || sharesTotal < minPerRun) return result;
+
+    const selectedCount = Math.min(maxShareRuns, candidates.length);
+    const selectedIndexes: number[] = [];
+
+    // Evenly distribute share runs over the second half of the campaign.
+    // This prevents two share runs from sitting close together and makes the orange line smoother.
+    if (selectedCount === 1) {
+      const target = Math.round(candidates.length * 0.58);
+      selectedIndexes.push(candidates[Math.min(candidates.length - 1, Math.max(0, target))]);
+    } else {
+      const minGap = Math.max(1, Math.floor(candidates.length / (selectedCount + 1)));
+      for (let i = 0; i < selectedCount; i += 1) {
+        const pos = Math.round(((i + 1) / (selectedCount + 1)) * (candidates.length - 1));
+        let picked = candidates[pos];
+        // Nudge forward if too close to previous selected share run.
+        while (
+          selectedIndexes.length > 0 &&
+          picked - selectedIndexes[selectedIndexes.length - 1] < minGap &&
+          candidates.includes(picked + 1)
+        ) {
+          picked += 1;
         }
+        if (!selectedIndexes.includes(picked)) selectedIndexes.push(picked);
       }
     }
 
     selectedIndexes.sort((a, b) => a - b);
 
-    // Trim if can't cover minimums
-    while (selectedIndexes.length > 1 && sharesTotal < selectedIndexes.length * minPerRun) {
-      selectedIndexes.pop();
-    }
-
-    if (selectedIndexes.length === 0 || sharesTotal < minPerRun) return result;
-
-    // 🔥 Distribute proportional to views (not flat)
     const selectedViews = selectedIndexes.map(idx => provisionalRuns[idx].views);
     const viewsSum = selectedViews.reduce((a, b) => a + b, 0);
-
     const rawShares = selectedIndexes.map((idx) => {
       const proportion = viewsSum > 0 ? (provisionalRuns[idx].views / viewsSum) : (1 / selectedIndexes.length);
-      const base = Math.round(proportion * sharesTotal);
-      const noise = randomInt(-1, 1);
-      return Math.max(minPerRun, base + noise);
+      return Math.max(minPerRun, Math.round(proportion * sharesTotal));
     });
 
-    // Scale to exact total
     const rawSum = rawShares.reduce((a, b) => a + b, 0);
     const scaled = rawShares.map(v => Math.max(minPerRun, Math.round((v / Math.max(1, rawSum)) * sharesTotal)));
 
-    // Correct rounding
     let diff = sharesTotal - scaled.reduce((a, b) => a + b, 0);
     let corrIdx = 0;
-    while (diff !== 0 && corrIdx < scaled.length * 10) {
+    while (diff !== 0 && corrIdx < scaled.length * 20) {
       const target = corrIdx % scaled.length;
       if (diff > 0) { scaled[target]++; diff--; }
       else if (scaled[target] > minPerRun) { scaled[target]--; diff++; }
       corrIdx++;
     }
 
-    // Assign
     selectedIndexes.forEach((runIdx, i) => {
       result[runIdx] = scaled[i];
     });
