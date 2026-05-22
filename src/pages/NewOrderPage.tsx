@@ -399,15 +399,41 @@ const effectiveMinViews = Math.max(
   // 🔥 Calculate estimated runs and views per run for display
   const estimatedRunCount = safePlan.runs.length;
   const averageViewsPerRun = estimatedRunCount > 0 ? Math.round(totalViews / estimatedRunCount) : 0;
+  const totalPlannedLikes = safePlan.runs.reduce((sum, run) => sum + (run.likes || 0), 0);
+  const totalPlannedShares = safePlan.runs.reduce((sum, run) => sum + (run.shares || 0), 0);
+  const totalPlannedComments = safePlan.runs.reduce((sum, run) => sum + (run.comments || 0), 0);
+  const totalPlannedEngagement = totalPlannedLikes + totalPlannedShares + totalPlannedComments;
 
   return (
     <div className="mx-auto max-w-7xl space-y-2 px-3 py-3">
       {/* Compact Header */}
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
-        <div className="flex items-center gap-2">
-          <span className="text-xl">⚡</span>
-          <h2 className="text-lg font-bold tracking-tight text-yellow-400">New Mission</h2>
-          <span className="text-[10px] text-gray-500 ml-2">Configure delivery patterns</span>
+        <div className="overflow-hidden rounded-2xl border border-yellow-500/25 bg-gradient-to-r from-black via-gray-950 to-yellow-950/20 p-4 shadow-xl shadow-black/30">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-yellow-500/30 bg-yellow-500/10 text-xl shadow-inner shadow-yellow-500/10">⚡</div>
+              <div>
+                <h2 className="text-xl font-black tracking-tight text-yellow-300">New Mission</h2>
+                <p className="text-[11px] text-gray-500">Build viral-style delivery patterns with precise run control.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:min-w-[520px]">
+              {[
+                { label: "Views", value: totalViews.toLocaleString(), icon: "👁️", color: "text-yellow-300" },
+                { label: "Runs", value: estimatedRunCount.toString(), icon: "🧩", color: "text-blue-300" },
+                { label: "Duration", value: `${safePlan.estimatedDurationHours}h`, icon: "⏱️", color: "text-emerald-300" },
+                { label: "Engage", value: totalPlannedEngagement.toLocaleString(), icon: "❤️", color: "text-pink-300" },
+              ].map((item) => (
+                <div key={item.label} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 shadow-inner shadow-white/5">
+                  <div className="flex items-center justify-between text-[9px] uppercase tracking-wider text-gray-500">
+                    <span>{item.label}</span><span>{item.icon}</span>
+                  </div>
+                  <div className={`mt-0.5 text-sm font-black ${item.color}`}>{item.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </motion.div>
 
@@ -416,8 +442,16 @@ const effectiveMinViews = Math.max(
         
         {/* LEFT COLUMN - Basic Order Info */}
         <div className="space-y-2">
-          <div className="rounded-xl border border-yellow-500/20 bg-gradient-to-br from-gray-900 to-black p-3">
-                        <h3 className="text-xs font-bold text-yellow-300 mb-2 tracking-wide">📋 Order Details</h3>
+          <div className="rounded-2xl border border-yellow-500/25 bg-gradient-to-br from-gray-950 via-gray-900 to-black p-4 shadow-lg shadow-black/30">
+            <div className="mb-3 flex items-center justify-between border-b border-yellow-500/10 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-yellow-300 tracking-wide">📋 Order Details</h3>
+                <p className="text-[10px] text-gray-500">Target, quantity, API panel, and service bundle.</p>
+              </div>
+              <span className={`rounded-lg border px-2.5 py-1 text-[10px] font-semibold ${selectedBundleId ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-red-500/30 bg-red-500/10 text-red-300"}`}>
+                {selectedBundleId ? "Bundle Ready" : "Bundle Needed"}
+              </span>
+            </div>
             
             {/* Order Name & URL */}
             <div className="mb-3 grid grid-cols-2 gap-3 rounded-xl border border-gray-800 bg-black/35 p-3">
@@ -512,10 +546,16 @@ const effectiveMinViews = Math.max(
           </div>
 
           {/* 🔥 NEW: Minimum Views Per Run Settings Block */}
-          <div className="rounded-xl border border-blue-500/30 bg-gradient-to-br from-blue-900/20 to-black p-3">
-                        <h3 className="text-xs font-bold text-blue-300 mb-2 flex items-center gap-2 tracking-wide">
-              <span>⚙️</span> Global Run Settings
-            </h3>
+          <div className="rounded-2xl border border-blue-500/25 bg-gradient-to-br from-blue-950/25 via-gray-950 to-black p-4 shadow-lg shadow-black/25">
+            <div className="mb-3 flex items-center justify-between border-b border-blue-500/10 pb-3">
+              <div>
+                <h3 className="flex items-center gap-2 text-sm font-bold text-blue-300 tracking-wide"><span>⚙️</span> Global Run Settings</h3>
+                <p className="text-[10px] text-gray-500">Control run density and exact run count.</p>
+              </div>
+              <span className="rounded-lg border border-blue-500/25 bg-blue-500/10 px-2.5 py-1 text-[10px] font-semibold text-blue-300">
+                Avg {averageViewsPerRun.toLocaleString()}/run
+              </span>
+            </div>
             
             <div className="space-y-3">
               {/* Min Views Input */}
@@ -626,7 +666,12 @@ const effectiveMinViews = Math.max(
           </div>
 
                              {/* 🔥 Draw Your Own Graph toggle + Lock Views button */}
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="rounded-2xl border border-yellow-500/20 bg-gradient-to-br from-gray-950 to-black p-3 shadow-lg shadow-black/20">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-yellow-300">🎛 Pattern Tools</h3>
+              <span className="text-[9px] text-gray-600">custom curve / lock views</span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
               onClick={() => setShowDrawableGraph(!showDrawableGraph)}
@@ -675,6 +720,7 @@ const effectiveMinViews = Math.max(
             {showDrawableGraph && !isViewsLocked && (
               <span className="text-[9px] text-gray-500">Drag handles to shape your delivery curve</span>
             )}
+            </div>
           </div>
           
                     {/* Drawable Graph */}
