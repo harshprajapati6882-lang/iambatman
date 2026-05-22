@@ -201,20 +201,45 @@ function buildSteppedGraphData(plan: PatternPlan) {
     ? safeRuns[0].at.getTime() - Math.max(0, safeRuns[0].minutesFromStart || 0) * 60_000
     : Date.now();
 
-  const rows = safeRuns.map((run) => ({
-    minute: Math.max(0, Math.round((run.at.getTime() - startMs) / 60_000)),
-    time: run.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    views: run.cumulativeViews || 0,
-    likesVisual: totalLikes > 0 ? ((run.cumulativeLikes || 0) / totalLikes) * visualHeight.likes : 0,
-    sharesVisual: totalShares > 0 ? ((run.cumulativeShares || 0) / totalShares) * visualHeight.shares : 0,
-    savesVisual: totalSaves > 0 ? ((run.cumulativeSaves || 0) / totalSaves) * visualHeight.saves : 0,
-    commentsVisual: totalComments > 0 ? ((run.cumulativeComments || 0) / totalComments) * visualHeight.comments : 0,
-    viewsRaw: run.cumulativeViews || 0,
-    likesRaw: run.cumulativeLikes || 0,
-    sharesRaw: run.cumulativeShares || 0,
-    savesRaw: run.cumulativeSaves || 0,
-    commentsRaw: run.cumulativeComments || 0,
-  }));
+  const isShortOrder = totalViews < 50000;
+  const smoothProgress = (progress: number, start = 0, power = 1) => {
+    const normalized = Math.min(1, Math.max(0, (progress - start) / Math.max(0.0001, 1 - start)));
+    return Math.pow(normalized, power);
+  };
+
+  const rows = safeRuns.map((run) => {
+    const viewProgress = Math.min(1, Math.max(0, (run.cumulativeViews || 0) / totalViews));
+    // For short orders, the run table is limited by provider minimums, so plotting raw
+    // engagement creates ugly stairs. Keep raw totals in tooltip/table, but render a
+    // smooth Instagram-style visual curve on the graph.
+    const likesFraction = isShortOrder
+      ? smoothProgress(viewProgress, 0.035, 1.08)
+      : totalLikes > 0 ? ((run.cumulativeLikes || 0) / totalLikes) : 0;
+    const commentsFraction = isShortOrder
+      ? smoothProgress(viewProgress, 0.10, 1.18)
+      : totalComments > 0 ? ((run.cumulativeComments || 0) / totalComments) : 0;
+    const sharesFraction = isShortOrder
+      ? smoothProgress(viewProgress, 0.48, 1.35)
+      : totalShares > 0 ? ((run.cumulativeShares || 0) / totalShares) : 0;
+    const savesFraction = isShortOrder
+      ? smoothProgress(viewProgress, 0.38, 1.25)
+      : totalSaves > 0 ? ((run.cumulativeSaves || 0) / totalSaves) : 0;
+
+    return {
+      minute: Math.max(0, Math.round((run.at.getTime() - startMs) / 60_000)),
+      time: run.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      views: run.cumulativeViews || 0,
+      likesVisual: totalLikes > 0 ? likesFraction * visualHeight.likes : 0,
+      sharesVisual: totalShares > 0 ? sharesFraction * visualHeight.shares : 0,
+      savesVisual: totalSaves > 0 ? savesFraction * visualHeight.saves : 0,
+      commentsVisual: totalComments > 0 ? commentsFraction * visualHeight.comments : 0,
+      viewsRaw: run.cumulativeViews || 0,
+      likesRaw: run.cumulativeLikes || 0,
+      sharesRaw: run.cumulativeShares || 0,
+      savesRaw: run.cumulativeSaves || 0,
+      commentsRaw: run.cumulativeComments || 0,
+    };
+  });
 
   // Include the configured start delay in the chart as a real flat zone.
   // If Start Delay = 5h, the X-axis now shows 0→5h before the first delivery.
