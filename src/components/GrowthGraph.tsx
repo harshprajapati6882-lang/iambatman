@@ -197,7 +197,12 @@ function buildSteppedGraphData(plan: PatternPlan) {
     comments: totalViews * 0.045,
   };
 
-  return safeRuns.map((run) => ({
+  const startMs = safeRuns[0]
+    ? safeRuns[0].at.getTime() - Math.max(0, safeRuns[0].minutesFromStart || 0) * 60_000
+    : Date.now();
+
+  const rows = safeRuns.map((run) => ({
+    minute: Math.max(0, Math.round((run.at.getTime() - startMs) / 60_000)),
     time: run.at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     views: run.cumulativeViews || 0,
     likesVisual: totalLikes > 0 ? ((run.cumulativeLikes || 0) / totalLikes) * visualHeight.likes : 0,
@@ -210,6 +215,27 @@ function buildSteppedGraphData(plan: PatternPlan) {
     savesRaw: run.cumulativeSaves || 0,
     commentsRaw: run.cumulativeComments || 0,
   }));
+
+  // Include the configured start delay in the chart as a real flat zone.
+  // If Start Delay = 5h, the X-axis now shows 0→5h before the first delivery.
+  if (safeRuns.length > 0 && rows[0].minute > 0) {
+    rows.unshift({
+      minute: 0,
+      time: new Date(startMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      views: 0,
+      likesVisual: 0,
+      sharesVisual: 0,
+      savesVisual: 0,
+      commentsVisual: 0,
+      viewsRaw: 0,
+      likesRaw: 0,
+      sharesRaw: 0,
+      savesRaw: 0,
+      commentsRaw: 0,
+    });
+  }
+
+  return rows;
 }
 
 function compactNumber(value: number) {
@@ -248,7 +274,7 @@ const SteppedTooltip = ({ active, payload, label }: any) => {
         boxShadow: "0 12px 30px rgba(0,0,0,0.16)",
       }}
     >
-      <p style={{ marginBottom: 4, color: "#7c6f64" }}>{label}</p>
+      <p style={{ marginBottom: 4, color: "#7c6f64" }}>{filtered[0]?.payload?.time || `${label}m`}</p>
       {filtered.map((entry: any) => {
         const raw = entry.payload?.[rawKeyFor(entry.dataKey)] ?? entry.value;
         return (
@@ -567,7 +593,7 @@ export function GrowthGraph({
                 <ResponsiveContainer width="100%" height="100%">
           <LineChart data={steppedData} margin={{ top: 14, right: 20, left: 0, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#d8d0c5" opacity={0.45} />
-            <XAxis dataKey="time" stroke="#9a8f84" tick={{ fill: "#8a7e72", fontSize: 11 }} />
+            <XAxis dataKey="minute" type="number" stroke="#9a8f84" tick={{ fill: "#8a7e72", fontSize: 11 }} tickFormatter={(value) => `${Math.round(Number(value) / 60)}h`} />
             <YAxis stroke="#9a8f84" tick={{ fill: "#8a7e72", fontSize: 11 }} width={52} tickFormatter={compactNumber} />
             <Tooltip content={<SteppedTooltip />} />
             <Legend wrapperStyle={{ fontSize: "12px", color: "#44382e" }} />
