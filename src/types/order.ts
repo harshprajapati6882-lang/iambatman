@@ -42,6 +42,7 @@ export interface OrderConfig {
   likesDistribution?: "bracket" | "even-spread";
   likesBoostPercent?: number;
   sharesAfterHalfLikes?: boolean;
+  sharesBoostPercent?: number;
 }
 
 export interface RunStep {
