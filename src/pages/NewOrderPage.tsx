@@ -97,8 +97,8 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
   const [variancePercent, setVariancePercent] = useState(40);
   const [peakHoursBoost, setPeakHoursBoost] = useState(false);
   const [quickPreset, setQuickPreset] = useState<QuickPatternPreset | null>(null);
-  const [customHours, setCustomHours] = useState(168);
-  const [delivery, setDelivery] = useState<DeliveryOption>({ mode: "auto", hours: 168, label: "Auto" });
+  const [customHours, setCustomHours] = useState(72);
+  const [delivery, setDelivery] = useState<DeliveryOption>({ mode: "auto", hours: 72, label: "Auto" });
   const [seed, setSeed] = useState(0);
   const [useClonedPlan, setUseClonedPlan] = useState(Boolean(prefillPlan));
   const [clonedPlan, setClonedPlan] = useState<PatternPlan | null>(prefillPlan);
@@ -306,19 +306,19 @@ const effectiveMinViews = Math.max(
     setQuickPreset(preset);
     if (preset === "viral-boost") {
       setVariancePercent(48);
-      setDelivery({ mode: "preset", label: "7d", hours: 168 });
+      setDelivery({ mode: "preset", label: "2d", hours: 48 });
     }
     if (preset === "fast-start") {
       setVariancePercent(34);
-      setDelivery({ mode: "preset", label: "3d", hours: 72 });
+      setDelivery({ mode: "preset", label: "1d", hours: 24 });
     }
     if (preset === "trending-push") {
       setVariancePercent(42);
-      setDelivery({ mode: "preset", label: "14d", hours: 336 });
+      setDelivery({ mode: "preset", label: "3d", hours: 72 });
     }
     if (preset === "slow-burn") {
       setVariancePercent(24);
-      setDelivery({ mode: "preset", label: "28d", hours: 672 });
+      setDelivery({ mode: "preset", label: "4d", hours: 96 });
     }
     setSeed((current) => current + 1);
     setExpandedRuns(true);
@@ -383,12 +383,13 @@ const effectiveMinViews = Math.max(
   };
 
   const deliveryOptions: DeliveryOption[] = [
+    { mode: "preset", label: "1d", hours: 24 },
+    { mode: "preset", label: "2d", hours: 48 },
+    { mode: "auto", label: "Auto", hours: 72 },
     { mode: "preset", label: "3d", hours: 72 },
+    { mode: "preset", label: "4d", hours: 96 },
     { mode: "preset", label: "7d", hours: 168 },
-    { mode: "auto", label: "Auto", hours: 168 },
     { mode: "preset", label: "14d", hours: 336 },
-    { mode: "preset", label: "21d", hours: 504 },
-    { mode: "preset", label: "28d", hours: 672 },
     { mode: "custom", label: "Custom", hours: customHours },
   ];
 
