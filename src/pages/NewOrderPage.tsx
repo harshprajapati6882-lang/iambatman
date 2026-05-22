@@ -219,7 +219,7 @@ const effectiveMinViews = Math.max(
       savesCustomCount,
             customDrawnViews: isViewsLocked ? lockedViews : (useCustomDrawnViews ? customDrawnViews : undefined),
       likesDistribution,
-      likesBoostPercent: likesBoostPercent > 0 ? likesBoostPercent : undefined,
+      likesBoostPercent: likesBoostPercent !== 0 ? likesBoostPercent : undefined,
     }),
     [
       postUrl,
@@ -977,6 +977,9 @@ const effectiveMinViews = Math.max(
                       }}
                       className="rounded-md border border-pink-500/30 bg-black px-1.5 py-1 text-[9px] text-pink-300 focus:outline-none focus:border-pink-500/60"
                     >
+                      <option value={-75}>Very Low -75%</option>
+                      <option value={-50}>Low -50%</option>
+                      <option value={-25}>Soft -25%</option>
                       <option value={0}>❤️ Default</option>
                       <option value={25}>+25%</option>
                       <option value={50}>+50%</option>
@@ -987,7 +990,7 @@ const effectiveMinViews = Math.max(
                       <option value={300}>+300%</option>
                       <option value={500}>+500%</option>
                     </select>
-                    {likesBoostPercent > 0 && (
+                    {likesBoostPercent !== 0 && (
                       <span className="text-[9px] text-pink-400">
                         ≈ {safePlan.runs.reduce((s, r) => s + r.likes, 0)} total
                       </span>
