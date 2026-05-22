@@ -549,8 +549,10 @@ function pickPatternProfile(presetType: PatternType | undefined): OrganicPattern
 
 function resolveDurationHours(config: OrderConfig): number {
   if (config.delivery.mode === "custom" || config.delivery.mode === "preset") return config.delivery.hours;
-  const automatic = 7 + Math.sqrt(Math.max(800, config.totalViews)) / 16;
-  return clamp(automatic, 6, 48);
+  // Viral clipping campaigns look most natural over days, not hours.
+  // Auto scales from ~2 days for small orders to ~21–28 days for million-view pushes.
+  const automatic = 36 + Math.sqrt(Math.max(800, config.totalViews)) / 2.6;
+  return clamp(automatic, 36, 672);
 }
 
 function pickWeightedIndex(weights: number[]): number {
@@ -973,6 +975,135 @@ function generateViewRunsFromCurve(
   return finalRuns;
 }
 
+
+// 🔥 Viral clipping templates inspired by real creator analytics screenshots.
+// These are cumulative-curve templates: slow starts, plateaus, sudden algorithm pushes,
+// late explosions, and long tails. They are used for delivery planning, while the
+// graph component renders them with screenshot-style visual scaling.
+type ClipCurveStyle =
+  | "long-s-curve"
+  | "two-step-spike"
+  | "late-explosion"
+  | "steady-organic"
+  | "early-surge-tail"
+  | "instant-spike-tail";
+
+function sigmoid01(t: number, center: number, steepness: number): number {
+  return 1 / (1 + Math.exp(-steepness * (t - center)));
+}
+
+function clipCurveValue(style: ClipCurveStyle, t: number): number {
+  const linear = t;
+  if (style === "long-s-curve") {
+    return 0.06 * linear + 0.82 * sigmoid01(t, 0.48, 8.5) + 0.12 * sigmoid01(t, 0.82, 5.5);
+  }
+  if (style === "two-step-spike") {
+    return 0.05 * linear + 0.34 * sigmoid01(t, 0.27, 24) + 0.51 * sigmoid01(t, 0.78, 30) + 0.10 * sigmoid01(t, 0.93, 18);
+  }
+  if (style === "late-explosion") {
+    return 0.08 * linear + 0.16 * sigmoid01(t, 0.48, 9) + 0.56 * sigmoid01(t, 0.69, 22) + 0.20 * sigmoid01(t, 0.94, 38);
+  }
+  if (style === "early-surge-tail") {
+    return 0.05 * linear + 0.55 * sigmoid01(t, 0.20, 28) + 0.23 * sigmoid01(t, 0.53, 10) + 0.17 * sigmoid01(t, 0.87, 15);
+  }
+  if (style === "instant-spike-tail") {
+    return 0.08 * linear + 0.70 * sigmoid01(t, 0.12, 34) + 0.12 * sigmoid01(t, 0.36, 7) + 0.10 * sigmoid01(t, 0.88, 12);
+  }
+  return 0.16 * linear + 0.72 * sigmoid01(t, 0.42, 7) + 0.12 * sigmoid01(t, 0.76, 6);
+}
+
+function pickClipCurveStyle(preset: QuickPatternPreset | null, totalViews: number, durationHours: number): ClipCurveStyle {
+  if (preset === "viral-boost") return Math.random() < 0.55 ? "instant-spike-tail" : "two-step-spike";
+  if (preset === "fast-start") return Math.random() < 0.65 ? "early-surge-tail" : "instant-spike-tail";
+  if (preset === "slow-burn") return Math.random() < 0.55 ? "long-s-curve" : "late-explosion";
+  if (preset === "trending-push") return Math.random() < 0.5 ? "two-step-spike" : "late-explosion";
+
+  if (durationHours >= 336) return ["long-s-curve", "late-explosion", "two-step-spike"][randomInt(0, 2)] as ClipCurveStyle;
+  if (totalViews >= 750000) return ["two-step-spike", "late-explosion", "early-surge-tail", "long-s-curve"][randomInt(0, 3)] as ClipCurveStyle;
+  return ["steady-organic", "early-surge-tail", "late-explosion", "two-step-spike"][randomInt(0, 3)] as ClipCurveStyle;
+}
+
+function generateClipStyleViewRuns(
+  totalViews: number,
+  runCount: number,
+  variancePercent: number,
+  preset: QuickPatternPreset | null,
+  minViewsPerRun: number,
+  durationHours: number
+): { runs: number[]; style: ClipCurveStyle } {
+  if (totalViews <= 0) return { runs: [0], style: "steady-organic" };
+  if (runCount <= 1) return { runs: [totalViews], style: "steady-organic" };
+
+  const style = pickClipCurveStyle(preset, totalViews, durationHours);
+  const safeCount = Math.max(1, runCount);
+  const variance = clamp(variancePercent, 0, 50) / 100;
+  const phase = random(0, Math.PI * 2);
+
+  const rawCumulative = Array.from({ length: safeCount + 1 }, (_, index) => {
+    const t = index / safeCount;
+    const wobble = Math.sin(t * Math.PI * random(2.2, 4.8) + phase) * (0.003 + variance * 0.01);
+    return clipCurveValue(style, clamp(t + random(-0.002, 0.002), 0, 1)) + wobble;
+  });
+
+  const cumulative = normalizeMonotone(rawCumulative);
+  let weights = Array.from({ length: safeCount }, (_, index) => {
+    const t = index / Math.max(1, safeCount - 1);
+    const delta = Math.max(0.000001, cumulative[index + 1] - cumulative[index]);
+    let organicNoise = random(1 - variance * 0.55, 1 + variance * 0.85);
+
+    // Make plateaus truly calm and spikes sharper.
+    if (style === "two-step-spike" && ((t > 0.38 && t < 0.65) || t < 0.12)) organicNoise *= random(0.45, 0.82);
+    if (style === "late-explosion" && t < 0.46) organicNoise *= random(0.38, 0.78);
+    if (style === "instant-spike-tail" && t > 0.34 && t < 0.82) organicNoise *= random(0.42, 0.72);
+    if (style === "early-surge-tail" && t > 0.36 && t < 0.72) organicNoise *= random(0.56, 0.9);
+
+    // Occasional mini algorithm pushes inside high-velocity zones.
+    const hotZone =
+      (style === "two-step-spike" && ((t > 0.18 && t < 0.32) || (t > 0.72 && t < 0.84))) ||
+      (style === "late-explosion" && t > 0.62 && t < 0.78) ||
+      (style === "early-surge-tail" && (t < 0.25 || t > 0.82)) ||
+      (style === "instant-spike-tail" && t < 0.2) ||
+      (style === "long-s-curve" && t > 0.34 && t < 0.68);
+
+    if (hotZone && Math.random() < 0.18 + variance * 0.18) organicNoise *= random(1.18, 1.72);
+
+    return delta * organicNoise;
+  });
+
+  // First few runs should usually warm up rather than blast at full strength,
+  // except the instant-spike template.
+  if (style !== "instant-spike-tail") {
+    const warmup = Math.min(5, Math.max(2, Math.floor(safeCount * 0.04)));
+    for (let i = 0; i < warmup; i += 1) {
+      weights[i] *= random(0.45, 0.82) * ((i + 1) / warmup);
+    }
+  }
+
+  const minFloor = Math.max(1, Math.min(minViewsPerRun, Math.floor(totalViews / safeCount)));
+  let runs = distributeWithMinimum(weights, totalViews, minFloor);
+  runs = nudgeConsecutiveDuplicates(runs, minFloor);
+
+  // If minimums compressed the shape too much, give the biggest spike a little more height.
+  if (runs.length >= 8) {
+    const maxIndex = runs.indexOf(Math.max(...runs));
+    const donors = runs
+      .map((value, index) => ({ value, index }))
+      .filter((item) => item.index !== maxIndex && item.value > minFloor)
+      .sort((a, b) => a.value - b.value);
+    let boost = Math.floor(totalViews * random(0.008, 0.022));
+    for (const donor of donors) {
+      if (boost <= 0) break;
+      const take = Math.min(boost, Math.floor((donor.value - minFloor) * 0.35));
+      if (take <= 0) continue;
+      runs[donor.index] -= take;
+      runs[maxIndex] += take;
+      boost -= take;
+    }
+  }
+
+  return { runs, style };
+}
+
 function intervalPatternFactor(type: PatternType, t: number): number {
   if (type === "smooth-s-curve") return 1.06 - Math.exp(-Math.pow((t - 0.5) / 0.2, 2)) * 0.34;
   if (type === "rocket-launch") return 0.58 + t * 1.02;
@@ -1227,7 +1358,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   const presetProfile = resolvePresetProfile(config.quickPreset);
   const selectedPatternProfile = pickPatternProfile(presetProfile.patternType);
   const patternType = presetProfile.patternType ?? selectedPatternProfile.baseType ?? pickRandomPatternType();
-  const patternName = selectedPatternProfile.name;
+  let patternName = selectedPatternProfile.name;
   const variant = createPatternVariant(selectedPatternProfile);
   const patternId = randomInt(100, 999);
   const requestedViews = Math.max(0, Math.floor(config.totalViews));
@@ -1260,7 +1391,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   const durationHours = clamp(
     resolveDurationHours(config) * presetProfile.durationMultiplier * selectedPatternProfile.durationMultiplier,
     2,
-   240
+    672
   );
   const durationMin = durationHours * 60;
   const startDelayMin = clamp(config.startDelayHours || 0, 0, 168) * 60;
@@ -1290,16 +1421,19 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       }
     }
   } else {
-    // Normal curve-based distribution
-    viewRuns = generateViewRunsFromCurve(
-      patternType,
+    // Screenshot-style viral clipping distribution: algorithm spikes, plateaus, late pushes.
+    const clipPlan = generateClipStyleViewRuns(
       requestedViews,
       totalRuns,
       variance,
       config.quickPreset,
-      variant,
-      effectiveMinViews
+      effectiveMinViews,
+      durationHours
     );
+    viewRuns = clipPlan.runs;
+    // Re-label the generated pattern so saved configs clearly show the viral template used.
+    // The PatternType stays compatible with the existing app; patternName carries the detail.
+    patternName = clipPlan.style;
   }
         if (config.peakHoursBoost && viewRuns.length > 1 && requestedViews >= effectiveMinViews && !config.customDrawnViews) {
     const initialWeights = viewRuns.map((views) => Math.max(0.01, views));
@@ -1426,51 +1560,52 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   });
 
   const totalViews = provisionalRuns.reduce((acc, run) => acc + run.views, 0);
-        const likesRatio = random(90 / 14000, 100 / 14000);
+  // 🔥 Screenshot-style viral engagement ratios.
+  // Reference analytics showed likes around 7%–17% of views, shares much smaller,
+  // and comments as a tiny but visible line. The old logic was ~0.7% likes.
+  const likesRatio = (() => {
+    if (!config.includeLikes) return 0;
+    if (config.quickPreset === "viral-boost") return random(0.13, 0.18);
+    if (config.quickPreset === "fast-start") return random(0.095, 0.155);
+    if (config.quickPreset === "slow-burn") return random(0.065, 0.12);
+    if (config.quickPreset === "trending-push") return random(0.105, 0.165);
+    if (totalViews >= 750000) return random(0.085, 0.165);
+    return random(0.055, 0.135);
+  })();
   const baseLikesTotal = config.includeLikes ? Math.max(10, Math.floor(totalViews * likesRatio)) : 0;
-  // 🔥 Apply likes boost percentage
   const likesBoostMultiplier = 1 + ((config.likesBoostPercent || 0) / 100);
   const likesTotal = Math.max(baseLikesTotal, Math.floor(baseLikesTotal * likesBoostMultiplier));
 
   const sharesTotal = (() => {
     if (!config.includeShares) return 0;
     const ratio = config.sharesRatio || "half";
-    if (ratio === "equal") return Math.max(10, likesTotal);
-    if (ratio === "half") return Math.max(10, Math.floor(likesTotal / 2));
-    if (ratio === "third") return Math.max(10, Math.floor(likesTotal / 3));
     if (ratio === "custom") return Math.max(10, config.sharesCustomCount || 0);
-    return Math.max(10, Math.floor(likesTotal / 2));
+    // UI labels are repurposed for viral clipping:
+    // equal = viral share push, half = normal, third = tiny.
+    const multiplier = ratio === "equal" ? random(0.045, 0.075) : ratio === "third" ? random(0.004, 0.014) : random(0.016, 0.034);
+    return Math.max(10, Math.floor(likesTotal * multiplier));
   })();
 
-    const savesTotal = (() => {
+  const savesTotal = (() => {
     if (!config.includeSaves) return 0;
     const ratio = config.savesRatio || "third";
-    if (ratio === "equal") return Math.max(10, likesTotal);
-    if (ratio === "half") return Math.max(10, Math.floor(likesTotal / 2));
-    if (ratio === "third") return Math.max(10, Math.floor(likesTotal / 3));
     if (ratio === "custom") return Math.max(10, config.savesCustomCount || 0);
-    return Math.max(10, Math.floor(likesTotal / 3));
+    const multiplier = ratio === "equal" ? random(0.05, 0.09) : ratio === "half" ? random(0.018, 0.04) : random(0.008, 0.022);
+    return Math.max(10, Math.floor(likesTotal * multiplier));
   })();
 
   const repostsTotal = (() => {
     if (!config.includeReposts) return 0;
     const ratio = config.repostsRatio || "half";
-    if (ratio === "equal") return Math.max(10, likesTotal);
-    if (ratio === "half") return Math.max(10, Math.floor(likesTotal / 2));
-    if (ratio === "third") return Math.max(10, Math.floor(likesTotal / 3));
     if (ratio === "custom") return Math.max(10, config.repostsCustomCount || 0);
-    return Math.max(10, Math.floor(likesTotal / 2));
+    const multiplier = ratio === "equal" ? random(0.04, 0.08) : ratio === "third" ? random(0.006, 0.018) : random(0.015, 0.035);
+    return Math.max(10, Math.floor(likesTotal * multiplier));
   })();
 
   let commentsTotal = 0;
   if (config.includeComments) {
-    if (totalViews >= 50000) commentsTotal = randomInt(30, 40);
-    else if (totalViews >= 40000) commentsTotal = randomInt(25, 40);
-    else if (totalViews >= 30000) commentsTotal = randomInt(20, 35);
-    else if (totalViews >= 20000) commentsTotal = randomInt(15, 30);
-    else if (totalViews >= 10000) commentsTotal = randomInt(5, 15);
-    else if (totalViews >= 5000) commentsTotal = randomInt(5, 7);
-    else commentsTotal = 5;
+    const commentRatio = totalViews >= 1000000 ? random(0.00006, 0.00032) : random(0.000045, 0.00022);
+    commentsTotal = clamp(Math.floor(totalViews * commentRatio), totalViews >= 1000000 ? 80 : 25, 1200);
   }
 
        // =========================================================
@@ -2047,8 +2182,8 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     const result = Array.from({ length: provisionalRuns.length }, () => 0);
     if (!config.includeComments || commentsTotal <= 0) return result;
 
-    const MIN_COMMENTS_PER_RUN = 10;
-    const MAX_COMMENTS_PER_RUN = 15;
+    const MIN_COMMENTS_PER_RUN = 5;
+    const MAX_COMMENTS_PER_RUN = 10;
 
     // Build cumulative views
     let cumViews = 0;
