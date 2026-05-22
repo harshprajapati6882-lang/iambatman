@@ -89,16 +89,16 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
   const [selectedApiId, setSelectedApiId] = useState(prefillApiId);
   const [selectedBundleId, setSelectedBundleId] = useState(prefillBundleId);
   const [startDelayHours, setStartDelayHours] = useState(prefillOrder?.startDelayHours ?? 0);
-  const [includeLikes, setIncludeLikes] = useState((prefillOrder?.engagement.likes ?? 0) > 0);
-  const [includeShares, setIncludeShares] = useState((prefillOrder?.engagement.shares ?? 0) > 0);
+  const [includeLikes, setIncludeLikes] = useState(prefillOrder ? (prefillOrder.engagement.likes ?? 0) > 0 : true);
+  const [includeShares, setIncludeShares] = useState(prefillOrder ? (prefillOrder.engagement.shares ?? 0) > 0 : true);
   const [includeSaves, setIncludeSaves] = useState((prefillOrder?.engagement.saves ?? 0) > 0);
   const [customComments, setCustomComments] = useState("");
-  const [includeComments, setIncludeComments] = useState(false);
+  const [includeComments, setIncludeComments] = useState(prefillOrder ? (prefillOrder.engagement.comments ?? 0) > 0 : true);
   const [variancePercent, setVariancePercent] = useState(40);
   const [peakHoursBoost, setPeakHoursBoost] = useState(false);
   const [quickPreset, setQuickPreset] = useState<QuickPatternPreset | null>(null);
-  const [customHours, setCustomHours] = useState(30);
-  const [delivery, setDelivery] = useState<DeliveryOption>({ mode: "auto", hours: 18, label: "Auto" });
+  const [customHours, setCustomHours] = useState(168);
+  const [delivery, setDelivery] = useState<DeliveryOption>({ mode: "auto", hours: 168, label: "Auto" });
   const [seed, setSeed] = useState(0);
   const [useClonedPlan, setUseClonedPlan] = useState(Boolean(prefillPlan));
   const [clonedPlan, setClonedPlan] = useState<PatternPlan | null>(prefillPlan);
@@ -136,7 +136,7 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
   const [savesCustomCount, setSavesCustomCount] = useState<number>(50);
 
     // 🔥 NEW: Likes distribution mode
-  const [likesDistribution, setLikesDistribution] = useState<"bracket" | "even-spread">("bracket");
+  const [likesDistribution, setLikesDistribution] = useState<"bracket" | "even-spread">("even-spread");
 
     // 🔥 NEW: Likes boost percentage (0 = default, 50 = +50%, 100 = +100% = double)
   const [likesBoostPercent, setLikesBoostPercent] = useState<number>(0);
@@ -306,19 +306,19 @@ const effectiveMinViews = Math.max(
     setQuickPreset(preset);
     if (preset === "viral-boost") {
       setVariancePercent(48);
-      setDelivery({ mode: "preset", label: "12h", hours: 12 });
+      setDelivery({ mode: "preset", label: "7d", hours: 168 });
     }
     if (preset === "fast-start") {
-      setVariancePercent(32);
-      setDelivery({ mode: "preset", label: "6h", hours: 6 });
+      setVariancePercent(34);
+      setDelivery({ mode: "preset", label: "3d", hours: 72 });
     }
     if (preset === "trending-push") {
-      setVariancePercent(40);
-      setDelivery({ mode: "preset", label: "24h", hours: 24 });
+      setVariancePercent(42);
+      setDelivery({ mode: "preset", label: "14d", hours: 336 });
     }
     if (preset === "slow-burn") {
-      setVariancePercent(22);
-      setDelivery({ mode: "preset", label: "48h", hours: 48 });
+      setVariancePercent(24);
+      setDelivery({ mode: "preset", label: "28d", hours: 672 });
     }
     setSeed((current) => current + 1);
     setExpandedRuns(true);
@@ -383,11 +383,12 @@ const effectiveMinViews = Math.max(
   };
 
   const deliveryOptions: DeliveryOption[] = [
-    { mode: "preset", label: "6h", hours: 6 },
-    { mode: "preset", label: "12h", hours: 12 },
-    { mode: "auto", label: "Auto", hours: 18 },
-    { mode: "preset", label: "24h", hours: 24 },
-    { mode: "preset", label: "48h", hours: 48 },
+    { mode: "preset", label: "3d", hours: 72 },
+    { mode: "preset", label: "7d", hours: 168 },
+    { mode: "auto", label: "Auto", hours: 168 },
+    { mode: "preset", label: "14d", hours: 336 },
+    { mode: "preset", label: "21d", hours: 504 },
+    { mode: "preset", label: "28d", hours: 672 },
     { mode: "custom", label: "Custom", hours: customHours },
   ];
 
@@ -912,12 +913,12 @@ const effectiveMinViews = Math.max(
                 <input
                   type="number"
                                     min={1}
-                  max={240}
+                  max={672}
                   value={customHours}
                   onChange={(e) => {
                     setUseClonedPlan(false);
                     const safeHours = Number.isFinite(Number(e.target.value)) ? Number(e.target.value) : 1;
-                    const clampedHours = Math.max(1, Math.min(240, safeHours));
+                    const clampedHours = Math.max(1, Math.min(672, safeHours));
                     setCustomHours(clampedHours);
                     setDelivery({ mode: "custom", label: "Custom", hours: clampedHours });
                   }}
@@ -1076,7 +1077,7 @@ const effectiveMinViews = Math.max(
                             : "border border-blue-500/20 bg-black text-gray-500 hover:text-blue-300"
                         }`}
                       >
-                        {option === "equal" ? "= Likes" : option === "half" ? "½ Likes" : option === "third" ? "⅓ Likes" : "Custom #"}
+                        {option === "equal" ? "Viral" : option === "half" ? "Normal" : option === "third" ? "Tiny" : "Custom #"}
                       </button>
                     ))}
                     {sharesRatio === "custom" && (
@@ -1119,7 +1120,7 @@ const effectiveMinViews = Math.max(
                             : "border border-purple-500/20 bg-black text-gray-500 hover:text-purple-300"
                         }`}
                       >
-                        {option === "equal" ? "= Likes" : option === "half" ? "½ Likes" : option === "third" ? "⅓ Likes" : "Custom #"}
+                        {option === "equal" ? "Viral" : option === "half" ? "Normal" : option === "third" ? "Tiny" : "Custom #"}
                       </button>
                     ))}
                     {savesRatio === "custom" && (
@@ -1160,7 +1161,7 @@ const effectiveMinViews = Math.max(
                             : "border border-cyan-500/20 bg-black text-gray-500 hover:text-cyan-300"
                         }`}
                       >
-                        {option === "equal" ? "= Likes" : option === "half" ? "½ Likes" : option === "third" ? "⅓ Likes" : "Custom #"}
+                        {option === "equal" ? "Viral" : option === "half" ? "Normal" : option === "third" ? "Tiny" : "Custom #"}
                       </button>
                     ))}
                     {repostsRatio === "custom" && (
@@ -1439,7 +1440,7 @@ const effectiveMinViews = Math.max(
                   if (includeComments && !commentsServiceId) { setCreateError("Bundle has no Comments service."); return; }
                   const quantity = (safePlan?.runs || []).reduce((acc, run) => acc + run.views, 0);
                   if (!Number.isFinite(quantity) || quantity <= 0) { setCreateError("Quantity must be > 0."); return; }
-                  if (quantity < minViewsPerRun) { setCreateError(`Views must be at least ${minViewsPerRun}.`); return; }
+                  if (quantity < effectiveMinViews) { setCreateError(`Views must be at least ${effectiveMinViews}.`); return; }
                   const totalLikes = (safePlan?.runs || []).reduce((acc, run) => acc + run.likes, 0);
                   const totalShares = (safePlan?.runs || []).reduce((acc, run) => acc + run.shares, 0);
                   const totalSaves = (safePlan?.runs || []).reduce((acc, run) => acc + run.saves, 0);
@@ -1450,7 +1451,7 @@ const effectiveMinViews = Math.max(
                   if (includeSaves && totalSaves < 10) { setCreateError("Saves must be at least 10."); return; }
                   if (includeComments && totalCommentsQty <= 0) { setCreateError("Comments must be greater than 0."); return; }
                   if (quantity > 100000) { const proceed = window.confirm("Large mission. Continue?"); if (!proceed) return; }
-                  const viewRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(Math.floor(run.views), minViewsPerRun) }));
+                  const viewRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(Math.floor(run.views), effectiveMinViews) }));
                   if (!viewRuns.length || viewRuns.some((run) => !run.time || !Number.isFinite(run.quantity) || run.quantity <= 0)) { setCreateError("Invalid run schedule. Regenerate."); return; }
                   const likesRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(0, Math.floor(run.likes)) }));
                   const sharesRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(0, Math.floor(run.shares)) }));
