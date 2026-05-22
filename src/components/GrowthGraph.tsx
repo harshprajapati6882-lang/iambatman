@@ -178,7 +178,9 @@ function buildSmoothGraphData(plan: PatternPlan) {
   return rows;
 }
 
-function buildSteppedGraphData(plan: PatternPlan) {
+type GraphVisualMode = "smooth" | "original";
+
+function buildSteppedGraphData(plan: PatternPlan, visualMode: GraphVisualMode) {
   const safeRuns = plan?.runs || [];
   const final = safeRuns[safeRuns.length - 1];
   const totalViews = Math.max(1, final?.cumulativeViews || safeRuns.reduce((sum, r) => sum + (r.views || 0), 0));
@@ -212,16 +214,17 @@ function buildSteppedGraphData(plan: PatternPlan) {
     // For short orders, the run table is limited by provider minimums, so plotting raw
     // engagement creates ugly stairs. Keep raw totals in tooltip/table, but render a
     // smooth Instagram-style visual curve on the graph.
-    const likesFraction = isShortOrder
+    const shouldSmooth = visualMode === "smooth" && isShortOrder;
+    const likesFraction = shouldSmooth
       ? smoothProgress(viewProgress, 0.035, 1.08)
       : totalLikes > 0 ? ((run.cumulativeLikes || 0) / totalLikes) : 0;
-    const commentsFraction = isShortOrder
+    const commentsFraction = shouldSmooth
       ? smoothProgress(viewProgress, 0.10, 1.18)
       : totalComments > 0 ? ((run.cumulativeComments || 0) / totalComments) : 0;
-    const sharesFraction = isShortOrder
+    const sharesFraction = shouldSmooth
       ? smoothProgress(viewProgress, 0.48, 1.35)
       : totalShares > 0 ? ((run.cumulativeShares || 0) / totalShares) : 0;
-    const savesFraction = isShortOrder
+    const savesFraction = shouldSmooth
       ? smoothProgress(viewProgress, 0.38, 1.25)
       : totalSaves > 0 ? ((run.cumulativeSaves || 0) / totalSaves) : 0;
 
@@ -244,7 +247,7 @@ function buildSteppedGraphData(plan: PatternPlan) {
   // Include the configured start delay in the chart as a real flat zone.
   // If Start Delay = 5h, the X-axis now shows 0→5h before the first delivery.
   if (safeRuns.length > 0 && rows[0].minute > 0) {
-    rows.unshift({
+    const zeroRow = {
       minute: 0,
       time: new Date(startMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       views: 0,
@@ -257,7 +260,14 @@ function buildSteppedGraphData(plan: PatternPlan) {
       sharesRaw: 0,
       savesRaw: 0,
       commentsRaw: 0,
-    });
+    };
+    const delayEndRow = {
+      ...zeroRow,
+      minute: Math.max(0, rows[0].minute - 0.01),
+      time: rows[0].time,
+    };
+    rows.unshift(delayEndRow);
+    rows.unshift(zeroRow);
   }
 
   return rows;
@@ -332,12 +342,13 @@ export function GrowthGraph({
   const [justSaved, setJustSaved] = useState(false);
   const [favouriteName, setFavouriteName] = useState("");
   const [showNameInput, setShowNameInput] = useState(false);
+  const [visualMode, setVisualMode] = useState<GraphVisualMode>("smooth");
 
   const safePlan = useMemo(
     () => ({ ...plan, runs: plan?.runs || [] }),
     [plan]
   );
-  const steppedData = useMemo(() => buildSteppedGraphData(safePlan), [safePlan]);
+  const steppedData = useMemo(() => buildSteppedGraphData(safePlan, visualMode), [safePlan, visualMode]);
   const graphTotals = useMemo(() => {
     const last = safePlan.runs[safePlan.runs.length - 1];
     return {
@@ -416,6 +427,25 @@ export function GrowthGraph({
 
                     <div className="inline-flex rounded-lg border border-yellow-500/30 bg-black px-2 py-1 text-[10px] font-medium text-yellow-300">
 📊 Screenshot-style Graph
+          </div>
+
+          <div className="inline-flex overflow-hidden rounded-lg border border-stone-300/70 bg-white/50 text-[10px] font-semibold shadow-sm">
+            <button
+              type="button"
+              onClick={() => setVisualMode("smooth")}
+              className={`px-2 py-1 transition ${visualMode === "smooth" ? "bg-stone-900 text-yellow-200" : "text-stone-500 hover:text-stone-900"}`}
+              title="Smooth analytics-style graph for small orders"
+            >
+              Smooth
+            </button>
+            <button
+              type="button"
+              onClick={() => setVisualMode("original")}
+              className={`px-2 py-1 transition ${visualMode === "original" ? "bg-stone-900 text-yellow-200" : "text-stone-500 hover:text-stone-900"}`}
+              title="Original run-by-run graph"
+            >
+              Original
+            </button>
           </div>
 
           {/* 🔥 Favourite controls — only in stepped mode */}
@@ -618,7 +648,7 @@ export function GrowthGraph({
                 <ResponsiveContainer width="100%" height="100%">
           <LineChart data={steppedData} margin={{ top: 14, right: 20, left: 0, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#d8d0c5" opacity={0.45} />
-            <XAxis dataKey="minute" type="number" stroke="#9a8f84" tick={{ fill: "#8a7e72", fontSize: 11 }} tickFormatter={(value) => `${Math.round(Number(value) / 60)}h`} />
+            <XAxis dataKey="minute" type="number" domain={[0, "dataMax"]} allowDataOverflow={false} stroke="#9a8f84" tick={{ fill: "#8a7e72", fontSize: 11 }} tickFormatter={(value) => `${Math.round(Number(value) / 60)}h`} />
             <YAxis stroke="#9a8f84" tick={{ fill: "#8a7e72", fontSize: 11 }} width={52} tickFormatter={compactNumber} />
             <Tooltip content={<SteppedTooltip />} />
             <Legend wrapperStyle={{ fontSize: "12px", color: "#44382e" }} />
