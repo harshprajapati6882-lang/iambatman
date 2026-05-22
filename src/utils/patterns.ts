@@ -1611,11 +1611,12 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   const sharesTotal = (() => {
     if (!config.includeShares) return 0;
     const ratio = config.sharesRatio || "half";
-    if (ratio === "custom") return Math.max(10, config.sharesCustomCount || 0);
+    const shareBoostMultiplier = Math.max(0.15, 1 + ((config.sharesBoostPercent || 0) / 100));
+    if (ratio === "custom") return Math.max(10, Math.floor((config.sharesCustomCount || 0) * shareBoostMultiplier));
     // UI labels are repurposed for viral clipping:
     // equal = viral share push, half = normal, third = tiny.
-    const multiplier = ratio === "equal" ? random(0.045, 0.075) : ratio === "third" ? random(0.004, 0.014) : random(0.016, 0.034);
-    return Math.max(10, Math.floor(likesTotal * multiplier));
+    const multiplier = ratio === "equal" ? 0.06 : ratio === "third" ? 0.01 : 0.025;
+    return Math.max(10, Math.floor(likesTotal * multiplier * shareBoostMultiplier));
   })();
 
   const savesTotal = (() => {
@@ -1637,7 +1638,9 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   let commentsTotal = 0;
   if (config.includeComments) {
     const commentRatio = totalViews >= 1000000 ? random(0.00006, 0.00032) : random(0.000045, 0.00022);
-    commentsTotal = clamp(Math.floor(totalViews * commentRatio), totalViews >= 1000000 ? 80 : 25, 1200);
+    const rawCommentsTotal = clamp(Math.floor(totalViews * commentRatio), totalViews >= 1000000 ? 80 : 30, 1200);
+    // Provider minimum is 10 comments/run, so keep total aligned to 10s.
+    commentsTotal = Math.max(10, Math.ceil(rawCommentsTotal / 10) * 10);
   }
 
        // =========================================================
@@ -2216,8 +2219,8 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     const result = Array.from({ length: provisionalRuns.length }, () => 0);
     if (!config.includeComments || commentsTotal <= 0) return result;
 
-    const MIN_COMMENTS_PER_RUN = 5;
-    const MAX_COMMENTS_PER_RUN = 10;
+    const MIN_COMMENTS_PER_RUN = 10;
+    const MAX_COMMENTS_PER_RUN = 15;
 
     // Build cumulative views
     let cumViews = 0;
