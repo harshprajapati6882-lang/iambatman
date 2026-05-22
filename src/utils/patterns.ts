@@ -1611,12 +1611,22 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   const sharesTotal = (() => {
     if (!config.includeShares) return 0;
     const ratio = config.sharesRatio || "half";
-    const shareBoostMultiplier = Math.max(0.15, 1 + ((config.sharesBoostPercent || 0) / 100));
-    if (ratio === "custom") return Math.max(10, Math.floor((config.sharesCustomCount || 0) * shareBoostMultiplier));
+    // 🔥 FIX: Boost slider must visibly scale shares.
+    // Old clamp Math.max(0.15, …) was fine, but the BASE multipliers were so tiny
+    // that even +300% produced a barely-visible bump (often clamped to the
+    // Math.max(10, …) floor). We raise the base multipliers AND keep the boost
+    // slider as a multiplicative scale so the dropdown changes are obvious.
+    const shareBoostMultiplier = Math.max(0.1, 1 + ((config.sharesBoostPercent || 0) / 100));
+    if (ratio === "custom") {
+      return Math.max(10, Math.round((config.sharesCustomCount || 0) * shareBoostMultiplier));
+    }
     // UI labels are repurposed for viral clipping:
-    // equal = viral share push, half = normal, third = tiny.
-    const multiplier = ratio === "equal" ? 0.06 : ratio === "third" ? 0.01 : 0.025;
-    return Math.max(10, Math.floor(likesTotal * multiplier * shareBoostMultiplier));
+    //   equal = viral share push (high), half = normal, third = low.
+    // Bumped from {equal:0.06, half:0.025, third:0.01} so the boost slider has room
+    // to move and the per-run shares clear the 10-share minimum easily.
+    const multiplier = ratio === "equal" ? 0.22 : ratio === "third" ? 0.05 : 0.12;
+    const raw = likesTotal * multiplier * shareBoostMultiplier;
+    return Math.max(10, Math.round(raw));
   })();
 
   const savesTotal = (() => {
