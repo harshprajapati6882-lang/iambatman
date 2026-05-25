@@ -595,6 +595,25 @@ export default function App() {
             }
           }}
           onDismissNotice={() => setOrdersNotice("")}
+          onBulkCancelDone={(cancelledIds) => {
+            // 🔥 Mark cancelled orders locally so they move to the Cancelled tab immediately
+            persistOrders((prev) =>
+              prev.map((order) => {
+                if (!order.schedulerOrderId || !cancelledIds.includes(order.schedulerOrderId)) return order;
+                const nextRunStatuses = (order.runStatuses || []).map((s) =>
+                  s === "pending" || s === "retrying" ? "cancelled" : s
+                );
+                const completedRuns = nextRunStatuses.filter((s) => s === "completed").length;
+                return {
+                  ...order,
+                  status: "cancelled",
+                  runStatuses: nextRunStatuses,
+                  completedRuns,
+                  lastUpdatedAt: new Date().toISOString(),
+                };
+              })
+            );
+          }}
         />
       );
     }
