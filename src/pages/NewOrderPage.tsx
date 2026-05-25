@@ -1655,7 +1655,12 @@ const effectiveMinViews = Math.max(
                         createdLinks.add(normalizedTarget);
                         successCount += 1;
                       } catch (error) {
-                        const message = error instanceof Error ? error.message : "Failed";
+                        const rawMsg = error instanceof Error ? error.message : "Failed";
+                        // 🔥 FIX Issue-1: Surface active-order conflicts with a friendly message
+                        const isActiveOrderBlock = rawMsg.toLowerCase().includes("active order already exists");
+                        const message = isActiveOrderBlock
+                          ? `⚠️ Active order already exists for this link. Cancel the existing order first, then retry.`
+                          : rawMsg;
                         const failedOrder: CreatedOrder = { id: createOrderId(), name: orderName.trim() || `Mission #${createOrderId()}`, batchId, batchIndex: index + 1, batchTotal: targets.length, smmOrderId: "N/A", link: trimmedUrl, totalViews: quantity, startDelayHours, patternType: safePlan.patternType, patternName: safePlan.patternName, runs: safePlan?.runs || [], engagement: { likes: totalLikes, shares: totalShares, saves: totalSaves, comments: totalCommentsQty }, serviceId: viewsServiceId, selectedAPI: selectedApi.name, selectedBundle: selectedBundle.name, status: "failed", completedRuns: 0, runStatuses: (safePlan?.runs || []).map((_, i) => (i === 0 ? "cancelled" : "pending")), runErrors: (safePlan?.runs || []).map((_, i) => (i === 0 ? message : "")), errorMessage: message, createdAt: new Date().toISOString(), lastUpdatedAt: new Date().toISOString() };
                         onCreateOrder(failedOrder);
                         failedCount += 1;
