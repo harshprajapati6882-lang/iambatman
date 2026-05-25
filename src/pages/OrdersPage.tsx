@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { CreatedOrder, ApiPanel, Bundle } from "../types/order";
-import { checkProviderOrderStatus, type ProviderRunStatus } from "../utils/api";
+import { checkProviderOrderStatus, bulkCancelOrders, type ProviderRunStatus } from "../utils/api";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { OrderCard } from "../components/OrderCard";
 import { RunTable } from "../components/RunTable";
@@ -16,6 +16,7 @@ interface OrdersPageProps {
   onControlOrder: (order: CreatedOrder, action: "pause" | "resume" | "cancel") => void;
   onCloneOrder: (order: CreatedOrder) => void;
   onDismissNotice: () => void;
+  onBulkCancelDone?: (cancelledIds: string[]) => void;
 }
 
 type TabType = "running" | "completed" | "scheduled" | "cancelled";
@@ -208,6 +209,7 @@ export function OrdersPage({
   onControlOrder,
   onCloneOrder,
   onDismissNotice,
+  onBulkCancelDone,
 }: OrdersPageProps) {
   const [query, setQuery] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("rows");
@@ -219,10 +221,73 @@ export function OrdersPage({
   const [bulkCancelLinks, setBulkCancelLinks] = useState("");
   const [bulkCancelResults, setBulkCancelResults] = useState<Array<{ link: string; found: boolean; orderName?: string; cancelled?: boolean; error?: string }> | null>(null);
   const [bulkCancelBusy, setBulkCancelBusy] = useState(false);
+  // 🔥 NEW: Checkbox-based bulk cancel per tab
+  const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
+  const [tabBulkBusy, setTabBulkBusy] = useState(false);
+  const [tabBulkResult, setTabBulkResult] = useState<string>("");
 
   useEffect(() => {
     openedGroupIdRef.current = openedGroupId;
   }, [openedGroupId]);
+
+  // 🔥 Reset selection when tab changes
+  useEffect(() => {
+    setSelectedGroupIds(new Set());
+    setTabBulkResult("");
+  }, [activeTab]);
+
+  // ── Checkbox toggle helpers ──
+  const toggleGroupSelect = (groupId: string) => {
+    setSelectedGroupIds(prev => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = (visibleGroups: GroupedOrder[]) => {
+    if (selectedGroupIds.size === visibleGroups.length && visibleGroups.length > 0) {
+      setSelectedGroupIds(new Set());
+    } else {
+      setSelectedGroupIds(new Set(visibleGroups.map(g => g.id)));
+    }
+  };
+
+  // 🔥 Bulk cancel selected groups (checkbox-based, works on ANY tab)
+  const handleTabBulkCancel = async (visibleGroups: GroupedOrder[]) => {
+    const toCancel = visibleGroups.filter(g => selectedGroupIds.has(g.id));
+    if (toCancel.length === 0) return;
+
+    const confirmed = window.confirm(
+      `Cancel ${toCancel.length} selected order${toCancel.length > 1 ? "s" : ""}? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setTabBulkBusy(true);
+    setTabBulkResult("");
+
+    // Collect all schedulerOrderIds across selected groups
+    const ids: string[] = [];
+    toCancel.forEach(g => {
+      g.orders.forEach(o => {
+        if (o.schedulerOrderId) ids.push(o.schedulerOrderId);
+      });
+    });
+
+    try {
+      const res = await bulkCancelOrders(ids);
+      setTabBulkResult(`✅ Cancelled ${res.cancelled} / ${res.total} orders`);
+      // Notify parent to update localStorage
+      onBulkCancelDone?.(ids);
+      setSelectedGroupIds(new Set());
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setTabBulkResult(`❌ Error: ${msg}`);
+    } finally {
+      setTabBulkBusy(false);
+    }
+  };
 
   const groupedOrders = useMemo(() => {
     const groups: Map<string, GroupedOrder> = new Map();
@@ -417,9 +482,19 @@ export function OrdersPage({
   function GroupTableRow({ group }: { group: GroupedOrder }) {
     const progress = getGroupProgressStable(group);
     const status = getGroupStatusStable(group);
+    const isSelected = selectedGroupIds.has(group.id);
     return (
-      <tr onClick={() => setOpenedGroupId(group.id)} className="cursor-pointer border-t border-gray-800 transition hover:bg-yellow-500/5">
-        <td className="px-4 py-3">
+      <tr className={`border-t border-gray-800 transition hover:bg-yellow-500/5 ${isSelected ? "bg-yellow-500/5" : ""}`}>
+        {/* 🔥 Checkbox */}
+        <td className="px-3 py-3 w-8" onClick={e => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded accent-yellow-500 cursor-pointer"
+            checked={isSelected}
+            onChange={() => toggleGroupSelect(group.id)}
+          />
+        </td>
+        <td className="px-4 py-3 cursor-pointer" onClick={() => setOpenedGroupId(group.id)}>
           <div className="flex items-center gap-2">
             <p className="font-medium text-white">{group.name || `Mission #${group.id.slice(0, 8)}`}</p>
             {group.isBatch && (
@@ -428,14 +503,14 @@ export function OrdersPage({
           </div>
           <p className="mt-0.5 text-[11px] text-gray-600 font-mono">{group.isBatch ? group.batchId?.slice(0, 15) : group.orders[0]?.id}</p>
         </td>
-        <td className="max-w-[220px] px-4 py-3">
+        <td className="max-w-[220px] px-4 py-3 cursor-pointer" onClick={() => setOpenedGroupId(group.id)}>
           {group.isBatch ? (
             <p className="text-gray-500 text-xs">{group.linksCount} Instagram links</p>
           ) : (
             <p className="truncate text-gray-500" title={group.orders[0]?.link}>{toShortLink(group.orders[0]?.link || "")}</p>
           )}
         </td>
-        <td className="px-4 py-3"><StatusBadge status={status} /></td>
+        <td className="px-4 py-3 cursor-pointer" onClick={() => setOpenedGroupId(group.id)}><StatusBadge status={status} /></td>
         <td className="px-4 py-3">
           <div className="w-32">
             <div className="flex items-center justify-between mb-1">
@@ -457,9 +532,19 @@ export function OrdersPage({
     const progress = getGroupProgressStable(group);
     const status = getGroupStatusStable(group);
     const isCancelled = status === "cancelled" || status === "failed";
+    const isSelected = selectedGroupIds.has(group.id);
     return (
-      <button type="button" onClick={() => setOpenedGroupId(group.id)}
-        className={`group rounded-xl border bg-gradient-to-br from-gray-900 to-black p-4 text-left transition-all hover:shadow-lg w-full ${isCancelled ? "border-red-500/20 hover:border-red-500/40 hover:shadow-red-500/5" : "border-yellow-500/20 hover:border-yellow-500/40 hover:shadow-yellow-500/5"}`}>
+      <div className={`relative group rounded-xl border bg-gradient-to-br from-gray-900 to-black p-4 text-left transition-all hover:shadow-lg w-full ${isCancelled ? "border-red-500/20 hover:border-red-500/40 hover:shadow-red-500/5" : "border-yellow-500/20 hover:border-yellow-500/40 hover:shadow-yellow-500/5"} ${isSelected ? "ring-2 ring-yellow-500/40" : ""}`}>
+        {/* 🔥 Checkbox top-left */}
+        <div className="absolute top-3 left-3 z-10" onClick={e => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded accent-yellow-500 cursor-pointer"
+            checked={isSelected}
+            onChange={() => toggleGroupSelect(group.id)}
+          />
+        </div>
+        <button type="button" onClick={() => setOpenedGroupId(group.id)} className="w-full text-left pl-6">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -490,7 +575,8 @@ export function OrdersPage({
           <span>{isCancelled ? 'Cancelled' : 'Deployed'}</span>
           <span>{new Date(group.createdAt).toLocaleDateString()}</span>
         </div>
-      </button>
+        </button>
+      </div>
     );
   }
 
@@ -1295,6 +1381,54 @@ export function OrdersPage({
         </div>
       </div>
       {query && (<p className="text-sm text-gray-600">Found <span className="text-gray-400 font-medium">{filteredGroups.length}</span> missions matching "<span className="text-yellow-400">{query}</span>" in {activeTab}</p>)}
+
+      {/* 🔥 BULK CANCEL TOOLBAR — shown whenever any group is checked */}
+      {filteredGroups.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-yellow-500/20 bg-gray-900/60 px-4 py-3">
+          {/* Select-all checkbox */}
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-gray-400 select-none">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded accent-yellow-500"
+              checked={selectedGroupIds.size === filteredGroups.length && filteredGroups.length > 0}
+              onChange={() => toggleSelectAll(filteredGroups)}
+            />
+            {selectedGroupIds.size === filteredGroups.length && filteredGroups.length > 0
+              ? "Deselect all"
+              : `Select all (${filteredGroups.length})`}
+          </label>
+
+          {selectedGroupIds.size > 0 && (
+            <>
+              <span className="text-xs text-yellow-400 font-semibold">
+                {selectedGroupIds.size} selected
+              </span>
+              <button
+                type="button"
+                onClick={() => handleTabBulkCancel(filteredGroups)}
+                disabled={tabBulkBusy}
+                className="rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-1.5 text-xs font-semibold text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {tabBulkBusy ? "⏳ Cancelling…" : `🗑️ Cancel ${selectedGroupIds.size} selected`}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedGroupIds(new Set())}
+                className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-gray-400 transition hover:bg-gray-700"
+              >
+                Clear selection
+              </button>
+            </>
+          )}
+
+          {tabBulkResult && (
+            <span className={`ml-auto text-xs font-medium ${tabBulkResult.startsWith("✅") ? "text-emerald-400" : "text-red-400"}`}>
+              {tabBulkResult}
+            </span>
+          )}
+        </div>
+      )}
+
       {filteredGroups.length === 0 ? (
         <EmptyState tab={activeTab} />
       ) : viewMode === "rows" ? (
@@ -1303,6 +1437,7 @@ export function OrdersPage({
             <table className="w-full text-left text-xs text-gray-400">
               <thead className="bg-gray-900 text-gray-500 uppercase tracking-wider">
                 <tr>
+                  <th className="px-3 py-3 w-8"></th>
                   <th className="px-4 py-3 font-medium">Mission</th>
                   <th className="px-4 py-3 font-medium">Link(s)</th>
                   <th className="px-4 py-3 font-medium">Status</th>
