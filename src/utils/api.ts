@@ -603,3 +603,31 @@ export async function checkDuplicates(): Promise<{
   if (!response.ok) throw new Error(`Failed to check duplicates (HTTP ${response.status})`);
   return await response.json();
 }
+
+// 🔥 BULK CANCEL — cancel many orders in a single backend call
+export async function bulkCancelOrders(schedulerOrderIds: string[]): Promise<{
+  success: boolean;
+  total: number;
+  cancelled: number;
+  failed: number;
+  results: Array<{
+    schedulerOrderId: string;
+    success: boolean;
+    status?: string;
+    completedRuns?: number;
+    runStatuses?: string[];
+    error?: string;
+  }>;
+}> {
+  const endpoint = `${BACKEND_BASE_URL.replace(/\/$/, "")}/api/orders/bulk-cancel`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ schedulerOrderIds }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error((err as any)?.error || `Bulk cancel failed (HTTP ${response.status})`);
+  }
+  return await response.json();
+}
