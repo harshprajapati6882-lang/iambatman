@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { GrowthGraph } from "../components/GrowthGraph";
 import { DrawableGraph } from "../components/DrawableGraph";
 import { PatternGenerator } from "../components/PatternGenerator";
-import type {
+import type { 
   ApiPanel,
   Bundle,
   CreatedOrder,
