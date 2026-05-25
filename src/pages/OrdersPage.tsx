@@ -6,7 +6,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { OrderCard } from "../components/OrderCard";
 import { RunTable } from "../components/RunTable";
 import { getUsdToInrRate } from "./BundlesPage";
- 
+
 interface OrdersPageProps {
   orders: CreatedOrder[];
   notice: string;
@@ -17,6 +17,7 @@ interface OrdersPageProps {
   onCloneOrder: (order: CreatedOrder) => void;
   onDismissNotice: () => void;
   onBulkCancelDone?: (cancelledIds: string[]) => void;
+  onDeleteOrder?: (orderId: string) => void;
 }
 
 type TabType = "running" | "completed" | "scheduled" | "cancelled";
@@ -210,6 +211,7 @@ export function OrdersPage({
   onCloneOrder,
   onDismissNotice,
   onBulkCancelDone,
+  onDeleteOrder,
 }: OrdersPageProps) {
   const [query, setQuery] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("rows");
@@ -221,10 +223,11 @@ export function OrdersPage({
   const [bulkCancelLinks, setBulkCancelLinks] = useState("");
   const [bulkCancelResults, setBulkCancelResults] = useState<Array<{ link: string; found: boolean; orderName?: string; cancelled?: boolean; error?: string }> | null>(null);
   const [bulkCancelBusy, setBulkCancelBusy] = useState(false);
-  // 🔥 NEW: Checkbox-based bulk cancel per tab
+  // 🔥 Checkbox-based bulk actions per tab
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
   const [tabBulkBusy, setTabBulkBusy] = useState(false);
   const [tabBulkResult, setTabBulkResult] = useState<string>("");
+  const [tabBulkDeleteBusy, setTabBulkDeleteBusy] = useState(false);
 
   useEffect(() => {
     openedGroupIdRef.current = openedGroupId;
@@ -287,6 +290,27 @@ export function OrdersPage({
     } finally {
       setTabBulkBusy(false);
     }
+  };
+
+  // 🔥 Bulk DELETE — removes orders from local state only (completed/cancelled tabs)
+  const handleTabBulkDelete = (visibleGroups: GroupedOrder[]) => {
+    const toDelete = visibleGroups.filter(g => selectedGroupIds.has(g.id));
+    if (toDelete.length === 0) return;
+
+    const confirmed = window.confirm(
+      `Delete ${toDelete.length} selected order${toDelete.length > 1 ? "s" : ""} from your local history? This only removes them from this device's view — it does NOT affect the backend.`
+    );
+    if (!confirmed) return;
+
+    setTabBulkDeleteBusy(true);
+    const orderIdsToDelete = new Set<string>();
+    toDelete.forEach(g => g.orders.forEach(o => orderIdsToDelete.add(o.id)));
+    onBulkCancelDone?.([]); // trigger parent awareness (no-op for IDs)
+    // Actually delete from local state via the parent delete callback
+    toDelete.forEach(g => g.orders.forEach(o => onDeleteOrder?.(o.id)));
+    setSelectedGroupIds(new Set());
+    setTabBulkResult(`🗑️ Deleted ${toDelete.length} order${toDelete.length > 1 ? "s" : ""} from history`);
+    setTabBulkDeleteBusy(false);
   };
 
   const groupedOrders = useMemo(() => {
@@ -1382,9 +1406,16 @@ export function OrdersPage({
       </div>
       {query && (<p className="text-sm text-gray-600">Found <span className="text-gray-400 font-medium">{filteredGroups.length}</span> missions matching "<span className="text-yellow-400">{query}</span>" in {activeTab}</p>)}
 
-      {/* 🔥 BULK CANCEL TOOLBAR — shown whenever any group is checked */}
-      {filteredGroups.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-yellow-500/20 bg-gray-900/60 px-4 py-3">
+      {/* 🔥 BULK ACTION TOOLBAR
+          - running / scheduled tabs  → shows Bulk Cancel button
+          - completed / cancelled tabs → shows Bulk Delete button (local history only)
+      */}
+      {filteredGroups.length > 0 && (activeTab === "running" || activeTab === "scheduled" || activeTab === "completed" || activeTab === "cancelled") && (
+        <div className={`flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 ${
+          activeTab === "running" || activeTab === "scheduled"
+            ? "border-red-500/20 bg-gray-900/60"
+            : "border-gray-700/50 bg-gray-900/40"
+        }`}>
           {/* Select-all checkbox */}
           <label className="flex cursor-pointer items-center gap-2 text-xs text-gray-400 select-none">
             <input
@@ -1403,26 +1434,47 @@ export function OrdersPage({
               <span className="text-xs text-yellow-400 font-semibold">
                 {selectedGroupIds.size} selected
               </span>
+
+              {/* CANCEL button — only on running & scheduled tabs */}
+              {(activeTab === "running" || activeTab === "scheduled") && (
+                <button
+                  type="button"
+                  onClick={() => handleTabBulkCancel(filteredGroups)}
+                  disabled={tabBulkBusy}
+                  className="rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-1.5 text-xs font-semibold text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {tabBulkBusy ? "⏳ Cancelling…" : `❌ Cancel ${selectedGroupIds.size} order${selectedGroupIds.size > 1 ? "s" : ""}`}
+                </button>
+              )}
+
+              {/* DELETE button — only on completed & cancelled tabs */}
+              {(activeTab === "completed" || activeTab === "cancelled") && (
+                <button
+                  type="button"
+                  onClick={() => handleTabBulkDelete(filteredGroups)}
+                  disabled={tabBulkDeleteBusy}
+                  className="rounded-lg border border-gray-600/50 bg-gray-800/60 px-4 py-1.5 text-xs font-semibold text-gray-300 transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {tabBulkDeleteBusy ? "⏳ Deleting…" : `🗑️ Delete ${selectedGroupIds.size} from history`}
+                </button>
+              )}
+
               <button
                 type="button"
-                onClick={() => handleTabBulkCancel(filteredGroups)}
-                disabled={tabBulkBusy}
-                className="rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-1.5 text-xs font-semibold text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {tabBulkBusy ? "⏳ Cancelling…" : `🗑️ Cancel ${selectedGroupIds.size} selected`}
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedGroupIds(new Set())}
+                onClick={() => { setSelectedGroupIds(new Set()); setTabBulkResult(""); }}
                 className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs text-gray-400 transition hover:bg-gray-700"
               >
-                Clear selection
+                Clear
               </button>
             </>
           )}
 
           {tabBulkResult && (
-            <span className={`ml-auto text-xs font-medium ${tabBulkResult.startsWith("✅") ? "text-emerald-400" : "text-red-400"}`}>
+            <span className={`ml-auto text-xs font-medium ${
+              tabBulkResult.startsWith("✅") || tabBulkResult.startsWith("🗑️")
+                ? "text-emerald-400"
+                : "text-red-400"
+            }`}>
               {tabBulkResult}
             </span>
           )}
