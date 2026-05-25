@@ -7,7 +7,7 @@ import { NewOrderPage } from "./pages/NewOrderPage";
 import { OrdersPage } from "./pages/OrdersPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { fetchNotifications } from "./utils/api";
-import type { ApiPanel, Bundle, CreatedOrder, RunStatus } from "./types/order"; 
+import type { ApiPanel, Bundle, CreatedOrder, RunStatus } from "./types/order";
 import { fetchServices, updateOrderControl, fetchOrderRuns } from "./utils/api";
 import { cn } from "./utils/cn";
 
@@ -595,6 +595,9 @@ export default function App() {
             }
           }}
           onDismissNotice={() => setOrdersNotice("")}
+          onDeleteOrder={(orderId) => {
+            persistOrders((prev) => prev.filter((order) => order.id !== orderId));
+          }}
           onBulkCancelDone={(cancelledIds) => {
             // 🔥 Mark cancelled orders locally so they move to the Cancelled tab immediately
             persistOrders((prev) =>
