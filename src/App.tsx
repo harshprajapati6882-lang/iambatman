@@ -7,7 +7,7 @@ import { NewOrderPage } from "./pages/NewOrderPage";
 import { OrdersPage } from "./pages/OrdersPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { fetchNotifications } from "./utils/api";
-import type { ApiPanel, Bundle, CreatedOrder, RunStatus } from "./types/order";
+import type { ApiPanel, Bundle, CreatedOrder, RunStatus } from "./types/order"; 
 import { fetchServices, updateOrderControl, fetchOrderRuns } from "./utils/api";
 import { cn } from "./utils/cn";
 
