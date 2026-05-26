@@ -4,11 +4,12 @@ import type { CreatedOrder } from "../types/order";
 interface DashboardPageProps {
   orders: CreatedOrder[];
   onDeleteOrder?: (orderId: string) => void;
+  onClearAllOrders?: () => void;
 }
 
 type TimePeriod = "today" | "week" | "month" | "all";
 
-export function DashboardPage({ orders, onDeleteOrder }: DashboardPageProps) {
+export function DashboardPage({ orders, onDeleteOrder, onClearAllOrders }: DashboardPageProps) {
     const [period, setPeriod] = useState<TimePeriod>("all");
   const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [memory, setMemory] = useState<{ usedMB: number; totalMB: number; usagePercent: number; heapUsedMB: number; status: string } | null>(null);
@@ -262,7 +263,11 @@ export function DashboardPage({ orders, onDeleteOrder }: DashboardPageProps) {
 
   const handleClearOrders = () => {
     localStorage.removeItem("dev-smm-orders");
-    window.location.reload();
+    // Call parent's state reset instead of reloading the page
+    if (onClearAllOrders) {
+      onClearAllOrders();
+    }
+    setShowClearConfirm(false);
   };
 
   return (
