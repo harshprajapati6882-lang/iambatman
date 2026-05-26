@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { GrowthGraph } from "../components/GrowthGraph";
 import { DrawableGraph } from "../components/DrawableGraph";
 import { PatternGenerator } from "../components/PatternGenerator";
-import type { 
+import type {
   ApiPanel,
   Bundle,
   CreatedOrder,
@@ -1651,6 +1651,11 @@ const effectiveMinViews = Math.max(
                       try {
                         const result = await createSmmOrder({ name: orderName.trim() || undefined, apiUrl: selectedApi.url, apiKey: selectedApi.key, link: trimmedUrl, services: servicesPayload });
                                                const order: CreatedOrder = { id: createOrderId(), name: orderName.trim() || `Mission #${createOrderId()}`, batchId, batchIndex: index + 1, batchTotal: targets.length, batchLinks: targets.length > 1 ? targets : undefined, schedulerOrderId: result.schedulerOrderId, smmOrderId: result.orderId ?? "Scheduled", link: trimmedUrl, totalViews: quantity, startDelayHours, patternType: safePlan.patternType, patternName: safePlan.patternName, runs: safePlan?.runs || [], engagement: { likes: totalLikes, shares: totalShares, saves: totalSaves, comments: totalCommentsQty, reposts: totalRepostsQty }, serviceId: viewsServiceId, selectedAPI: selectedApi.name, selectedBundle: selectedBundle.name, status: result.status === "completed" ? "completed" : "running", completedRuns: typeof result.completedRuns === "number" ? result.completedRuns : 0, runStatuses: (safePlan?.runs || []).map(() => "pending"), createdAt: new Date().toISOString(), lastUpdatedAt: new Date().toISOString() };
+                        // 🔥 Verify backend actually saved runs (totalRuns=0 means DB write failed)
+                        if (typeof result.totalRuns === 'number' && result.totalRuns === 0) {
+                          console.warn('[Order] Backend returned totalRuns=0 — runs may not have saved to DB');
+                          setCreateError(`⚠️ Order created but 0 runs were scheduled. Your bundle's service minimums may be too high, or a DB write failed. Check Alerts page.`);
+                        }
                         onCreateOrder(order);
                         createdLinks.add(normalizedTarget);
                         successCount += 1;
