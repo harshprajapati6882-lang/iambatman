@@ -8,13 +8,14 @@ import { OrdersPage } from "./pages/OrdersPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { EngagementSettingsPage } from "./pages/EngagementSettingsPage";
 import { WallpaperPage } from "./pages/WallpaperPage";
+import { EngagementComparisonPage } from "./pages/EngagementComparisonPage";
 import { getWallpaper, buildBackgroundStyle, type WallpaperConfig } from "./utils/wallpaper";
 import { fetchNotifications } from "./utils/api";
 import type { ApiPanel, Bundle, CreatedOrder, RunStatus } from "./types/order";
 import { fetchServices, updateOrderControl, fetchOrderRuns } from "./utils/api";
 import { cn } from "./utils/cn";
 
-type NavKey = "dashboard" | "new-order" | "orders" | "notifications" | "apis" | "bundles" | "engagement" | "wallpaper";
+type NavKey = "dashboard" | "new-order" | "orders" | "notifications" | "apis" | "bundles" | "engagement" | "wallpaper" | "comparison";
 
 const NAV_ITEMS: { key: NavKey; label: string; icon: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: "📊" },
@@ -25,6 +26,7 @@ const NAV_ITEMS: { key: NavKey; label: string; icon: string }[] = [
   { key: "bundles", label: "Bundles", icon: "📁" },
   { key: "engagement", label: "Ratios", icon: "📐" },
   { key: "wallpaper", label: "Wallpaper", icon: "🖼️" },
+  { key: "comparison", label: "Comparison", icon: "📊" },
 ];
 
 const BATMAN_QUOTES = [
@@ -155,7 +157,7 @@ function hydrateBundles(bundles: Bundle[]): Bundle[] {
 export default function App() {
   const [activePage, setActivePage] = useState<NavKey>(() => {
     const saved = localStorage.getItem("dev-smm-active-page");
-  if (saved === "dashboard" || saved === "new-order" || saved === "orders" || saved === "notifications" || saved === "apis" || saved === "bundles" || saved === "engagement" || saved === "wallpaper") {
+  if (saved === "dashboard" || saved === "new-order" || saved === "orders" || saved === "notifications" || saved === "apis" || saved === "bundles" || saved === "engagement" || saved === "wallpaper" || saved === "comparison") {
       return saved;
     }
     return "new-order";
@@ -637,6 +639,9 @@ export default function App() {
     }
     if (activePage === "engagement") {
       return <EngagementSettingsPage />;
+    }
+    if (activePage === "comparison") {
+      return <EngagementComparisonPage orders={orders} />;
     }
     if (activePage === "wallpaper") {
       return (
