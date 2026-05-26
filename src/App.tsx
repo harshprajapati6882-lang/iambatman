@@ -7,12 +7,14 @@ import { NewOrderPage } from "./pages/NewOrderPage";
 import { OrdersPage } from "./pages/OrdersPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { EngagementSettingsPage } from "./pages/EngagementSettingsPage";
+import { WallpaperPage } from "./pages/WallpaperPage";
+import { getWallpaper, buildBackgroundStyle, type WallpaperConfig } from "./utils/wallpaper";
 import { fetchNotifications } from "./utils/api";
 import type { ApiPanel, Bundle, CreatedOrder, RunStatus } from "./types/order";
 import { fetchServices, updateOrderControl, fetchOrderRuns } from "./utils/api";
 import { cn } from "./utils/cn";
 
-type NavKey = "dashboard" | "new-order" | "orders" | "notifications" | "apis" | "bundles" | "engagement";
+type NavKey = "dashboard" | "new-order" | "orders" | "notifications" | "apis" | "bundles" | "engagement" | "wallpaper";
 
 const NAV_ITEMS: { key: NavKey; label: string; icon: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: "📊" },
@@ -22,6 +24,7 @@ const NAV_ITEMS: { key: NavKey; label: string; icon: string }[] = [
   { key: "apis", label: "APIs", icon: "🔗" },
   { key: "bundles", label: "Bundles", icon: "📁" },
   { key: "engagement", label: "Ratios", icon: "📐" },
+  { key: "wallpaper", label: "Wallpaper", icon: "🖼️" },
 ];
 
 const BATMAN_QUOTES = [
@@ -152,7 +155,7 @@ function hydrateBundles(bundles: Bundle[]): Bundle[] {
 export default function App() {
   const [activePage, setActivePage] = useState<NavKey>(() => {
     const saved = localStorage.getItem("dev-smm-active-page");
-  if (saved === "dashboard" || saved === "new-order" || saved === "orders" || saved === "notifications" || saved === "apis" || saved === "bundles" || saved === "engagement") {
+  if (saved === "dashboard" || saved === "new-order" || saved === "orders" || saved === "notifications" || saved === "apis" || saved === "bundles" || saved === "engagement" || saved === "wallpaper") {
       return saved;
     }
     return "new-order";
@@ -167,6 +170,7 @@ export default function App() {
   const [controllingOrderId, setControllingOrderId] = useState<string | null>(null);
   
   const [batmanQuote] = useState(() => getRandomQuote());
+  const [wallpaper, setWallpaper] = useState<WallpaperConfig>(() => getWallpaper());
   const [notifUnreadCount, setNotifUnreadCount] = useState(0);
 
   // 🔥 NEW: Track if sync is in progress to prevent render loops
@@ -634,6 +638,13 @@ export default function App() {
     if (activePage === "engagement") {
       return <EngagementSettingsPage />;
     }
+    if (activePage === "wallpaper") {
+      return (
+        <WallpaperPage
+          onWallpaperChange={(cfg) => setWallpaper(cfg)}
+        />
+      );
+    }
     if (activePage === "apis") {
       return (
         <APIsPage
@@ -761,9 +772,18 @@ export default function App() {
   }, [activePage, apis, bundles, orders, fetchingApiId, controllingOrderId, ordersNotice, cloneSourceOrder, navigateToPage, persistOrders, persistApis, persistBundles, syncOrdersWithBackend]);
 
   return (
-    <div className="min-h-screen bg-black text-gray-100">
+    <div className="min-h-screen text-gray-100" style={buildBackgroundStyle(wallpaper)}>
       <div className="flex min-h-screen">
-        <aside className="w-64 border-r border-yellow-500/20 bg-gradient-to-b from-gray-950 to-black p-6">
+        <aside
+          className="w-64 border-r border-yellow-500/20 p-6 flex-shrink-0"
+          style={{
+            background: wallpaper.sidebarBlur
+              ? "rgba(0,0,0,0.55)"
+              : "linear-gradient(to bottom, #030303, #000000)",
+            backdropFilter: wallpaper.sidebarBlur ? "blur(16px)" : "none",
+            WebkitBackdropFilter: wallpaper.sidebarBlur ? "blur(16px)" : "none",
+          }}
+        >
           <div className="mb-8 space-y-1">
             <div className="flex items-center gap-3">
               <div className="relative">
@@ -839,7 +859,14 @@ export default function App() {
           </div>
         </aside>
 
-        <main className="flex-1 overflow-y-auto bg-gradient-to-br from-gray-950 via-black to-gray-950">{content}</main>
+        <main
+          className="flex-1 overflow-y-auto"
+          style={{
+            background: wallpaper.contentBlur ? "rgba(0,0,0,0.4)" : "transparent",
+            backdropFilter: wallpaper.contentBlur ? "blur(10px)" : "none",
+            WebkitBackdropFilter: wallpaper.contentBlur ? "blur(10px)" : "none",
+          }}
+        >{content}</main>
       </div>
     </div>
   );
