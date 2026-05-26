@@ -481,31 +481,29 @@ export default function App() {
     }
   }, [persistOrders]);
 
-  // 🔥 FIXED: Auto-sync every 5 MINUTES (300 seconds) - Only when on Orders page
+  // 🔥 SMART SYNC: 30 seconds when orders are actively running/pending,
+  //    5 minutes otherwise (paused). Only runs on orders/dashboard pages.
   useEffect(() => {
-    // Only sync when on orders or dashboard page
-    if (activePage !== 'orders' && activePage !== 'dashboard') {
-      console.log('[Sync] Not on orders/dashboard page, skipping sync setup');
-      return;
-    }
+    if (activePage !== 'orders' && activePage !== 'dashboard') return;
 
-    console.log('[Sync] Setting up 5-minute auto-sync...');
+    // Determine sync speed based on whether any order is actively progressing
+    const hasActiveOrders = orders.some(
+      (o) => o.status === 'running' || o.status === 'processing' || o.status === 'pending'
+    );
+    const syncInterval = hasActiveOrders ? 30000 : 300000; // 30s active / 5min idle
 
-    // Initial sync after 10 seconds
-    const initialSync = setTimeout(() => {
-      syncOrdersWithBackend();
-    }, 10000);
+    console.log(`[Sync] Interval = ${syncInterval / 1000}s (${hasActiveOrders ? 'active orders' : 'idle'})`);
 
-    // Then sync every 5 minutes
-    const interval = setInterval(() => {
-      syncOrdersWithBackend();
-    }, 300000); // 🔥 5 MINUTES (300,000 milliseconds)
+    // Initial sync after 5 seconds on page load
+    const initialSync = setTimeout(() => syncOrdersWithBackend(), 5000);
+
+    const interval = setInterval(() => syncOrdersWithBackend(), syncInterval);
 
     return () => {
       clearTimeout(initialSync);
       clearInterval(interval);
     };
-    }, [activePage, syncOrdersWithBackend]); // 🔥 Only re-setup when page changes
+  }, [activePage, syncOrdersWithBackend, orders]); // re-evaluates when order status changes
 
   const content = useMemo(() => {
     if (activePage === "new-order") {
@@ -529,6 +527,10 @@ export default function App() {
           orders={orders}
           onDeleteOrder={(orderId) => {
             persistOrders((prev) => prev.filter((order) => order.id !== orderId));
+          }}
+          onClearAllOrders={() => {
+            // Reset order state without page reload
+            persistOrders([]);
           }}
         />
       );
