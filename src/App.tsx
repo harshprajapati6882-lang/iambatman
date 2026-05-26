@@ -6,12 +6,13 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { NewOrderPage } from "./pages/NewOrderPage";
 import { OrdersPage } from "./pages/OrdersPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
+import { EngagementSettingsPage } from "./pages/EngagementSettingsPage";
 import { fetchNotifications } from "./utils/api";
 import type { ApiPanel, Bundle, CreatedOrder, RunStatus } from "./types/order";
 import { fetchServices, updateOrderControl, fetchOrderRuns } from "./utils/api";
 import { cn } from "./utils/cn";
 
-type NavKey = "dashboard" | "new-order" | "orders" | "notifications" | "apis" | "bundles";
+type NavKey = "dashboard" | "new-order" | "orders" | "notifications" | "apis" | "bundles" | "engagement";
 
 const NAV_ITEMS: { key: NavKey; label: string; icon: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: "📊" },
@@ -20,6 +21,7 @@ const NAV_ITEMS: { key: NavKey; label: string; icon: string }[] = [
   { key: "notifications", label: "Alerts", icon: "🔔" },
   { key: "apis", label: "APIs", icon: "🔗" },
   { key: "bundles", label: "Bundles", icon: "📁" },
+  { key: "engagement", label: "Ratios", icon: "📐" },
 ];
 
 const BATMAN_QUOTES = [
@@ -150,7 +152,7 @@ function hydrateBundles(bundles: Bundle[]): Bundle[] {
 export default function App() {
   const [activePage, setActivePage] = useState<NavKey>(() => {
     const saved = localStorage.getItem("dev-smm-active-page");
-  if (saved === "dashboard" || saved === "new-order" || saved === "orders" || saved === "notifications" || saved === "apis" || saved === "bundles") {
+  if (saved === "dashboard" || saved === "new-order" || saved === "orders" || saved === "notifications" || saved === "apis" || saved === "bundles" || saved === "engagement") {
       return saved;
     }
     return "new-order";
@@ -628,6 +630,9 @@ export default function App() {
           onNavigateToOrders={() => navigateToPage("orders")}
         />
       );
+    }
+    if (activePage === "engagement") {
+      return <EngagementSettingsPage />;
     }
     if (activePage === "apis") {
       return (
