@@ -1,4 +1,5 @@
 import type { OrderConfig, PatternPlan, PatternType, QuickPatternPreset, RunStep } from "../types/order";
+import { getEngagementRatios, ratiosToFractions } from "./engagementRatios";
 
 const PATTERN_TYPES: PatternType[] = [
   "smooth-s-curve",
@@ -1582,19 +1583,20 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     : Math.min(Math.max(1, Math.floor(provisionalRuns.length * 0.22)), Math.max(1, provisionalRuns.length - 2));
   const afterEngagementWarmup = (index: number) => index >= minEngagementIndex;
 
-  // 🔥 Screenshot-style viral engagement ratios.
-  // Reference analytics showed likes around 7%–17% of views, shares much smaller,
-  // and comments as a tiny but visible line. The old logic was ~0.7% likes.
+  // 🔥 Engagement ratios — reads from user-configured localStorage settings,
+  //    falls back to built-in defaults when no custom ratio is saved.
+  const _customRatios = getEngagementRatios();
+  const _customFractions = ratiosToFractions(_customRatios);
+
   const likesRatio = (() => {
     if (!config.includeLikes) return 0;
-    // Deterministic ratios: changing the likes percentage should scale the existing plan,
-    // not regenerate a new random base like count first.
+    // Quick-presets override the custom ratio for likes (they set a specific viral profile)
     if (config.quickPreset === "viral-boost") return 0.155;
     if (config.quickPreset === "fast-start") return 0.12;
     if (config.quickPreset === "slow-burn") return 0.09;
     if (config.quickPreset === "trending-push") return 0.135;
-    if (totalViews >= 750000) return 0.125;
-    return totalViews < 50000 ? 0.058 : 0.095;
+    // 🔥 Use custom likes fraction from settings page
+    return _customFractions.likesFraction;
   })();
   const baseLikesTotal = config.includeLikes ? Math.max(10, Math.floor(totalViews * likesRatio)) : 0;
   const likesBoostMultiplier = Math.max(0.15, 1 + ((config.likesBoostPercent || 0) / 100));
@@ -1611,21 +1613,15 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   const sharesTotal = (() => {
     if (!config.includeShares) return 0;
     const ratio = config.sharesRatio || "half";
-    // 🔥 FIX: Boost slider must visibly scale shares.
-    // Old clamp Math.max(0.15, …) was fine, but the BASE multipliers were so tiny
-    // that even +300% produced a barely-visible bump (often clamped to the
-    // Math.max(10, …) floor). We raise the base multipliers AND keep the boost
-    // slider as a multiplicative scale so the dropdown changes are obvious.
     const shareBoostMultiplier = Math.max(0.1, 1 + ((config.sharesBoostPercent || 0) / 100));
     if (ratio === "custom") {
       return Math.max(10, Math.round((config.sharesCustomCount || 0) * shareBoostMultiplier));
     }
-    // UI labels are repurposed for viral clipping:
-    //   equal = viral share push (high), half = normal, third = low.
-    // Bumped from {equal:0.06, half:0.025, third:0.01} so the boost slider has room
-    // to move and the per-run shares clear the 10-share minimum easily.
-    const multiplier = ratio === "equal" ? 0.22 : ratio === "third" ? 0.05 : 0.12;
-    const raw = likesTotal * multiplier * shareBoostMultiplier;
+    // 🔥 Use custom shares fraction from settings page
+    // ratio dropdown acts as a scale: equal=100%, half=50%, third=25% of the custom base
+    const baseShares = Math.round(totalViews * _customFractions.sharesFraction);
+    const scaleByRatio = ratio === "equal" ? 1.0 : ratio === "third" ? 0.25 : 0.5;
+    const raw = baseShares * scaleByRatio * shareBoostMultiplier;
     return Math.max(10, Math.round(raw));
   })();
 
@@ -1633,22 +1629,30 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     if (!config.includeSaves) return 0;
     const ratio = config.savesRatio || "third";
     if (ratio === "custom") return Math.max(10, config.savesCustomCount || 0);
-    const multiplier = ratio === "equal" ? random(0.05, 0.09) : ratio === "half" ? random(0.018, 0.04) : random(0.008, 0.022);
-    return Math.max(10, Math.floor(likesTotal * multiplier));
+    // 🔥 Use custom saves fraction from settings page
+    const baseSaves = Math.round(totalViews * _customFractions.savesFraction);
+    const scaleByRatio = ratio === "equal" ? 1.0 : ratio === "half" ? 0.5 : 0.25;
+    return Math.max(10, Math.round(baseSaves * scaleByRatio));
   })();
 
   const repostsTotal = (() => {
     if (!config.includeReposts) return 0;
     const ratio = config.repostsRatio || "half";
     if (ratio === "custom") return Math.max(10, config.repostsCustomCount || 0);
-    const multiplier = ratio === "equal" ? random(0.04, 0.08) : ratio === "third" ? random(0.006, 0.018) : random(0.015, 0.035);
-    return Math.max(10, Math.floor(likesTotal * multiplier));
+    // 🔥 Use custom reposts fraction from settings page
+    const baseReposts = Math.round(totalViews * _customFractions.repostsFraction);
+    const scaleByRatio = ratio === "equal" ? 1.0 : ratio === "third" ? 0.25 : 0.5;
+    return Math.max(10, Math.round(baseReposts * scaleByRatio));
   })();
 
   let commentsTotal = 0;
   if (config.includeComments) {
-    const commentRatio = totalViews >= 1000000 ? random(0.00006, 0.00032) : random(0.000045, 0.00022);
-    const rawCommentsTotal = clamp(Math.floor(totalViews * commentRatio), totalViews >= 1000000 ? 80 : 30, 1200);
+    // 🔥 Use custom comments fraction from settings page
+    const rawCommentsTotal = clamp(
+      Math.floor(totalViews * _customFractions.commentsFraction),
+      10,
+      5000
+    );
     // Provider minimum is 10 comments/run, so keep total aligned to 10s.
     commentsTotal = Math.max(10, Math.ceil(rawCommentsTotal / 10) * 10);
   }
