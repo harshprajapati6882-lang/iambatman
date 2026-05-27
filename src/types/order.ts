@@ -43,6 +43,40 @@ export interface OrderConfig {
   likesBoostPercent?: number;
   sharesAfterHalfLikes?: boolean;
   sharesBoostPercent?: number;
+  // 🔥 FIX #6: deterministic plan regeneration. Same seed + config ⇒ same plan.
+  seed?: number;
+  // 🔥 FIX #7: audience timezone (IANA, e.g. "America/New_York"). When set,
+  // the hour-of-day engagement curve is computed in the audience's local time,
+  // not the server's tz. When unset, falls back to the browser's local tz.
+  audienceTimezone?: string;
+  // 🔥 NEW: user-defined view-bracket engagement rules.
+  // When `engagementRulesEnabled` is true, every run whose `views` falls inside
+  // a defined bracket has its likes/shares/etc clamped to the bracket's range
+  // (only for services the bracket explicitly enables). Runs OUTSIDE every
+  // defined bracket fall back to the normal automatic logic.
+  engagementRulesEnabled?: boolean;
+  engagementRules?: EngagementRule[];
+}
+
+export type EngagementRuleService = "likes" | "shares" | "saves" | "comments" | "reposts";
+
+export interface EngagementRange {
+  enabled: boolean;
+  min: number;
+  max: number;
+}
+
+export interface EngagementRule {
+  id: string;          // stable id for React keys
+  viewsMin: number;    // inclusive
+  viewsMax: number;    // inclusive
+  // One range per service. If `enabled` is false the service falls back to
+  // the automatic distribution for runs in this bracket.
+  likes: EngagementRange;
+  shares: EngagementRange;
+  saves: EngagementRange;
+  comments: EngagementRange;
+  reposts: EngagementRange;
 }
 
 export interface RunStep {
