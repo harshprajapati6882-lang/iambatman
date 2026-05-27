@@ -2599,6 +2599,157 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   })();
 
   // =========================================================
+  // 🔥 USER-DEFINED VIEW-BRACKET RULES
+  // When `engagementRulesEnabled` is on, each user-defined bracket clamps
+  // the per-run engagement value for runs whose `views` fall in [viewsMin,
+  // viewsMax]. Only services with `enabled === true` are affected; everything
+  // else falls back to the automatic distribution.
+  //
+  // The clamping changes per-run values, so the array TOTAL shifts. We then
+  // redistribute the diff across runs that AREN'T governed by any rule,
+  // keeping the global ratio shape and never going below 10 (provider min).
+  // =========================================================
+  function applyEngagementRules(
+    arr: number[],
+    service: "likes" | "shares" | "saves" | "comments" | "reposts",
+  ): void {
+    if (!config.engagementRulesEnabled || !config.engagementRules || config.engagementRules.length === 0) return;
+    if (arr.length !== provisionalRuns.length) return;
+
+    const MIN_PROVIDER = 10;
+
+    // Map run-index -> matching rule range for this service (or null).
+    // If multiple rules match, the FIRST defined wins (user controls order).
+    const ruleByIndex: Array<{ min: number; max: number } | null> = provisionalRuns.map((run) => {
+      const views = run.views;
+      for (const rule of config.engagementRules!) {
+        if (views < rule.viewsMin || views > rule.viewsMax) continue;
+        const range = rule[service];
+        if (!range || !range.enabled) continue;
+        const lo = Math.max(MIN_PROVIDER, Math.floor(range.min));
+        const hi = Math.max(lo, Math.floor(range.max));
+        return { min: lo, max: hi };
+      }
+      return null;
+    });
+
+    // Snapshot ORIGINAL totals so the bucket of "ruled" runs keeps roughly
+    // the same volume share as before — we rebalance ONLY within unruled runs.
+    const originalTotal = arr.reduce((a, b) => a + b, 0);
+
+    // Phase 1: clamp ruled runs to their bracket range. We pick a value in
+    // the [min, max] band proportional to where the original sat, so high
+    // runs stay high and low runs stay low within the band.
+    const arrMax = Math.max(1, ...arr);
+    let diff = 0; // positive = we ADDED units (others must give back)
+                  // negative = we REMOVED units (others should absorb)
+    for (let i = 0; i < arr.length; i++) {
+      const rule = ruleByIndex[i];
+      if (!rule) continue;
+      const original = arr[i];
+      // Relative position [0..1] of this run's engagement within the array.
+      const rel = arrMax > 0 ? Math.min(1, Math.max(0, original / arrMax)) : 0;
+      // Use the seeded RNG for a tiny jitter so two adjacent ruled runs
+      // with identical views don't produce identical engagement values.
+      const noise = (random(0, 1) - 0.5) * 0.15; // ±7.5%
+      const t = Math.min(1, Math.max(0, rel + noise));
+      const target = Math.round(rule.min + t * (rule.max - rule.min));
+      diff += target - original;
+      arr[i] = target;
+    }
+
+    if (diff === 0) return;
+
+    // Phase 2: rebalance against the UNRULED runs only. We never push any
+    // run below MIN_PROVIDER, and we don't touch ruled runs.
+    const unruled: number[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      if (ruleByIndex[i] === null && arr[i] > 0) unruled.push(i);
+    }
+    if (unruled.length === 0) return;
+
+    if (diff > 0) {
+      // We added `diff` units to ruled runs — subtract proportionally from unruled.
+      const totalUnruled = unruled.reduce((s, i) => s + arr[i], 0);
+      if (totalUnruled <= 0) return;
+      let remaining = diff;
+      // Sort biggest first so big runs absorb the brunt
+      const sorted = [...unruled].sort((a, b) => arr[b] - arr[a]);
+      for (const i of sorted) {
+        if (remaining <= 0) break;
+        const canTake = Math.max(0, arr[i] - MIN_PROVIDER);
+        if (canTake === 0) continue;
+        const share = Math.min(canTake, Math.ceil((arr[i] / totalUnruled) * diff));
+        const actual = Math.min(share, remaining);
+        arr[i] -= actual;
+        remaining -= actual;
+      }
+      // If we still couldn't absorb everything (rare — all unruled at floor),
+      // accept the drift. The total will be slightly above what was asked,
+      // but never wildly off.
+    } else {
+      // We removed |diff| units from ruled runs — add them to unruled.
+      let remaining = -diff;
+      const sorted = [...unruled].sort((a, b) => arr[a] - arr[b]); // smallest first
+      while (remaining > 0) {
+        let progress = false;
+        for (const i of sorted) {
+          if (remaining <= 0) break;
+          arr[i] += 1;
+          remaining -= 1;
+          progress = true;
+        }
+        if (!progress) break;
+      }
+    }
+
+    // Small safety: never let a ruled value violate the [10, ...) provider floor
+    for (let i = 0; i < arr.length; i++) {
+      if (arr[i] < MIN_PROVIDER && arr[i] !== 0) arr[i] = MIN_PROVIDER;
+    }
+
+    // Debug: log final delta from original (should be ≈ 0 in normal cases)
+    const finalTotal = arr.reduce((a, b) => a + b, 0);
+    if (Math.abs(finalTotal - originalTotal) > Math.max(20, originalTotal * 0.05)) {
+      // Drift > 5% or > 20 units — surface in console for awareness.
+      // eslint-disable-next-line no-console
+      console.debug(
+        `[engagementRules:${service}] total drift ${finalTotal - originalTotal} ` +
+        `(orig ${originalTotal} → new ${finalTotal})`,
+      );
+    }
+  }
+
+  // Build per-service sets of "ruled" run indexes so the jitter pass below
+  // never disturbs values the user explicitly pinned.
+  const ruledIdxs: Record<"likes" | "shares" | "saves" | "comments" | "reposts", Set<number>> = {
+    likes: new Set(), shares: new Set(), saves: new Set(), comments: new Set(), reposts: new Set(),
+  };
+  function collectRuledIdxs(service: "likes" | "shares" | "saves" | "comments" | "reposts"): void {
+    if (!config.engagementRulesEnabled || !config.engagementRules) return;
+    for (let i = 0; i < provisionalRuns.length; i++) {
+      const v = provisionalRuns[i].views;
+      for (const r of config.engagementRules) {
+        if (v >= r.viewsMin && v <= r.viewsMax && r[service] && r[service].enabled) {
+          ruledIdxs[service].add(i);
+          break;
+        }
+      }
+    }
+  }
+  collectRuledIdxs("likes");
+  collectRuledIdxs("shares");
+  collectRuledIdxs("saves");
+  collectRuledIdxs("comments");
+  collectRuledIdxs("reposts");
+
+  applyEngagementRules(likesRuns, "likes");
+  applyEngagementRules(sharesRuns, "shares");
+  applyEngagementRules(savesRuns, "saves");
+  applyEngagementRules(commentsRuns, "comments");
+  applyEngagementRules(repostsRuns, "reposts");
+
+  // =========================================================
   // 🔥 ENGAGEMENT-MINIMUM JITTER PASS
   // Real users don't react in flat rows of "10, 10, 10, 10".
   // For each engagement array, find runs that are AT the floor and have a
@@ -2606,11 +2757,12 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   // numbers become e.g. [10, 12, 11, 10, 13, 11] while the total is preserved
   // exactly. The 10-floor (provider minimum) is never violated.
   // =========================================================
-  function jitterFloorRuns(arr: number[], minPerRun: number): void {
+  function jitterFloorRuns(arr: number[], minPerRun: number, skipSet?: Set<number>): void {
     if (arr.length < 3) return;
     const floorIdxs: number[] = [];
     const donorIdxs: number[] = [];
     for (let i = 0; i < arr.length; i++) {
+      if (skipSet && skipSet.has(i)) continue;
       if (arr[i] === minPerRun) floorIdxs.push(i);
       else if (arr[i] >= minPerRun + 4) donorIdxs.push(i);
     }
@@ -2647,11 +2799,11 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
   // Apply jitter to every engagement array. Floor is 10 for engagement
   // services (matches every block above's `minPerRun = 10`).
-  jitterFloorRuns(likesRuns, 10);
-  jitterFloorRuns(sharesRuns, 10);
-  jitterFloorRuns(savesRuns, 10);
-  jitterFloorRuns(commentsRuns, 10);
-  jitterFloorRuns(repostsRuns, 10);
+  jitterFloorRuns(likesRuns, 10, ruledIdxs.likes);
+  jitterFloorRuns(sharesRuns, 10, ruledIdxs.shares);
+  jitterFloorRuns(savesRuns, 10, ruledIdxs.saves);
+  jitterFloorRuns(commentsRuns, 10, ruledIdxs.comments);
+  jitterFloorRuns(repostsRuns, 10, ruledIdxs.reposts);
 
   // =========================================================
   // 🔥 BUILD FINAL RUNS
