@@ -482,6 +482,9 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 //
 //   Callers that omit `config.seed` get the original behaviour (Math.random)
 //   so nothing in the codebase has to change at once.
+// Toggle engagementRules console.debug noise. Set to true while diagnosing.
+const DEBUG_RULES = false;
+
 let __rngSource: () => number = Math.random;
 function setRngSeed(seed: number | undefined): void {
   if (seed === undefined || seed === null || !Number.isFinite(seed)) {
@@ -2618,8 +2621,27 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     const MIN_PROVIDER = 10;
 
-    // Map run-index -> matching rule range for this service (or null).
-    // If multiple rules match, the FIRST defined wins (user controls order).
+    // ---------------------------------------------------------------------
+    // GOAL: preserve the ORIGINAL total. The rules decide HOW the total is
+    // redistributed across runs, not WHAT the total is.
+    //
+    // Algorithm:
+    //   1. Snapshot original total T.
+    //   2. For each ruled run i, compute target_i = midpoint of [min, max]
+    //      with a per-run jitter based on the view-bracket-relative position.
+    //   3. bracketSum = sum of target_i. unruledShare = T - bracketSum.
+    //   4. Distribute unruledShare across unruled runs proportionally.
+    //   5. If unruledShare is negative (rules over-pack), shrink ruled
+    //      runs proportionally — first down to their min, then below it
+    //      to MIN_PROVIDER if still needed.
+    //   6. If unruledShare is positive AND unruled is empty (all runs are
+    //      in some bracket), grow ruled runs above their max proportionally.
+    //   7. Final total is guaranteed to equal T (modulo ±1 rounding).
+    // ---------------------------------------------------------------------
+
+    const originalTotal = arr.reduce((a, b) => a + b, 0);
+    if (originalTotal <= 0) return;
+
     const ruleByIndex: Array<{ min: number; max: number } | null> = provisionalRuns.map((run) => {
       const views = run.views;
       for (const rule of config.engagementRules!) {
@@ -2633,88 +2655,187 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       return null;
     });
 
-    // Snapshot ORIGINAL totals so the bucket of "ruled" runs keeps roughly
-    // the same volume share as before — we rebalance ONLY within unruled runs.
-    const originalTotal = arr.reduce((a, b) => a + b, 0);
-
-    // Phase 1: clamp ruled runs to their bracket range. We pick a value in
-    // the [min, max] band proportional to where the original sat, so high
-    // runs stay high and low runs stay low within the band.
-    const arrMax = Math.max(1, ...arr);
-    let diff = 0; // positive = we ADDED units (others must give back)
-                  // negative = we REMOVED units (others should absorb)
-    for (let i = 0; i < arr.length; i++) {
-      const rule = ruleByIndex[i];
-      if (!rule) continue;
-      const original = arr[i];
-      // Relative position [0..1] of this run's engagement within the array.
-      const rel = arrMax > 0 ? Math.min(1, Math.max(0, original / arrMax)) : 0;
-      // Use the seeded RNG for a tiny jitter so two adjacent ruled runs
-      // with identical views don't produce identical engagement values.
-      const noise = (random(0, 1) - 0.5) * 0.15; // ±7.5%
-      const t = Math.min(1, Math.max(0, rel + noise));
-      const target = Math.round(rule.min + t * (rule.max - rule.min));
-      diff += target - original;
-      arr[i] = target;
-    }
-
-    if (diff === 0) return;
-
-    // Phase 2: rebalance against the UNRULED runs only. We never push any
-    // run below MIN_PROVIDER, and we don't touch ruled runs.
+    const ruled: number[] = [];
     const unruled: number[] = [];
     for (let i = 0; i < arr.length; i++) {
-      if (ruleByIndex[i] === null && arr[i] > 0) unruled.push(i);
+      if (ruleByIndex[i]) ruled.push(i);
+      else unruled.push(i);
     }
-    if (unruled.length === 0) return;
+    if (ruled.length === 0) return;
 
-    if (diff > 0) {
-      // We added `diff` units to ruled runs — subtract proportionally from unruled.
-      const totalUnruled = unruled.reduce((s, i) => s + arr[i], 0);
-      if (totalUnruled <= 0) return;
-      let remaining = diff;
-      // Sort biggest first so big runs absorb the brunt
-      const sorted = [...unruled].sort((a, b) => arr[b] - arr[a]);
-      for (const i of sorted) {
-        if (remaining <= 0) break;
-        const canTake = Math.max(0, arr[i] - MIN_PROVIDER);
-        if (canTake === 0) continue;
-        const share = Math.min(canTake, Math.ceil((arr[i] / totalUnruled) * diff));
-        const actual = Math.min(share, remaining);
-        arr[i] -= actual;
-        remaining -= actual;
+    // Feasibility check: if the ruled set's minimum-possible sum
+    // (every run at rule.min) exceeds the original total, we physically
+    // cannot honour both "total preserved" AND "every ruled run ≥ rule.min".
+    // Solution: drop runs from the ruled set (lowest-views first, since
+    // those would have gotten the smallest auto values anyway) until the
+    // ruled minimums fit within the original total. Dropped runs become
+    // "unruled" and fall back to the automatic value they already had.
+    const minSum = (rs: number[]) => rs.reduce((s, i) => s + ruleByIndex[i]!.min, 0);
+    if (minSum(ruled) > originalTotal) {
+      // Sort by views ascending so we drop the smallest-view ruled runs first.
+      const byViewsAsc = ruled.slice().sort(
+        (a, b) => provisionalRuns[a].views - provisionalRuns[b].views
+      );
+      while (byViewsAsc.length > 0 && minSum(byViewsAsc) > originalTotal) {
+        const dropped = byViewsAsc.shift()!;
+        // Remove from ruled, add to unruled
+        const idx = ruled.indexOf(dropped);
+        if (idx !== -1) ruled.splice(idx, 1);
+        unruled.push(dropped);
+        ruleByIndex[dropped] = null;
       }
-      // If we still couldn't absorb everything (rare — all unruled at floor),
-      // accept the drift. The total will be slightly above what was asked,
-      // but never wildly off.
-    } else {
-      // We removed |diff| units from ruled runs — add them to unruled.
-      let remaining = -diff;
-      const sorted = [...unruled].sort((a, b) => arr[a] - arr[b]); // smallest first
-      while (remaining > 0) {
-        let progress = false;
-        for (const i of sorted) {
-          if (remaining <= 0) break;
-          arr[i] += 1;
-          remaining -= 1;
-          progress = true;
+      if (DEBUG_RULES) {
+        // eslint-disable-next-line no-console
+        console.debug(
+          `[engagementRules:${service}] auto-relaxed: ` +
+          `original total (${originalTotal}) too small to fit all ruled runs at their min. ` +
+          `${unruled.length} run(s) released back to automatic.`,
+        );
+      }
+    }
+
+    // Step 2: choose an in-range target per ruled run, weighted by views.
+    const ruledViews = ruled.map((i) => provisionalRuns[i].views);
+    const maxViewsInRuled = Math.max(1, ...ruledViews);
+    const minViewsInRuled = Math.min(...ruledViews);
+    const viewSpread = Math.max(1, maxViewsInRuled - minViewsInRuled);
+
+    const target: number[] = arr.slice();
+    let bracketSum = 0;
+    for (const i of ruled) {
+      const rule = ruleByIndex[i]!;
+      const v = provisionalRuns[i].views;
+      const rel = (v - minViewsInRuled) / viewSpread;
+      const noise = (random(0, 1) - 0.5) * 0.2; // ±10%
+      const t = Math.min(1, Math.max(0, rel + noise));
+      const pick = Math.round(rule.min + t * (rule.max - rule.min));
+      target[i] = pick;
+      bracketSum += pick;
+    }
+
+    let unruledShare = originalTotal - bracketSum;
+
+    // Step 4a: distribute unruledShare across unruled runs.
+    if (unruled.length > 0 && unruledShare > 0) {
+      // Use ORIGINAL auto values as proportional weights (preserve shape).
+      const unruledTotal = unruled.reduce((s, i) => s + arr[i], 0);
+      if (unruledTotal > 0) {
+        let allocated = 0;
+        for (let k = 0; k < unruled.length; k++) {
+          const i = unruled[k];
+          const isLast = k === unruled.length - 1;
+          const share = isLast
+            ? unruledShare - allocated
+            : Math.round((arr[i] / unruledTotal) * unruledShare);
+          target[i] = Math.max(0, share);
+          allocated += target[i];
         }
-        if (!progress) break;
+      } else {
+        // Auto values were all 0 — spread evenly with provider floor.
+        const perRun = Math.max(MIN_PROVIDER, Math.floor(unruledShare / unruled.length));
+        let extra = unruledShare - perRun * unruled.length;
+        for (const i of unruled) {
+          target[i] = perRun;
+          if (extra > 0) { target[i] += 1; extra -= 1; }
+        }
+      }
+      unruledShare = 0; // fully absorbed
+    } else if (unruled.length > 0 && unruledShare <= 0) {
+      // Nothing to give the unruled runs. Zero them out and recover their
+      // original auto-engagement back into the leftover bucket (which is
+      // negative — we need to shrink ruled runs anyway).
+      const givenBack = unruled.reduce((s, i) => s + arr[i], 0);
+      for (const i of unruled) target[i] = 0;
+      // unruledShare is "amount we still need to GIVE someone".
+      // We gave 0 to unruled, but we also stole `givenBack` from them
+      // (they previously held that much). So the deficit to absorb is:
+      //   (originalTotal - bracketSum) means we need this much more units.
+      //   We sourced `givenBack` more units back by zeroing unruled.
+      //   ⇒ remaining_to_distribute = unruledShare + givenBack
+      // Actually simpler: recompute leftover with the current target[].
+      unruledShare = originalTotal - target.reduce((a, b) => a + b, 0);
+    }
+
+    // Step 5/6: if unruledShare ≠ 0, adjust RULED runs to balance the total.
+    if (unruledShare !== 0) {
+      if (unruledShare < 0) {
+        // Rules over-pack — shrink ruled runs to make room.
+        let need = -unruledShare;
+        // Phase A: trim down to each rule's min (stays in range).
+        const sortedHigh = [...ruled].sort((a, b) =>
+          (target[b] - ruleByIndex[b]!.min) - (target[a] - ruleByIndex[a]!.min)
+        );
+        for (const i of sortedHigh) {
+          if (need <= 0) break;
+          const headroom = target[i] - ruleByIndex[i]!.min;
+          if (headroom <= 0) continue;
+          const take = Math.min(headroom, need);
+          target[i] -= take;
+          need -= take;
+        }
+        // Phase B: still too much — trim below min, down to MIN_PROVIDER.
+        if (need > 0) {
+          for (const i of sortedHigh) {
+            if (need <= 0) break;
+            const headroom = target[i] - MIN_PROVIDER;
+            if (headroom <= 0) continue;
+            const take = Math.min(headroom, need);
+            target[i] -= take;
+            need -= take;
+          }
+        }
+      } else if (unruledShare > 0) {
+        // Need to ADD to runs — unruled was empty or maxed. Grow ruled
+        // runs above their max proportionally.
+        let give = unruledShare;
+        // Distribute proportional to (max - current) headroom; if no
+        // headroom, just spread evenly.
+        const headroom = ruled.map((i) => Math.max(1, ruleByIndex[i]!.max - target[i] + 1));
+        const hSum = headroom.reduce((a, b) => a + b, 0);
+        let allocated = 0;
+        for (let k = 0; k < ruled.length; k++) {
+          const i = ruled[k];
+          const isLast = k === ruled.length - 1;
+          const add = isLast
+            ? give - allocated
+            : Math.round((headroom[k] / hSum) * give);
+          target[i] += Math.max(0, add);
+          allocated += add;
+        }
       }
     }
 
-    // Small safety: never let a ruled value violate the [10, ...) provider floor
+    // Step 7: write the targets back, enforcing the provider floor.
     for (let i = 0; i < arr.length; i++) {
-      if (arr[i] < MIN_PROVIDER && arr[i] !== 0) arr[i] = MIN_PROVIDER;
+      let v = target[i];
+      if (v < 0) v = 0;
+      if (v > 0 && v < MIN_PROVIDER) v = MIN_PROVIDER;
+      arr[i] = v;
     }
 
-    // Debug: log final delta from original (should be ≈ 0 in normal cases)
-    const finalTotal = arr.reduce((a, b) => a + b, 0);
-    if (Math.abs(finalTotal - originalTotal) > Math.max(20, originalTotal * 0.05)) {
-      // Drift > 5% or > 20 units — surface in console for awareness.
+    // Final ±1 rounding sweep — guarantee exact total.
+    let finalTotal = arr.reduce((a, b) => a + b, 0);
+    let drift = finalTotal - originalTotal;
+    if (drift !== 0) {
+      // Apply ±1 nudges to ruled runs (preserve unruled distribution).
+      const candidates = ruled.slice().sort((a, b) => arr[b] - arr[a]);
+      let safety = arr.length * 4;
+      while (drift !== 0 && safety > 0) {
+        for (const i of candidates) {
+          if (drift === 0) break;
+          if (drift > 0 && arr[i] > MIN_PROVIDER) { arr[i] -= 1; drift -= 1; }
+          else if (drift < 0) { arr[i] += 1; drift += 1; }
+        }
+        safety -= 1;
+      }
+    }
+
+    // Debug: warn only if we couldn't fully reconcile (very rare).
+    finalTotal = arr.reduce((a, b) => a + b, 0);
+    if (finalTotal !== originalTotal && DEBUG_RULES) {
       // eslint-disable-next-line no-console
       console.debug(
-        `[engagementRules:${service}] total drift ${finalTotal - originalTotal} ` +
+        `[engagementRules:${service}] residual drift ${finalTotal - originalTotal} ` +
         `(orig ${originalTotal} → new ${finalTotal})`,
       );
     }
