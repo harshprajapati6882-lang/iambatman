@@ -11,10 +11,13 @@ import type {
   OrderConfig,
   PatternPlan,
   QuickPatternPreset,
+  EngagementRule,
 } from "../types/order";
 import { createSmmOrder } from "../utils/api";
+import { COMMENT_PACKS, pickComments } from "../data/commentPacks";
 import { createPatternPlan } from "../utils/patterns";
 import { getUsdToInrRate } from "./BundlesPage";
+import { BACKEND_URL } from "../config";
 
 interface NewOrderPageProps {
   apis: ApiPanel[];
@@ -100,6 +103,69 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
   const [customHours, setCustomHours] = useState(72);
   const [delivery, setDelivery] = useState<DeliveryOption>({ mode: "auto", hours: 72, label: "Auto" });
   const [seed, setSeed] = useState(0);
+  // 🔥 FIX #7: audience timezone for the hour-of-day engagement curve.
+  // Defaults to the browser's current zone so existing behaviour is preserved.
+  const [audienceTimezone, setAudienceTimezone] = useState<string>(() => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; }
+    catch { return ""; }
+  });
+
+  // 🔥 NEW: view-bracket engagement rules. Persisted to localStorage so the
+  // user doesn't have to re-enter them on every order. Toggled by a single
+  // master switch — when OFF, every value is ignored and the automatic plan
+  // logic runs as before.
+  const ENGAGEMENT_RULES_LS_KEY = "dev-smm-engagement-rules-v1";
+  const ENGAGEMENT_RULES_ON_LS_KEY = "dev-smm-engagement-rules-on-v1";
+
+  const makeBlankRule = (i: number, viewsMin = 100, viewsMax = 200): EngagementRule => ({
+    id: `rule-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+    viewsMin,
+    viewsMax,
+    likes:    { enabled: true,  min: 10, max: 15 },
+    shares:   { enabled: true,  min: 10, max: 12 },
+    saves:    { enabled: false, min: 10, max: 12 },
+    comments: { enabled: false, min: 10, max: 12 },
+    reposts:  { enabled: false, min: 10, max: 12 },
+  });
+
+  const [engagementRulesEnabled, setEngagementRulesEnabledRaw] = useState<boolean>(() => {
+    try { return localStorage.getItem(ENGAGEMENT_RULES_ON_LS_KEY) === "1"; }
+    catch { return false; }
+  });
+  const setEngagementRulesEnabled = (v: boolean) => {
+    setEngagementRulesEnabledRaw(v);
+    setSeed((s) => s + 1);
+    try { localStorage.setItem(ENGAGEMENT_RULES_ON_LS_KEY, v ? "1" : "0"); } catch {}
+  };
+
+  const [engagementRules, setEngagementRulesRaw] = useState<EngagementRule[]>(() => {
+    try {
+      const raw = localStorage.getItem(ENGAGEMENT_RULES_LS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed as EngagementRule[];
+      }
+    } catch {}
+    // Sensible starter rules matching the user's example.
+    return [
+      makeBlankRule(0, 100, 200),
+      { ...makeBlankRule(1, 201, 300),
+        likes: { enabled: true, min: 15, max: 20 },
+        shares: { enabled: true, min: 12, max: 15 } },
+      { ...makeBlankRule(2, 301, 500),
+        likes: { enabled: true, min: 20, max: 30 },
+        shares: { enabled: true, min: 15, max: 20 } },
+    ];
+  });
+  const setEngagementRules = (next: EngagementRule[] | ((prev: EngagementRule[]) => EngagementRule[])) => {
+    setEngagementRulesRaw((prev) => {
+      const updated = typeof next === "function" ? next(prev) : next;
+      try { localStorage.setItem(ENGAGEMENT_RULES_LS_KEY, JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+    setSeed((s) => s + 1);
+  };
+  const [rulesPanelOpen, setRulesPanelOpen] = useState<boolean>(false);
   const [useClonedPlan, setUseClonedPlan] = useState(Boolean(prefillPlan));
   const [clonedPlan, setClonedPlan] = useState<PatternPlan | null>(prefillPlan);
   const [expandedRuns, setExpandedRuns] = useState(false);
@@ -152,7 +218,8 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
   useEffect(() => {
     const fetchMinViews = async () => {
       try {
-        const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://backend-new-6tzb.onrender.com";
+        // 🔥 FIX #5: use shared config
+    const backendUrl = BACKEND_URL;
         const response = await fetch(`${backendUrl}/api/settings/min-views`);
         if (response.ok) {
           const data = await response.json();
@@ -224,6 +291,13 @@ const effectiveMinViews = Math.max(
             customDrawnViews: isViewsLocked ? lockedViews : (useCustomDrawnViews ? customDrawnViews : undefined),
       likesDistribution,
       likesBoostPercent: likesBoostPercent !== 0 ? likesBoostPercent : undefined,
+      // 🔥 FIX #6: pass the regen seed so the previewed plan == submitted plan
+      seed,
+      // 🔥 FIX #7: audience tz for the hour-of-day engagement curve
+      audienceTimezone: audienceTimezone || undefined,
+      // 🔥 NEW: view-bracket engagement rules (only applied when the toggle is ON)
+      engagementRulesEnabled,
+      engagementRules: engagementRulesEnabled ? engagementRules : undefined,
     }),
     [
       postUrl,
@@ -255,6 +329,10 @@ const effectiveMinViews = Math.max(
       isViewsLocked,
       likesDistribution,
       likesBoostPercent,
+      seed,
+      audienceTimezone,
+      engagementRulesEnabled,
+      engagementRules,
     ]
   );
 
@@ -380,7 +458,8 @@ const effectiveMinViews = Math.max(
     setSeed((current) => current + 1); // 🔥 Force regenerate pattern
 
     // Also update backend
-    const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://backend-new-6tzb.onrender.com";
+    // 🔥 FIX #5: use shared config
+    const backendUrl = BACKEND_URL;
     fetch(`${backendUrl}/api/settings/min-views`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -997,17 +1076,42 @@ const effectiveMinViews = Math.max(
                   <h4 className="text-[11px] font-bold uppercase tracking-wider text-yellow-300">Engagement Stack</h4>
                   <p className="text-[9px] text-gray-500">Toggle services and tune ratios without hunting through one long row.</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => { setPeakHoursBoost(!peakHoursBoost); }}
-                  className={`rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold transition ${
-                    peakHoursBoost
-                      ? "border-orange-400/60 bg-orange-500/20 text-orange-300 shadow-sm shadow-orange-500/10"
-                      : "border-gray-700 bg-gray-950 text-gray-500 hover:border-orange-500/40 hover:text-orange-300"
-                  }`}
-                >
-                  🔥 Peak Hours {peakHoursBoost ? "ON" : "OFF"}
-                </button>
+                <div className="flex items-center gap-2">
+                  {/* 🔥 FIX #7: audience-timezone picker */}
+                  <select
+                    value={audienceTimezone}
+                    onChange={(e) => { setAudienceTimezone(e.target.value); setSeed((s) => s + 1); }}
+                    className="rounded-lg border border-gray-700 bg-gray-950 px-2 py-1.5 text-[10px] text-gray-300 focus:border-orange-500/40 focus:outline-none"
+                    title="Audience timezone — controls the hour-of-day engagement curve."
+                  >
+                    <option value="">🌐 Browser TZ</option>
+                    <option value="America/New_York">🇺🇸 New York</option>
+                    <option value="America/Los_Angeles">🇺🇸 Los Angeles</option>
+                    <option value="America/Chicago">🇺🇸 Chicago</option>
+                    <option value="Europe/London">🇬🇧 London</option>
+                    <option value="Europe/Berlin">🇩🇪 Berlin</option>
+                    <option value="Europe/Paris">🇫🇷 Paris</option>
+                    <option value="Asia/Kolkata">🇮🇳 India</option>
+                    <option value="Asia/Dubai">🇦🇪 Dubai</option>
+                    <option value="Asia/Singapore">🇸🇬 Singapore</option>
+                    <option value="Asia/Tokyo">🇯🇵 Tokyo</option>
+                    <option value="Asia/Shanghai">🇨🇳 Shanghai</option>
+                    <option value="Australia/Sydney">🇦🇺 Sydney</option>
+                    <option value="America/Sao_Paulo">🇧🇷 São Paulo</option>
+                    <option value="UTC">🕒 UTC</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => { setPeakHoursBoost(!peakHoursBoost); }}
+                    className={`rounded-lg border px-2.5 py-1.5 text-[10px] font-semibold transition ${
+                      peakHoursBoost
+                        ? "border-orange-400/60 bg-orange-500/20 text-orange-300 shadow-sm shadow-orange-500/10"
+                        : "border-gray-700 bg-gray-950 text-gray-500 hover:border-orange-500/40 hover:text-orange-300"
+                    }`}
+                  >
+                    🔥 Peak Hours {peakHoursBoost ? "ON" : "OFF"}
+                  </button>
+                </div>
               </div>
 
               <div className="grid gap-2 md:grid-cols-2">
@@ -1305,11 +1409,38 @@ const effectiveMinViews = Math.max(
             </div>
           </div>
 <div className="mt-2 rounded-xl border border-yellow-500/20 bg-gradient-to-br from-gray-950 to-black p-3">
-  <div className="mb-2 flex items-center justify-between">
+  <div className="mb-2 flex items-center justify-between gap-2">
     <label className="text-[10px] text-gray-300 font-semibold uppercase tracking-wide">
       💬 Custom Comments
     </label>
-    <span className="text-[9px] text-gray-600">one per line</span>
+    <div className="flex items-center gap-2">
+      <span className="text-[9px] text-gray-600">one per line</span>
+      {/* 🔥 FIX #16: load a niche comment pack into the textarea */}
+      <select
+        value=""
+        onChange={(e) => {
+          const packId = e.target.value;
+          if (!packId) return;
+          // Default to 25 comments — user can edit/trim afterwards.
+          const lines = pickComments(packId, 25, seed || Date.now());
+          // Append or replace? If textarea is empty, replace; else append.
+          setCustomComments((prev) =>
+            (prev.trim() ? prev.trim() + "\n" : "") + lines.join("\n")
+          );
+          // Force the <select> to reset so the same option can be re-picked
+          e.currentTarget.selectedIndex = 0;
+        }}
+        className="rounded-md border border-yellow-500/30 bg-black px-1.5 py-1 text-[10px] text-yellow-300 focus:outline-none"
+        title="Load a niche-appropriate comment pack into the textarea."
+      >
+        <option value="">📦 Load pack…</option>
+        {COMMENT_PACKS.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.emoji} {p.label}
+          </option>
+        ))}
+      </select>
+    </div>
   </div>
   <textarea
     value={customComments}
@@ -1319,6 +1450,254 @@ const effectiveMinViews = Math.max(
     className="w-full rounded-lg border border-yellow-500/30 bg-black px-3 py-2 text-xs text-white placeholder-gray-700 outline-none focus:border-yellow-500/60"
   />
 </div>
+
+{/* 🔥 NEW: View-bracket engagement rules.
+    Off by default. When ON, every run whose `views` falls inside a defined
+    bracket gets its enabled-service counts forced into the range. Saved to
+    localStorage so the user doesn't have to re-enter them. */}
+<div className={`mt-2 rounded-xl border p-3 transition ${
+  engagementRulesEnabled
+    ? "border-cyan-500/40 bg-cyan-500/5"
+    : "border-gray-800 bg-gray-950/80"
+}`}>
+  <div className="flex items-center justify-between gap-2">
+    <button
+      type="button"
+      onClick={() => setRulesPanelOpen((v) => !v)}
+      className="flex items-center gap-2 text-left"
+    >
+      <span className={`text-[11px] font-bold uppercase tracking-wider ${
+        engagementRulesEnabled ? "text-cyan-300" : "text-gray-400"
+      }`}>
+        🎯 View-Range Engagement Rules
+      </span>
+      <span className="text-[10px] text-gray-500">
+        {rulesPanelOpen ? "▲ collapse" : "▼ expand"}
+      </span>
+      <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${
+        engagementRulesEnabled
+          ? "bg-cyan-500/30 text-cyan-200"
+          : "bg-gray-800 text-gray-500"
+      }`}>
+        {engagementRulesEnabled ? "ON" : "OFF"}
+      </span>
+    </button>
+    <label className="flex cursor-pointer items-center gap-1.5 select-none">
+      <span className="text-[10px] text-gray-400">Apply</span>
+      <input
+        type="checkbox"
+        checked={engagementRulesEnabled}
+        onChange={(e) => setEngagementRulesEnabled(e.target.checked)}
+        className="h-3.5 w-3.5 cursor-pointer accent-cyan-500"
+      />
+    </label>
+  </div>
+
+  {!rulesPanelOpen && (
+    <p className="mt-1 text-[9px] text-gray-500">
+      Force each run into a specific likes/shares range based on its view count.
+      e.g. <span className="text-gray-400">runs with 100-200 views get 10-15 likes &amp; 10-12 shares</span>.
+      Settings are saved automatically.
+    </p>
+  )}
+
+  {rulesPanelOpen && (
+    <div className="mt-3 space-y-2">
+      <p className="text-[9px] leading-relaxed text-gray-500">
+        Each row defines a view-count bracket. A run's per-service count is
+        clamped into the [min, max] range <strong>only for services with the
+        green check</strong>. Runs whose views fall outside every bracket use
+        the normal automatic logic. Settings persist across orders.
+      </p>
+
+      {/* Rule rows */}
+      <div className="space-y-1.5">
+        {engagementRules.map((rule, idx) => (
+          <div key={rule.id} className="rounded-lg border border-gray-800 bg-black/40 p-2">
+            {/* Views range */}
+            <div className="mb-1.5 flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] font-semibold text-gray-400">Views</span>
+              <input
+                type="number"
+                min={1}
+                value={rule.viewsMin}
+                onChange={(e) => {
+                  const v = Math.max(1, parseInt(e.target.value || "0", 10) || 0);
+                  setEngagementRules((prev) => prev.map((r, i) =>
+                    i === idx ? { ...r, viewsMin: v } : r
+                  ));
+                }}
+                className="w-16 rounded-md border border-gray-700 bg-gray-950 px-1.5 py-0.5 text-[10px] text-white focus:border-cyan-500/60 focus:outline-none"
+              />
+              <span className="text-[10px] text-gray-500">to</span>
+              <input
+                type="number"
+                min={1}
+                value={rule.viewsMax}
+                onChange={(e) => {
+                  const v = Math.max(1, parseInt(e.target.value || "0", 10) || 0);
+                  setEngagementRules((prev) => prev.map((r, i) =>
+                    i === idx ? { ...r, viewsMax: v } : r
+                  ));
+                }}
+                className="w-16 rounded-md border border-gray-700 bg-gray-950 px-1.5 py-0.5 text-[10px] text-white focus:border-cyan-500/60 focus:outline-none"
+              />
+              <span className="ml-auto flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEngagementRules((prev) => {
+                      const last = prev[prev.length - 1];
+                      const copy = { ...rule, id: `rule-${Date.now()}-${Math.random().toString(36).slice(2,6)}` };
+                      // Place after the source row
+                      const next = [...prev];
+                      next.splice(idx + 1, 0, copy);
+                      void last;
+                      return next;
+                    });
+                  }}
+                  className="rounded border border-gray-700 px-1.5 py-0.5 text-[9px] text-gray-400 hover:border-cyan-500/60 hover:text-cyan-300"
+                  title="Duplicate this rule"
+                >📋</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEngagementRules((prev) => prev.filter((_, i) => i !== idx));
+                  }}
+                  className="rounded border border-gray-700 px-1.5 py-0.5 text-[9px] text-gray-400 hover:border-red-500/60 hover:text-red-300"
+                  title="Delete this rule"
+                >🗑</button>
+              </span>
+            </div>
+
+            {/* Service rows */}
+            <div className="grid gap-1 text-[10px]">
+              {(["likes","shares","saves","comments","reposts"] as const).map((svc) => {
+                const range = rule[svc];
+                const emoji = { likes: "❤️", shares: "🔄", saves: "🔖", comments: "💬", reposts: "📣" }[svc];
+                return (
+                  <div key={svc} className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 ${
+                    range.enabled ? "bg-cyan-500/10" : "bg-gray-900/50"
+                  }`}>
+                    <label className="flex w-16 cursor-pointer items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={range.enabled}
+                        onChange={(e) => {
+                          const enabled = e.target.checked;
+                          setEngagementRules((prev) => prev.map((r, i) =>
+                            i === idx ? { ...r, [svc]: { ...r[svc], enabled } } : r
+                          ));
+                        }}
+                        className="h-3 w-3 cursor-pointer accent-cyan-500"
+                      />
+                      <span className={range.enabled ? "text-white" : "text-gray-600"}>{emoji} {svc.slice(0, 4)}</span>
+                    </label>
+                    <input
+                      type="number"
+                      min={10}
+                      disabled={!range.enabled}
+                      value={range.min}
+                      onChange={(e) => {
+                        const v = Math.max(10, parseInt(e.target.value || "10", 10) || 10);
+                        setEngagementRules((prev) => prev.map((r, i) =>
+                          i === idx ? { ...r, [svc]: { ...r[svc], min: v } } : r
+                        ));
+                      }}
+                      className="w-14 rounded border border-gray-700 bg-gray-950 px-1.5 py-0.5 text-white disabled:opacity-30 focus:border-cyan-500/60 focus:outline-none"
+                    />
+                    <span className="text-gray-600">-</span>
+                    <input
+                      type="number"
+                      min={10}
+                      disabled={!range.enabled}
+                      value={range.max}
+                      onChange={(e) => {
+                        const v = Math.max(range.min, parseInt(e.target.value || "10", 10) || 10);
+                        setEngagementRules((prev) => prev.map((r, i) =>
+                          i === idx ? { ...r, [svc]: { ...r[svc], max: v } } : r
+                        ));
+                      }}
+                      className="w-14 rounded border border-gray-700 bg-gray-950 px-1.5 py-0.5 text-white disabled:opacity-30 focus:border-cyan-500/60 focus:outline-none"
+                    />
+                    <span className={`ml-auto text-[9px] ${range.enabled ? "text-cyan-400" : "text-gray-700"}`}>
+                      {range.enabled ? "force" : "auto"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Add row + reset */}
+      <div className="flex items-center justify-between gap-2 pt-1">
+        <button
+          type="button"
+          onClick={() => {
+            setEngagementRules((prev) => {
+              const last = prev[prev.length - 1];
+              const nextMin = last ? Math.max(last.viewsMax + 1, 100) : 100;
+              const nextMax = nextMin + 100;
+              return [...prev, {
+                ...{
+                  id: `rule-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
+                  viewsMin: nextMin, viewsMax: nextMax,
+                  likes:    { enabled: true,  min: 10, max: 15 },
+                  shares:   { enabled: true,  min: 10, max: 12 },
+                  saves:    { enabled: false, min: 10, max: 12 },
+                  comments: { enabled: false, min: 10, max: 12 },
+                  reposts:  { enabled: false, min: 10, max: 12 },
+                }
+              }];
+            });
+          }}
+          className="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[10px] font-semibold text-cyan-300 hover:bg-cyan-500/20"
+        >
+          + Add view-range rule
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (!window.confirm("Reset all view-range rules to the default 3-bracket setup?")) return;
+            setEngagementRules([
+              { id: `rule-${Date.now()}-a`, viewsMin: 100, viewsMax: 200,
+                likes: { enabled: true, min: 10, max: 15 },
+                shares: { enabled: true, min: 10, max: 12 },
+                saves: { enabled: false, min: 10, max: 12 },
+                comments: { enabled: false, min: 10, max: 12 },
+                reposts: { enabled: false, min: 10, max: 12 } },
+              { id: `rule-${Date.now()}-b`, viewsMin: 201, viewsMax: 300,
+                likes: { enabled: true, min: 15, max: 20 },
+                shares: { enabled: true, min: 12, max: 15 },
+                saves: { enabled: false, min: 10, max: 12 },
+                comments: { enabled: false, min: 10, max: 12 },
+                reposts: { enabled: false, min: 10, max: 12 } },
+              { id: `rule-${Date.now()}-c`, viewsMin: 301, viewsMax: 500,
+                likes: { enabled: true, min: 20, max: 30 },
+                shares: { enabled: true, min: 15, max: 20 },
+                saves: { enabled: false, min: 10, max: 12 },
+                comments: { enabled: false, min: 10, max: 12 },
+                reposts: { enabled: false, min: 10, max: 12 } },
+            ]);
+          }}
+          className="rounded-md border border-gray-700 bg-gray-950 px-2 py-1 text-[10px] text-gray-400 hover:border-red-500/40 hover:text-red-300"
+        >
+          ↺ Reset to defaults
+        </button>
+      </div>
+
+      {/* Coverage hint */}
+      <p className="text-[9px] text-gray-600 pt-1">
+        💡 Tip: runs whose views fall outside every bracket above use the normal
+        automatic engagement logic. Rules also work in concert with the boost
+        sliders &amp; ratio toggles above.
+      </p>
+    </div>
+  )}
+</div>
+
           {/* Price Calculator - Compact Horizontal */}
           {selectedBundleId && safePlan.runs.length > 0 && (
             <div className="rounded-lg border border-yellow-500/30 bg-gradient-to-br from-yellow-500/5 to-black p-2">
@@ -1651,21 +2030,11 @@ const effectiveMinViews = Math.max(
                       try {
                         const result = await createSmmOrder({ name: orderName.trim() || undefined, apiUrl: selectedApi.url, apiKey: selectedApi.key, link: trimmedUrl, services: servicesPayload });
                                                const order: CreatedOrder = { id: createOrderId(), name: orderName.trim() || `Mission #${createOrderId()}`, batchId, batchIndex: index + 1, batchTotal: targets.length, batchLinks: targets.length > 1 ? targets : undefined, schedulerOrderId: result.schedulerOrderId, smmOrderId: result.orderId ?? "Scheduled", link: trimmedUrl, totalViews: quantity, startDelayHours, patternType: safePlan.patternType, patternName: safePlan.patternName, runs: safePlan?.runs || [], engagement: { likes: totalLikes, shares: totalShares, saves: totalSaves, comments: totalCommentsQty, reposts: totalRepostsQty }, serviceId: viewsServiceId, selectedAPI: selectedApi.name, selectedBundle: selectedBundle.name, status: result.status === "completed" ? "completed" : "running", completedRuns: typeof result.completedRuns === "number" ? result.completedRuns : 0, runStatuses: (safePlan?.runs || []).map(() => "pending"), createdAt: new Date().toISOString(), lastUpdatedAt: new Date().toISOString() };
-                        // 🔥 Verify backend actually saved runs (totalRuns=0 means DB write failed)
-                        if (typeof result.totalRuns === 'number' && result.totalRuns === 0) {
-                          console.warn('[Order] Backend returned totalRuns=0 — runs may not have saved to DB');
-                          setCreateError(`⚠️ Order created but 0 runs were scheduled. Your bundle's service minimums may be too high, or a DB write failed. Check Alerts page.`);
-                        }
                         onCreateOrder(order);
                         createdLinks.add(normalizedTarget);
                         successCount += 1;
                       } catch (error) {
-                        const rawMsg = error instanceof Error ? error.message : "Failed";
-                        // 🔥 FIX Issue-1: Surface active-order conflicts with a friendly message
-                        const isActiveOrderBlock = rawMsg.toLowerCase().includes("active order already exists");
-                        const message = isActiveOrderBlock
-                          ? `⚠️ Active order already exists for this link. Cancel the existing order first, then retry.`
-                          : rawMsg;
+                        const message = error instanceof Error ? error.message : "Failed";
                         const failedOrder: CreatedOrder = { id: createOrderId(), name: orderName.trim() || `Mission #${createOrderId()}`, batchId, batchIndex: index + 1, batchTotal: targets.length, smmOrderId: "N/A", link: trimmedUrl, totalViews: quantity, startDelayHours, patternType: safePlan.patternType, patternName: safePlan.patternName, runs: safePlan?.runs || [], engagement: { likes: totalLikes, shares: totalShares, saves: totalSaves, comments: totalCommentsQty }, serviceId: viewsServiceId, selectedAPI: selectedApi.name, selectedBundle: selectedBundle.name, status: "failed", completedRuns: 0, runStatuses: (safePlan?.runs || []).map((_, i) => (i === 0 ? "cancelled" : "pending")), runErrors: (safePlan?.runs || []).map((_, i) => (i === 0 ? message : "")), errorMessage: message, createdAt: new Date().toISOString(), lastUpdatedAt: new Date().toISOString() };
                         onCreateOrder(failedOrder);
                         failedCount += 1;
