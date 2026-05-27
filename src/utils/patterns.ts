@@ -1,5 +1,4 @@
 import type { OrderConfig, PatternPlan, PatternType, QuickPatternPreset, RunStep } from "../types/order";
-import { getEngagementRatios, ratiosToFractions } from "./engagementRatios";
 
 const PATTERN_TYPES: PatternType[] = [
   "smooth-s-curve",
@@ -473,7 +472,33 @@ const ORGANIC_PATTERN_LIBRARY: OrganicPatternProfile[] = [
 let lastPatternKey: string | null = null;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const random = (min: number, max: number) => Math.random() * (max - min) + min;
+
+// 🔥 FIX #6: Seeded RNG.
+//   Old code used Math.random() inline, so every regen of the plan rolled
+//   different numbers — the preview the user saw was NOT the plan that
+//   eventually got submitted. Now we use a deterministic mulberry32
+//   generator that is reseeded at the top of createPatternPlan() based on
+//   `config.seed`. Same config + same seed ⇒ identical plan, every time.
+//
+//   Callers that omit `config.seed` get the original behaviour (Math.random)
+//   so nothing in the codebase has to change at once.
+let __rngSource: () => number = Math.random;
+function setRngSeed(seed: number | undefined): void {
+  if (seed === undefined || seed === null || !Number.isFinite(seed)) {
+    __rngSource = Math.random;
+    return;
+  }
+  // mulberry32 — small, fast, good-enough distribution for this purpose
+  let a = (seed >>> 0) || 1;
+  __rngSource = () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), 1 | t);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const random = (min: number, max: number) => __rngSource() * (max - min) + min;
 const randomInt = (min: number, max: number) => Math.floor(random(min, max + 1));
 
 function pickRandomPatternType(): PatternType {
@@ -837,7 +862,7 @@ function generateViewRunsFromCurve(
       const spikeChance = phase > 0.32 && phase < 0.72
         ? variant.midSpikeChance + varianceFactor * 0.08
         : variant.midSpikeChance * 0.4;
-      if (Math.random() < spikeChance) {
+      if (__rngSource() < spikeChance) {
         phaseFactor *= random(variant.spikeBand[0], variant.spikeBand[1]);
       }
     } else {
@@ -858,11 +883,11 @@ function generateViewRunsFromCurve(
       }
     }
 
-    if (Math.random() < variant.dipChance) {
+    if (__rngSource() < variant.dipChance) {
       phaseFactor *= random(variant.dipBand[0], variant.dipBand[1]);
     }
 
-    if (Math.random() < variant.dipChance) {
+    if (__rngSource() < variant.dipChance) {
       phaseFactor *= random(variant.dipBand[0], variant.dipBand[1]);
     }
 
@@ -908,7 +933,7 @@ function generateViewRunsFromCurve(
     if (phase < 0.2) return value * random(0.78, 0.9);
     if (phase <= 0.8) {
       const boosted = value * random(1.06, 1.24);
-      return Math.random() < 0.14 ? boosted * random(1.12, 1.42) : boosted;
+      return __rngSource() < 0.14 ? boosted * random(1.12, 1.42) : boosted;
     }
     return value * random(0.86, 1.02);
   });
@@ -973,6 +998,45 @@ function generateViewRunsFromCurve(
     if (!adjusted) finalRuns[0] -= 1;
   }
 
+  // 🔥 FIX #11: audience-saturation envelope.
+  // Real posts plateau — most views land in the first 24-48 h, then a long
+  // flat tail. We weight each run by (1 - e^(-k*t)) where t ∈ [0,1] over the
+  // campaign, then renormalize so the sum still equals totalViews and the
+  // per-run minimum is still respected. The earlier runs get a small bump,
+  // the very latest runs get gently trimmed.
+  if (finalRuns.length >= 4) {
+    const SATURATION_K = 3.2; // ~80% of weight reached by ~50% of campaign
+    const envelope = finalRuns.map((_, i) => {
+      const t = i / Math.max(1, finalRuns.length - 1);
+      return 1 - Math.exp(-SATURATION_K * t);
+    });
+    const envSum = envelope.reduce((a, b) => a + b, 0);
+    if (envSum > 0) {
+      // Combine 60% envelope + 40% original curve so we don't erase the
+      // chosen pattern's character (S-curve, viral spike, etc.)
+      const ENVELOPE_BLEND = 0.6;
+      const originalSum = finalRuns.reduce((a, b) => a + b, 0);
+      if (originalSum > 0) {
+        const reshaped = finalRuns.map((value, i) => {
+          const envWeight = envelope[i] / envSum;
+          const origWeight = value / originalSum;
+          const mixed = envWeight * ENVELOPE_BLEND + origWeight * (1 - ENVELOPE_BLEND);
+          return Math.max(minViewsPerRun, Math.round(mixed * originalSum));
+        });
+        // Fix rounding drift so total = totalViews exactly
+        let diff = originalSum - reshaped.reduce((a, b) => a + b, 0);
+        let i = 0;
+        while (diff !== 0 && i < reshaped.length * 20) {
+          const idx = i % reshaped.length;
+          if (diff > 0) { reshaped[idx]++; diff--; }
+          else if (reshaped[idx] > minViewsPerRun) { reshaped[idx]--; diff++; }
+          i++;
+        }
+        for (let k = 0; k < reshaped.length; k++) finalRuns[k] = reshaped[k];
+      }
+    }
+  }
+
   return finalRuns;
 }
 
@@ -1015,17 +1079,17 @@ function clipCurveValue(style: ClipCurveStyle, t: number): number {
 
 function pickClipCurveStyle(preset: QuickPatternPreset | null, totalViews: number, durationHours: number): ClipCurveStyle {
   if (totalViews < 50000) {
-    if (preset === "viral-boost") return Math.random() < 0.55 ? "early-surge-tail" : "steady-organic";
-    if (preset === "fast-start") return Math.random() < 0.65 ? "early-surge-tail" : "steady-organic";
-    if (preset === "slow-burn") return Math.random() < 0.65 ? "long-s-curve" : "steady-organic";
-    if (preset === "trending-push") return Math.random() < 0.55 ? "steady-organic" : "long-s-curve";
+    if (preset === "viral-boost") return __rngSource() < 0.55 ? "early-surge-tail" : "steady-organic";
+    if (preset === "fast-start") return __rngSource() < 0.65 ? "early-surge-tail" : "steady-organic";
+    if (preset === "slow-burn") return __rngSource() < 0.65 ? "long-s-curve" : "steady-organic";
+    if (preset === "trending-push") return __rngSource() < 0.55 ? "steady-organic" : "long-s-curve";
     return ["steady-organic", "long-s-curve", "early-surge-tail"][randomInt(0, 2)] as ClipCurveStyle;
   }
 
-  if (preset === "viral-boost") return Math.random() < 0.55 ? "instant-spike-tail" : "two-step-spike";
-  if (preset === "fast-start") return Math.random() < 0.65 ? "early-surge-tail" : "instant-spike-tail";
-  if (preset === "slow-burn") return Math.random() < 0.55 ? "long-s-curve" : "late-explosion";
-  if (preset === "trending-push") return Math.random() < 0.5 ? "two-step-spike" : "late-explosion";
+  if (preset === "viral-boost") return __rngSource() < 0.55 ? "instant-spike-tail" : "two-step-spike";
+  if (preset === "fast-start") return __rngSource() < 0.65 ? "early-surge-tail" : "instant-spike-tail";
+  if (preset === "slow-burn") return __rngSource() < 0.55 ? "long-s-curve" : "late-explosion";
+  if (preset === "trending-push") return __rngSource() < 0.5 ? "two-step-spike" : "late-explosion";
 
   if (durationHours >= 336) return ["long-s-curve", "late-explosion", "two-step-spike"][randomInt(0, 2)] as ClipCurveStyle;
   if (totalViews >= 750000) return ["two-step-spike", "late-explosion", "early-surge-tail", "long-s-curve"][randomInt(0, 3)] as ClipCurveStyle;
@@ -1074,7 +1138,7 @@ function generateClipStyleViewRuns(
       (style === "instant-spike-tail" && t < 0.2) ||
       (style === "long-s-curve" && t > 0.34 && t < 0.68);
 
-    if (hotZone && totalViews >= 50000 && Math.random() < 0.18 + variance * 0.18) organicNoise *= random(1.18, 1.72);
+    if (hotZone && totalViews >= 50000 && __rngSource() < 0.18 + variance * 0.18) organicNoise *= random(1.18, 1.72);
 
     return delta * organicNoise;
   });
@@ -1146,6 +1210,41 @@ function resolveEngagementProfile(kind: EngagementKind): EngagementProfile {
   return { densityMin: 0.1, densityMax: 0.2, perRunMin: 10, perRunMax: 18 };
 }
 
+// 🔥 FIX #7: 24-hour engagement curve replacing the old binary 18-23 boost.
+// Indexed 0..23 (hour of day in audience timezone). Real audience activity
+// is bimodal: morning commute peak + post-work peak, dead 2-6 AM.
+// Values centred around 1.0 (1.0 = "average hour"), so multiplying by this
+// curve preserves total volume.
+const HOURLY_ENGAGEMENT_CURVE = [
+  0.40, 0.30, 0.25, 0.25, 0.30, 0.45, // 0-5  AM (asleep)
+  0.70, 1.00, 1.15, 1.10, 1.00, 0.95, // 6-11 AM (wake, commute, morning)
+  1.00, 0.95, 0.90, 0.95, 1.05, 1.20, // 12-5 PM (lunch dip, recovery)
+  1.35, 1.40, 1.30, 1.15, 0.90, 0.60, // 6-11 PM (peak, fade)
+];
+
+// 🔥 FIX #7: module-level current-audience-tz, set at the top of
+// createPatternPlan(). Avoids plumbing tz through 4 helper functions.
+let __currentAudienceTz: string | undefined = undefined;
+
+// Hour-of-day (0-23) for a Date, optionally in a specific IANA timezone.
+// Used to look up HOURLY_ENGAGEMENT_CURVE consistently regardless of where
+// the server runs. Falls back to browser-local hour if tz is invalid/missing.
+function hourInAudienceTz(date: Date, tz?: string): number {
+  if (!tz) return date.getHours();
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      hour12: false,
+      timeZone: tz,
+    }).formatToParts(date);
+    const h = parts.find((p) => p.type === "hour");
+    const parsed = h ? parseInt(h.value, 10) : NaN;
+    return Number.isFinite(parsed) ? (parsed === 24 ? 0 : parsed) : date.getHours();
+  } catch {
+    return date.getHours();
+  }
+}
+
 function buildEngagementWeights(runs: { views: number; at: Date }[], peakHoursBoost: boolean): number[] {
   const maxViews = Math.max(1, ...runs.map((run) => run.views));
   return runs.map((run, index) => {
@@ -1155,9 +1254,25 @@ function buildEngagementWeights(runs: { views: number; at: Date }[], peakHoursBo
     const localSpike = Math.max(0, run.views - (previous + next) / 2) / maxViews;
     const t = index / Math.max(1, runs.length - 1);
     const phaseBoost = t > 0.3 && t < 0.75 ? 1.15 : 1;
-    const hour = run.at.getHours();
-    const peakBoost = peakHoursBoost && hour >= 18 && hour <= 23 ? 1.35 : 1;
-    return Math.max(0.01, (0.5 + run.views / maxViews * 0.65 + increase * 1.1 + localSpike * 1.2) * phaseBoost * peakBoost);
+
+    // 🔥 FIX #7: hour-of-day boost from the 24-curve, not a binary 1.35 flag.
+    // When peakHoursBoost is OFF we still apply the curve but flattened
+    // toward 1.0 (multiplier of 0.4) so the schedule is calmer.
+    // NOTE: this function does not know the timezone — caller passes pre-set
+    // dates. See `hourInAudienceTz` for the timezone-aware version used in
+    // createPatternPlan.
+    const hour = hourInAudienceTz(run.at, __currentAudienceTz);
+    const curve = HOURLY_ENGAGEMENT_CURVE[hour] ?? 1;
+    const hourBoost = peakHoursBoost
+      ? curve                                  // full curve when ON
+      : 1 + (curve - 1) * 0.4;                 // damped curve when OFF
+
+    return Math.max(
+      0.01,
+      (0.5 + (run.views / maxViews) * 0.65 + increase * 1.1 + localSpike * 1.2) *
+        phaseBoost *
+        hourBoost,
+    );
   });
 }
 
@@ -1191,7 +1306,7 @@ function selectEngagementRuns(length: number, count: number, weights: number[]):
   while (selected.size < count) {
     const candidates = Array.from({ length }, (_, index) => index).filter((index) => {
       for (const taken of selected) {
-        if (Math.abs(taken - index) <= minGap && Math.random() < 0.8) return false;
+        if (Math.abs(taken - index) <= minGap && __rngSource() < 0.8) return false;
       }
       return true;
     });
@@ -1234,7 +1349,7 @@ function pickEngagementValue(kind: EngagementKind, t: number, lastValue: number 
   let value = applyNoise(randomInt(min, max), profile.perRunMin, profile.perRunMax);
 
   if (lastValue !== null && value === lastValue) {
-    value = clamp(value + (Math.random() < 0.5 ? -1 : 1), profile.perRunMin, profile.perRunMax);
+    value = clamp(value + (__rngSource() < 0.5 ? -1 : 1), profile.perRunMin, profile.perRunMax);
   }
 
   return value;
@@ -1276,11 +1391,11 @@ function distributeEngagement(
     const t = index / Math.max(1, runs.length - 1);
     let value = pickEngagementValue(kind, t, lastAssigned);
     if (secondLastAssigned !== null && value === secondLastAssigned) {
-      value = clamp(value + (Math.random() < 0.5 ? -1 : 1), profile.perRunMin, profile.perRunMax);
+      value = clamp(value + (__rngSource() < 0.5 ? -1 : 1), profile.perRunMin, profile.perRunMax);
     }
 
     const spikeBias = weights[index] / Math.max(0.01, Math.max(...weights));
-    if (Math.random() < spikeBias * 0.45) value = Math.min(profile.perRunMax, value + randomInt(1, 2));
+    if (__rngSource() < spikeBias * 0.45) value = Math.min(profile.perRunMax, value + randomInt(1, 2));
 
     result[index] = value;
     runningTotal += value;
@@ -1318,6 +1433,16 @@ function detectRisk(viewsPerHour: number, variancePercent: number, hours: number
 }
 
 export function createPatternPlan(config: OrderConfig): PatternPlan {
+  // 🔥 FIX #6: deterministic regen — same (config, seed) ⇒ same plan
+  setRngSeed(config.seed);
+  // When the caller pins a seed they expect reproducibility, so clear the
+  // module-level "don't repeat last pattern" memory.
+  if (config.seed !== undefined && config.seed !== null) {
+    lastPatternKey = null;
+  }
+  // 🔥 FIX #7: timezone used by the hour-of-day engagement curve
+  __currentAudienceTz = config.audienceTimezone;
+
   const minViewsPerRun = config.minViewsPerRun || 100;
   const now = new Date();
 
@@ -1484,7 +1609,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       const isPeak = inPeakWindow || inLunchPeak;
 
       const boostChance = inPeakWindow ? 0.80 : inLunchPeak ? 0.55 : 0.15;
-      const boost = Math.random() < boostChance
+      const boost = __rngSource() < boostChance
         ? random(1.14, inPeakWindow ? 1.52 : 1.25)
         : random(0.92, 1.05);
 
@@ -1568,6 +1693,89 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     return { at: new Date(now.getTime() + elapsed * 60_000), views };
   });
 
+  // 🔥 COLD-START DEAD ZONE
+  //
+  // Real platforms (TikTok/IG/YT) put new posts through an "algorithm test"
+  // period of ~30-90 min where only a small seed audience sees them. Posts
+  // that come in HOT (huge view spike at minute 1) get flagged as suspicious.
+  //
+  // We cap runs whose scheduled time falls in the cold zone at
+  // `[effectiveMinViews, effectiveMinViews * 1.5]`, then redistribute the
+  // excess views proportionally across the remaining runs. Totals are
+  // preserved exactly. Provider minimum (effectiveMinViews) is respected —
+  // we NEVER drop a run below it.
+  //
+  // Skipped when:
+  //   - the campaign is too short (≤ 4 runs) — every run matters
+  //   - user supplied a custom drawn curve (their intent overrides ours)
+  //   - the entire campaign finishes within the cold zone (provider min wins)
+  if (
+    !config.customDrawnViews &&
+    provisionalRuns.length >= 4 &&
+    durationHours >= 0.75 // skip for ultra-short campaigns (< 45 min)
+  ) {
+    // Pick a cold-zone length deterministically (mulberry32 honors seed).
+    // Range: 30-90 min, weighted toward 45-60.
+    const coldZoneMinutes = Math.round(30 + random(0, 1) * 60);
+    const firstRunMs = provisionalRuns[0].at.getTime();
+    const coldCutoffMs = firstRunMs + coldZoneMinutes * 60_000;
+
+    // Indexes of runs inside the cold window — but never more than the
+    // first 25% of runs (otherwise short campaigns get gutted).
+    const maxColdIdx = Math.max(0, Math.floor(provisionalRuns.length * 0.25) - 1);
+    const coldIdxs: number[] = [];
+    for (let i = 0; i < provisionalRuns.length; i++) {
+      if (i > maxColdIdx) break;
+      if (provisionalRuns[i].at.getTime() <= coldCutoffMs) {
+        coldIdxs.push(i);
+      }
+    }
+
+    // Need at least one run AFTER the cold zone to absorb the redistribution.
+    const hasReceivers = coldIdxs.length > 0 && coldIdxs.length < provisionalRuns.length;
+    if (hasReceivers) {
+      const coldCap = Math.max(
+        effectiveMinViews,
+        Math.round(effectiveMinViews * 1.5),
+      );
+      let stolen = 0;
+      for (const i of coldIdxs) {
+        const before = provisionalRuns[i].views;
+        // Target: random value in [effectiveMinViews, coldCap], never below floor.
+        const target = Math.max(
+          effectiveMinViews,
+          Math.min(coldCap, effectiveMinViews + randomInt(0, Math.max(0, coldCap - effectiveMinViews))),
+        );
+        if (before > target) {
+          stolen += before - target;
+          provisionalRuns[i] = { ...provisionalRuns[i], views: target };
+        }
+        // If before <= target, leave alone (already small enough).
+      }
+
+      // Redistribute `stolen` across non-cold runs proportionally to their
+      // current views (bigger runs absorb more — keeps the curve shape).
+      if (stolen > 0) {
+        const receiverIdxs: number[] = [];
+        for (let i = 0; i < provisionalRuns.length; i++) {
+          if (!coldIdxs.includes(i)) receiverIdxs.push(i);
+        }
+        const receiverSum = receiverIdxs.reduce((s, i) => s + provisionalRuns[i].views, 0);
+        if (receiverSum > 0) {
+          let allocated = 0;
+          for (let k = 0; k < receiverIdxs.length; k++) {
+            const i = receiverIdxs[k];
+            const share = k === receiverIdxs.length - 1
+              ? stolen - allocated // last receiver absorbs rounding drift
+              : Math.round((provisionalRuns[i].views / receiverSum) * stolen);
+            allocated += share;
+            provisionalRuns[i] = { ...provisionalRuns[i], views: provisionalRuns[i].views + share };
+          }
+        }
+      }
+    }
+  }
+
   const totalViews = provisionalRuns.reduce((acc, run) => acc + run.views, 0);
 
   // 🔥 Realistic first-hours behavior from your screenshots:
@@ -1583,20 +1791,19 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     : Math.min(Math.max(1, Math.floor(provisionalRuns.length * 0.22)), Math.max(1, provisionalRuns.length - 2));
   const afterEngagementWarmup = (index: number) => index >= minEngagementIndex;
 
-  // 🔥 Engagement ratios — reads from user-configured localStorage settings,
-  //    falls back to built-in defaults when no custom ratio is saved.
-  const _customRatios = getEngagementRatios();
-  const _customFractions = ratiosToFractions(_customRatios);
-
+  // 🔥 Screenshot-style viral engagement ratios.
+  // Reference analytics showed likes around 7%–17% of views, shares much smaller,
+  // and comments as a tiny but visible line. The old logic was ~0.7% likes.
   const likesRatio = (() => {
     if (!config.includeLikes) return 0;
-    // Quick-presets override the custom ratio for likes (they set a specific viral profile)
+    // Deterministic ratios: changing the likes percentage should scale the existing plan,
+    // not regenerate a new random base like count first.
     if (config.quickPreset === "viral-boost") return 0.155;
     if (config.quickPreset === "fast-start") return 0.12;
     if (config.quickPreset === "slow-burn") return 0.09;
     if (config.quickPreset === "trending-push") return 0.135;
-    // 🔥 Use custom likes fraction from settings page
-    return _customFractions.likesFraction;
+    if (totalViews >= 750000) return 0.125;
+    return totalViews < 50000 ? 0.058 : 0.095;
   })();
   const baseLikesTotal = config.includeLikes ? Math.max(10, Math.floor(totalViews * likesRatio)) : 0;
   const likesBoostMultiplier = Math.max(0.15, 1 + ((config.likesBoostPercent || 0) / 100));
@@ -1613,15 +1820,21 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   const sharesTotal = (() => {
     if (!config.includeShares) return 0;
     const ratio = config.sharesRatio || "half";
+    // 🔥 FIX: Boost slider must visibly scale shares.
+    // Old clamp Math.max(0.15, …) was fine, but the BASE multipliers were so tiny
+    // that even +300% produced a barely-visible bump (often clamped to the
+    // Math.max(10, …) floor). We raise the base multipliers AND keep the boost
+    // slider as a multiplicative scale so the dropdown changes are obvious.
     const shareBoostMultiplier = Math.max(0.1, 1 + ((config.sharesBoostPercent || 0) / 100));
     if (ratio === "custom") {
       return Math.max(10, Math.round((config.sharesCustomCount || 0) * shareBoostMultiplier));
     }
-    // 🔥 Use custom shares fraction from settings page
-    // ratio dropdown acts as a scale: equal=100%, half=50%, third=25% of the custom base
-    const baseShares = Math.round(totalViews * _customFractions.sharesFraction);
-    const scaleByRatio = ratio === "equal" ? 1.0 : ratio === "third" ? 0.25 : 0.5;
-    const raw = baseShares * scaleByRatio * shareBoostMultiplier;
+    // UI labels are repurposed for viral clipping:
+    //   equal = viral share push (high), half = normal, third = low.
+    // Bumped from {equal:0.06, half:0.025, third:0.01} so the boost slider has room
+    // to move and the per-run shares clear the 10-share minimum easily.
+    const multiplier = ratio === "equal" ? 0.22 : ratio === "third" ? 0.05 : 0.12;
+    const raw = likesTotal * multiplier * shareBoostMultiplier;
     return Math.max(10, Math.round(raw));
   })();
 
@@ -1629,32 +1842,44 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     if (!config.includeSaves) return 0;
     const ratio = config.savesRatio || "third";
     if (ratio === "custom") return Math.max(10, config.savesCustomCount || 0);
-    // 🔥 Use custom saves fraction from settings page
-    const baseSaves = Math.round(totalViews * _customFractions.savesFraction);
-    const scaleByRatio = ratio === "equal" ? 1.0 : ratio === "half" ? 0.5 : 0.25;
-    return Math.max(10, Math.round(baseSaves * scaleByRatio));
+    const multiplier = ratio === "equal" ? random(0.05, 0.09) : ratio === "half" ? random(0.018, 0.04) : random(0.008, 0.022);
+    return Math.max(10, Math.floor(likesTotal * multiplier));
   })();
 
   const repostsTotal = (() => {
     if (!config.includeReposts) return 0;
     const ratio = config.repostsRatio || "half";
     if (ratio === "custom") return Math.max(10, config.repostsCustomCount || 0);
-    // 🔥 Use custom reposts fraction from settings page
-    const baseReposts = Math.round(totalViews * _customFractions.repostsFraction);
-    const scaleByRatio = ratio === "equal" ? 1.0 : ratio === "third" ? 0.25 : 0.5;
-    return Math.max(10, Math.round(baseReposts * scaleByRatio));
+    const multiplier = ratio === "equal" ? random(0.04, 0.08) : ratio === "third" ? random(0.006, 0.018) : random(0.015, 0.035);
+    return Math.max(10, Math.floor(likesTotal * multiplier));
   })();
 
   let commentsTotal = 0;
   if (config.includeComments) {
-    // 🔥 Use custom comments fraction from settings page
-    const rawCommentsTotal = clamp(
-      Math.floor(totalViews * _customFractions.commentsFraction),
-      10,
-      5000
-    );
+    // 🔥 FIX: Comments were frozen because the old clamp(..., 30, 1200) was
+    // hard-capping the result at 1200 (so anything above ~10 M views looked
+    // identical) and lifting tiny orders up to 30 (so anything below ~300 k
+    // views also looked identical). The result: changing the views slider
+    // produced no visible change in the comments column.
+    //
+    // New formula:
+    //   • Use deterministic ratios that scale by view tier (no random — so
+    //     the same views always gives a predictable, growing comment count).
+    //   • Floor only at the provider's true minimum (10).
+    //   • Cap is much higher (50 000) and is just a safety rail — for
+    //     anything realistic, the value scales linearly with views.
+    const commentRatio =
+      totalViews >= 10000000 ? 0.00018 :   // 10 M+    → ~1 800 per 10 M
+      totalViews >= 1000000  ? 0.00022 :   // 1 M-10 M → ~220 per 1 M
+      totalViews >= 100000   ? 0.00028 :   // 100 k-1M → ~28 per 100 k
+      totalViews >= 10000    ? 0.00035 :   // 10 k-100k → ~3-35
+                               0.00050;    // < 10 k   → small but visible
+    const rawCommentsTotal = Math.floor(totalViews * commentRatio);
     // Provider minimum is 10 comments/run, so keep total aligned to 10s.
-    commentsTotal = Math.max(10, Math.ceil(rawCommentsTotal / 10) * 10);
+    // Use 50 000 as a soft safety cap — far above anything users will hit
+    // in practice but prevents a typo'd 10 B-view order from exploding.
+    const aligned = Math.ceil(Math.max(10, rawCommentsTotal) / 10) * 10;
+    commentsTotal = Math.min(50000, aligned);
   }
 
        // =========================================================
@@ -2372,6 +2597,62 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
     return result;
   })();
+
+  // =========================================================
+  // 🔥 ENGAGEMENT-MINIMUM JITTER PASS
+  // Real users don't react in flat rows of "10, 10, 10, 10".
+  // For each engagement array, find runs that are AT the floor and have a
+  // neighbour with headroom — swap 1-3 units between them so the visible
+  // numbers become e.g. [10, 12, 11, 10, 13, 11] while the total is preserved
+  // exactly. The 10-floor (provider minimum) is never violated.
+  // =========================================================
+  function jitterFloorRuns(arr: number[], minPerRun: number): void {
+    if (arr.length < 3) return;
+    const floorIdxs: number[] = [];
+    const donorIdxs: number[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      if (arr[i] === minPerRun) floorIdxs.push(i);
+      else if (arr[i] >= minPerRun + 4) donorIdxs.push(i);
+    }
+    if (floorIdxs.length === 0 || donorIdxs.length === 0) return;
+
+    // Jitter at most ~40% of floor runs; pick deterministically via the
+    // seeded RNG so the same plan always jitters the same way.
+    const targetCount = Math.max(1, Math.floor(floorIdxs.length * 0.4));
+    let jittered = 0;
+    let donorPtr = 0;
+
+    for (const fIdx of floorIdxs) {
+      if (jittered >= targetCount) break;
+      // Find a donor that still has > minPerRun + 2 left.
+      let chosen = -1;
+      for (let attempts = 0; attempts < donorIdxs.length; attempts++) {
+        const dIdx = donorIdxs[(donorPtr + attempts) % donorIdxs.length];
+        if (arr[dIdx] >= minPerRun + 4) {
+          chosen = dIdx;
+          donorPtr = (donorPtr + attempts + 1) % donorIdxs.length;
+          break;
+        }
+      }
+      if (chosen === -1) break;
+      // Move 1-4 units to fIdx. Random in [1, min(4, donor - (min+2))].
+      const maxGive = Math.min(4, arr[chosen] - (minPerRun + 2));
+      if (maxGive < 1) continue;
+      const give = 1 + Math.floor(random(0, 1) * maxGive); // 1..maxGive
+      arr[fIdx] += give;
+      arr[chosen] -= give;
+      jittered++;
+    }
+  }
+
+  // Apply jitter to every engagement array. Floor is 10 for engagement
+  // services (matches every block above's `minPerRun = 10`).
+  jitterFloorRuns(likesRuns, 10);
+  jitterFloorRuns(sharesRuns, 10);
+  jitterFloorRuns(savesRuns, 10);
+  jitterFloorRuns(commentsRuns, 10);
+  jitterFloorRuns(repostsRuns, 10);
+
   // =========================================================
   // 🔥 BUILD FINAL RUNS
   // =========================================================
