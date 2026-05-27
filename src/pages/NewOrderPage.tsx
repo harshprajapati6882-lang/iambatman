@@ -6,7 +6,7 @@ import { PatternGenerator } from "../components/PatternGenerator";
 import type {
   ApiPanel,
   Bundle,
-  CreatedOrder,
+  CreatedOrder, 
   DeliveryOption, 
   OrderConfig,
   PatternPlan,
