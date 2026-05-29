@@ -11,7 +11,7 @@ const PATTERN_TYPES: PatternType[] = [
   "fibonacci-spiral",
 ];
 
-interface OrganicPatternProfile {
+interface OrganicPatternProfile { 
   key: string;
   name: string;
   baseType: PatternType;
