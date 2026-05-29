@@ -6,8 +6,8 @@ interface CreateOrderPayload {
   apiUrl: string;
   apiKey: string;
   link: string;
-  // Each run can carry optional per-run overrides used by the Premium Drip
-  // Likes feature (routes specific runs to a different service / API).
+  // Each run can carry optional per-run overrides used by the Sub-Likes
+  // feature (routes specific runs to a different service / API).
   services: Partial<
     Record<
       "views" | "likes" | "shares" | "saves",
