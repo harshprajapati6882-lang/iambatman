@@ -6,6 +6,8 @@ interface CreateOrderPayload {
   apiUrl: string;
   apiKey: string;
   link: string;
+  // Each run can carry optional per-run overrides used by the Premium Drip
+  // Likes feature (routes specific runs to a different service / API).
   services: Partial<
     Record<
       "views" | "likes" | "shares" | "saves",
@@ -14,6 +16,10 @@ interface CreateOrderPayload {
         runs: Array<{
           time: string;
           quantity: number;
+          serviceIdOverride?: string;
+          apiUrlOverride?: string;
+          apiKeyOverride?: string;
+          serviceMinOverride?: number;
         }>;
       }
     >
@@ -65,9 +71,8 @@ interface OrderStatusResult {
   }>;
 }
 
-const BACKEND_BASE_URL =
-  (import.meta.env.VITE_BACKEND_URL as string | undefined)?.trim() ||
-  "https://backend-new-6tzb.onrender.com";
+// 🔥 FIX #5: single source of truth (see src/config.ts)
+import { BACKEND_URL as BACKEND_BASE_URL } from "../config";
 
 interface RawService {
   service?: string | number;
@@ -601,33 +606,5 @@ export async function checkDuplicates(): Promise<{
   const endpoint = `${BACKEND_BASE_URL.replace(/\/$/, "")}/api/check-duplicates`;
   const response = await fetch(endpoint);
   if (!response.ok) throw new Error(`Failed to check duplicates (HTTP ${response.status})`);
-  return await response.json();
-}
-
-// 🔥 BULK CANCEL — cancel many orders in a single backend call
-export async function bulkCancelOrders(schedulerOrderIds: string[]): Promise<{
-  success: boolean;
-  total: number;
-  cancelled: number;
-  failed: number;
-  results: Array<{
-    schedulerOrderId: string;
-    success: boolean;
-    status?: string;
-    completedRuns?: number;
-    runStatuses?: string[];
-    error?: string;
-  }>;
-}> {
-  const endpoint = `${BACKEND_BASE_URL.replace(/\/$/, "")}/api/orders/bulk-cancel`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ schedulerOrderIds }),
-  });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error((err as any)?.error || `Bulk cancel failed (HTTP ${response.status})`);
-  }
   return await response.json();
 }
