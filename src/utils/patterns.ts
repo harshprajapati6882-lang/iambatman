@@ -2619,7 +2619,22 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     if (!config.engagementRulesEnabled || !config.engagementRules || config.engagementRules.length === 0) return;
     if (arr.length !== provisionalRuns.length) return;
 
-    const MIN_PROVIDER = 10;
+    // 🔥 LIKES with Premium Drip enabled: the per-run floor drops to the
+    // premium service's own min (usually 1). All other services stay at 10.
+    // The frontend's payload-split logic decides which RUNS go to which
+    // service; here we just need the engine to permit sub-10 values for
+    // those small runs so the user's "10 likes ÷ 5-run drip = 2 each"
+    // intent actually survives.
+    let MIN_PROVIDER = 10;
+    if (service === "likes"
+        && config.premiumLikesEnabled
+        && typeof config.premiumLikesThreshold === "number"
+        && config.premiumLikesThreshold >= 1) {
+      // We don't actually know the premium service's min here — but if the
+      // user enabled premium, they've picked a service that accepts < 10.
+      // Use 1 as the soft floor for likes (provider service handles validation).
+      MIN_PROVIDER = 1;
+    }
 
     // ---------------------------------------------------------------------
     // GOAL: preserve the ORIGINAL total. The rules decide HOW the total is
