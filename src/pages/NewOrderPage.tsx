@@ -6,11 +6,11 @@ import { PatternGenerator } from "../components/PatternGenerator";
 import type {
   ApiPanel,
   Bundle,
-  CreatedOrder, 
-  DeliveryOption, 
+  CreatedOrder,
+  DeliveryOption,
   OrderConfig,
   PatternPlan,
-  QuickPatternPreset, 
+  QuickPatternPreset,
   EngagementRule,
 } from "../types/order";
 import { createSmmOrder } from "../utils/api";
@@ -166,6 +166,48 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
     setSeed((s) => s + 1);
   };
   const [rulesPanelOpen, setRulesPanelOpen] = useState<boolean>(false);
+
+  // 🔥 NEW: Premium Drip Likes — route small likes runs (≤ threshold)
+  // to a dedicated min=1 service. Independent feature, OFF by default,
+  // settings persist in localStorage.
+  const PREMIUM_ON_KEY = "dev-smm-premium-likes-on-v1";
+  const PREMIUM_SETTINGS_KEY = "dev-smm-premium-likes-v1";
+  type PremiumSettings = { apiId: string; serviceId: string; threshold: number };
+  const [premiumLikesEnabled, setPremiumLikesEnabledRaw] = useState<boolean>(() => {
+    try { return localStorage.getItem(PREMIUM_ON_KEY) === "1"; } catch { return false; }
+  });
+  const setPremiumLikesEnabled = (v: boolean) => {
+    setPremiumLikesEnabledRaw(v);
+    try { localStorage.setItem(PREMIUM_ON_KEY, v ? "1" : "0"); } catch {}
+  };
+  const [premiumLikes, setPremiumLikesRaw] = useState<PremiumSettings>(() => {
+    try {
+      const raw = localStorage.getItem(PREMIUM_SETTINGS_KEY);
+      if (raw) {
+        const p = JSON.parse(raw);
+        if (p && typeof p.threshold === "number") {
+          return {
+            apiId: String(p.apiId || ""),
+            serviceId: String(p.serviceId || ""),
+            threshold: Math.max(1, Math.floor(p.threshold)),
+          };
+        }
+      }
+    } catch {}
+    return { apiId: "", serviceId: "", threshold: 10 };
+  });
+  const setPremiumLikes = (next: PremiumSettings | ((prev: PremiumSettings) => PremiumSettings)) => {
+    setPremiumLikesRaw((prev) => {
+      const updated = typeof next === "function" ? next(prev) : next;
+      try { localStorage.setItem(PREMIUM_SETTINGS_KEY, JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+  };
+  const [premiumPanelOpen, setPremiumPanelOpen] = useState<boolean>(false);
+
+  // Resolve the chosen premium service (display info)
+  const premiumApiObj = apis.find((a) => a.id === premiumLikes.apiId);
+  const premiumServiceObj = premiumApiObj?.services.find((s) => s.id === premiumLikes.serviceId);
   const [useClonedPlan, setUseClonedPlan] = useState(Boolean(prefillPlan));
   const [clonedPlan, setClonedPlan] = useState<PatternPlan | null>(prefillPlan);
   const [expandedRuns, setExpandedRuns] = useState(false);
@@ -298,6 +340,12 @@ const effectiveMinViews = Math.max(
       // 🔥 NEW: view-bracket engagement rules (only applied when the toggle is ON)
       engagementRulesEnabled,
       engagementRules: engagementRulesEnabled ? engagementRules : undefined,
+      // 🔥 NEW: premium-drip-likes — tells the plan engine that small likes
+      // values (< 10) are acceptable because they'll be routed to a min=1 service.
+      premiumLikesEnabled,
+      premiumLikesThreshold: premiumLikes.threshold,
+      premiumLikesApiId: premiumLikes.apiId || undefined,
+      premiumLikesServiceId: premiumLikes.serviceId || undefined,
     }),
     [
       postUrl,
@@ -333,6 +381,8 @@ const effectiveMinViews = Math.max(
       audienceTimezone,
       engagementRulesEnabled,
       engagementRules,
+      premiumLikesEnabled,
+      premiumLikes,
     ]
   );
 
@@ -366,6 +416,16 @@ const effectiveMinViews = Math.max(
   }, [useClonedPlan, clonedPlan, generatedPlan]);
 
   const safePlan = useMemo(() => ({ ...plan, runs: plan?.runs || [] }), [plan]);
+
+  // 🔥 NEW: count of runs that would be routed to the premium-likes service
+  // (used as a small badge in the panel header — preview-only).
+  const premiumRoutedCount = useMemo(() => {
+    if (!premiumLikesEnabled || !premiumLikes.serviceId) return 0;
+    return (safePlan.runs || []).filter((r) => {
+      const q = Math.floor(r.likes || 0);
+      return q > 0 && q <= premiumLikes.threshold;
+    }).length;
+  }, [safePlan, premiumLikesEnabled, premiumLikes.serviceId, premiumLikes.threshold]);
 
     const bundleOptions = useMemo(() => {
     // 🔥 Show all bundles — with multi-API support, bundles are no longer tied to one API
@@ -1698,6 +1758,138 @@ const effectiveMinViews = Math.max(
   )}
 </div>
 
+{/* 🔥 NEW: Premium Drip Likes panel.
+    Independent of View-Range Rules. When ON, likes runs whose quantity is
+    ≤ threshold are routed to a chosen min=1 service (typically slower /
+    more expensive but accepts qty=1). Rest of the runs keep using the
+    bundle's normal likes service. */}
+<div className={`mt-2 rounded-xl border p-3 transition ${
+  premiumLikesEnabled ? "border-emerald-500/40 bg-emerald-500/5" : "border-gray-800 bg-gray-950/80"
+}`}>
+  <div className="flex items-center justify-between gap-2">
+    <button
+      type="button"
+      onClick={() => setPremiumPanelOpen((v) => !v)}
+      className="flex items-center gap-2 text-left"
+    >
+      <span className={`text-[11px] font-bold uppercase tracking-wider ${
+        premiumLikesEnabled ? "text-emerald-300" : "text-gray-400"
+      }`}>
+        🪶 Premium Drip Likes
+      </span>
+      <span className="text-[10px] text-gray-500">
+        {premiumPanelOpen ? "▲ collapse" : "▼ expand"}
+      </span>
+      <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${
+        premiumLikesEnabled ? "bg-emerald-500/30 text-emerald-200" : "bg-gray-800 text-gray-500"
+      }`}>
+        {premiumLikesEnabled ? "ON" : "OFF"}
+      </span>
+      {premiumLikesEnabled && premiumRoutedCount > 0 && (
+        <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-300">
+          {premiumRoutedCount} run{premiumRoutedCount === 1 ? "" : "s"} routed
+        </span>
+      )}
+    </button>
+    <label className="flex cursor-pointer items-center gap-1.5 select-none">
+      <span className="text-[10px] text-gray-400">Apply</span>
+      <input
+        type="checkbox"
+        checked={premiumLikesEnabled}
+        onChange={(e) => setPremiumLikesEnabled(e.target.checked)}
+        className="h-3.5 w-3.5 cursor-pointer accent-emerald-500"
+      />
+    </label>
+  </div>
+
+  {!premiumPanelOpen && (
+    <p className="mt-1 text-[9px] text-gray-500">
+      Route small likes runs (≤ {premiumLikes.threshold} likes) to a min-1, fast-completion
+      service. Larger runs keep using your bundle's normal likes service.
+      Settings are saved automatically.
+    </p>
+  )}
+
+  {premiumPanelOpen && (
+    <div className="mt-3 space-y-2 text-[10px]">
+      {/* API picker */}
+      <div className="flex items-center gap-2">
+        <span className="w-20 text-gray-400">API panel</span>
+        <select
+          value={premiumLikes.apiId}
+          onChange={(e) => setPremiumLikes((p) => ({ ...p, apiId: e.target.value, serviceId: "" }))}
+          className="flex-1 rounded-md border border-gray-700 bg-gray-950 px-2 py-1 text-white focus:border-emerald-500/60 focus:outline-none"
+        >
+          <option value="">— pick API —</option>
+          {apis.map((a) => (
+            <option key={a.id} value={a.id}>{a.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Service picker (only when an API is chosen) */}
+      <div className="flex items-center gap-2">
+        <span className="w-20 text-gray-400">Service</span>
+        <select
+          value={premiumLikes.serviceId}
+          onChange={(e) => setPremiumLikes((p) => ({ ...p, serviceId: e.target.value }))}
+          disabled={!premiumLikes.apiId}
+          className="flex-1 rounded-md border border-gray-700 bg-gray-950 px-2 py-1 text-white disabled:opacity-40 focus:border-emerald-500/60 focus:outline-none"
+        >
+          <option value="">{premiumLikes.apiId ? "— pick service —" : "(pick an API first)"}</option>
+          {(premiumApiObj?.services || []).map((s) => (
+            <option key={s.id} value={s.id}>
+              [{s.id}] min={s.min} • {s.name.slice(0, 70)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Threshold slider */}
+      <div className="flex items-center gap-2">
+        <span className="w-20 text-gray-400">Threshold</span>
+        <input
+          type="range"
+          min={1}
+          max={50}
+          step={1}
+          value={premiumLikes.threshold}
+          onChange={(e) => setPremiumLikes((p) => ({ ...p, threshold: Math.max(1, parseInt(e.target.value, 10) || 1) }))}
+          className="flex-1 accent-emerald-500"
+        />
+        <span className="w-24 text-right">
+          runs ≤ <strong className="text-emerald-300">{premiumLikes.threshold}</strong> likes
+        </span>
+      </div>
+
+      {/* Status / hint line */}
+      <div className="rounded-md border border-gray-800 bg-black/40 px-2 py-1.5 text-[9px]">
+        {!premiumLikes.serviceId && (
+          <span className="text-amber-300">Pick an API + service above to activate.</span>
+        )}
+        {premiumLikes.serviceId && premiumServiceObj && (
+          <span className="text-gray-400">
+            ✓ Selected: <span className="text-emerald-300">{premiumServiceObj.name.slice(0, 60)}</span>
+            {" · "}min={premiumServiceObj.min}
+            {premiumServiceObj.min > premiumLikes.threshold && (
+              <span className="text-red-400">
+                {" "} ⚠ service min ({premiumServiceObj.min}) is higher than your threshold ({premiumLikes.threshold}) —
+                the provider will reject those runs. Pick a service with min=1, or raise the threshold.
+              </span>
+            )}
+          </span>
+        )}
+      </div>
+
+      <p className="text-[9px] text-gray-600">
+        💡 With <strong>{premiumRoutedCount}</strong> run{premiumRoutedCount === 1 ? "" : "s"} in
+        the current plan ≤ threshold, they'll be routed to the premium service.
+        The remaining likes runs keep using the bundle's normal service.
+      </p>
+    </div>
+  )}
+</div>
+
           {/* Price Calculator - Compact Horizontal */}
           {selectedBundleId && safePlan.runs.length > 0 && (
             <div className="rounded-lg border border-yellow-500/30 bg-gradient-to-br from-yellow-500/5 to-black p-2">
@@ -1955,7 +2147,33 @@ const effectiveMinViews = Math.max(
                   if (quantity > 100000) { const proceed = window.confirm("Large mission. Continue?"); if (!proceed) return; }
                   const viewRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(Math.floor(run.views), effectiveMinViews) }));
                   if (!viewRuns.length || viewRuns.some((run) => !run.time || !Number.isFinite(run.quantity) || run.quantity <= 0)) { setCreateError("Invalid run schedule. Regenerate."); return; }
-                  const likesRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(0, Math.floor(run.likes)) }));
+                  // 🔥 NEW: when Premium Drip Likes is ON, route small runs to the chosen min=1 service.
+                  // Resolve premium API credentials once.
+                  const premiumApi = (premiumLikesEnabled && premiumLikes.apiId)
+                    ? apis.find((a) => a.id === premiumLikes.apiId)
+                    : null;
+                  const premiumService = (premiumApi && premiumLikes.serviceId)
+                    ? premiumApi.services.find((s) => s.id === premiumLikes.serviceId)
+                    : null;
+                  const usePremium = Boolean(premiumLikesEnabled && premiumApi && premiumService);
+                  const likesRuns = (safePlan?.runs || []).map((run) => {
+                    const qty = Math.max(0, Math.floor(run.likes));
+                    const base: {
+                      time: string;
+                      quantity: number;
+                      serviceIdOverride?: string;
+                      apiUrlOverride?: string;
+                      apiKeyOverride?: string;
+                      serviceMinOverride?: number;
+                    } = { time: run.at.toISOString(), quantity: qty };
+                    if (usePremium && qty > 0 && qty <= premiumLikes.threshold) {
+                      base.serviceIdOverride = premiumService!.id;
+                      base.apiUrlOverride = premiumApi!.url;
+                      base.apiKeyOverride = premiumApi!.key;
+                      if (premiumService!.min) base.serviceMinOverride = premiumService!.min;
+                    }
+                    return base;
+                  });
                   const sharesRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(0, Math.floor(run.shares)) }));
                   const savesRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(0, Math.floor(run.saves)) }));
                   const commentList = customComments.split("\n").map(c => c.trim()).filter(Boolean);
@@ -1991,7 +2209,7 @@ const effectiveMinViews = Math.max(
 
             const servicesPayload: {
               views: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
-              likes?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
+              likes?: { serviceId: string; runs: Array<{ time: string; quantity: number; serviceIdOverride?: string; apiUrlOverride?: string; apiKeyOverride?: string; serviceMinOverride?: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
               shares?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
               saves?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
               comments?: { serviceId: string; runs: Array<{ time: string; comments: string }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
