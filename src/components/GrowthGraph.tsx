@@ -173,6 +173,37 @@ function buildSmoothGraphData(plan: PatternPlan) {
       saves: current.cumulativeSaves,
       comments: current.cumulativeComments,
     });
+
+    // 🔥 NEW: when a run has sub-likes, inject intermediate data points so
+    // the likes line shows tiny step-ups between this run and the next.
+    // We REWIND cumulativeLikes back to (previous.cumulativeLikes) at the
+    // start, then accumulate sub-run by sub-run to draw the staircase.
+    const subs = (current as any).likesSubRuns as Array<{ at: Date; quantity: number }> | undefined;
+    if (Array.isArray(subs) && subs.length >= 2) {
+      // Step 1: when sub-runs exist, the parent row above shows the FINAL
+      // cumulative likes — but we want a staircase. Rewrite that last row
+      // to show the start of the staircase (no likes yet at parent's time).
+      const lastRow = rows[rows.length - 1];
+      const beforeLikes = previous.cumulativeLikes;
+      lastRow.likes = beforeLikes;
+      // Step 2: push a row for each sub-run's execution time.
+      let cum = beforeLikes;
+      for (const sub of subs) {
+        cum += sub.quantity;
+        const t = sub.at instanceof Date ? sub.at : new Date(sub.at);
+        const minutes = Math.round((t.getTime() - (current.at.getTime() - current.minutesFromStart * 60_000)) / 60_000);
+        rows.push({
+          label: t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          // Other curves stay flat across sub-runs — they catch up at next parent.
+          views: current.cumulativeViews,
+          likes: cum,
+          shares: current.cumulativeShares,
+          saves: current.cumulativeSaves,
+          comments: current.cumulativeComments,
+        });
+        void minutes;
+      }
+    }
   }
 
   return rows;
