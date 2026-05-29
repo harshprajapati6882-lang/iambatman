@@ -6,16 +6,12 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { NewOrderPage } from "./pages/NewOrderPage";
 import { OrdersPage } from "./pages/OrdersPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
-import { EngagementSettingsPage } from "./pages/EngagementSettingsPage";
-import { WallpaperPage } from "./pages/WallpaperPage";
-import { EngagementComparisonPage } from "./pages/EngagementComparisonPage";
-import { getWallpaper, buildBackgroundStyle, type WallpaperConfig } from "./utils/wallpaper";
 import { fetchNotifications } from "./utils/api";
 import type { ApiPanel, Bundle, CreatedOrder, RunStatus } from "./types/order";
 import { fetchServices, updateOrderControl, fetchOrderRuns } from "./utils/api";
 import { cn } from "./utils/cn";
 
-type NavKey = "dashboard" | "new-order" | "orders" | "notifications" | "apis" | "bundles" | "engagement" | "wallpaper" | "comparison";
+type NavKey = "dashboard" | "new-order" | "orders" | "notifications" | "apis" | "bundles";
 
 const NAV_ITEMS: { key: NavKey; label: string; icon: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: "📊" },
@@ -24,9 +20,6 @@ const NAV_ITEMS: { key: NavKey; label: string; icon: string }[] = [
   { key: "notifications", label: "Alerts", icon: "🔔" },
   { key: "apis", label: "APIs", icon: "🔗" },
   { key: "bundles", label: "Bundles", icon: "📁" },
-  { key: "engagement", label: "Ratios", icon: "📐" },
-  { key: "wallpaper", label: "Wallpaper", icon: "🖼️" },
-  { key: "comparison", label: "Comparison", icon: "📊" },
 ];
 
 const BATMAN_QUOTES = [
@@ -157,7 +150,7 @@ function hydrateBundles(bundles: Bundle[]): Bundle[] {
 export default function App() {
   const [activePage, setActivePage] = useState<NavKey>(() => {
     const saved = localStorage.getItem("dev-smm-active-page");
-  if (saved === "dashboard" || saved === "new-order" || saved === "orders" || saved === "notifications" || saved === "apis" || saved === "bundles" || saved === "engagement" || saved === "wallpaper" || saved === "comparison") {
+  if (saved === "dashboard" || saved === "new-order" || saved === "orders" || saved === "notifications" || saved === "apis" || saved === "bundles") {
       return saved;
     }
     return "new-order";
@@ -172,7 +165,6 @@ export default function App() {
   const [controllingOrderId, setControllingOrderId] = useState<string | null>(null);
   
   const [batmanQuote] = useState(() => getRandomQuote());
-  const [wallpaper, setWallpaper] = useState<WallpaperConfig>(() => getWallpaper());
   const [notifUnreadCount, setNotifUnreadCount] = useState(0);
 
   // 🔥 NEW: Track if sync is in progress to prevent render loops
@@ -481,29 +473,31 @@ export default function App() {
     }
   }, [persistOrders]);
 
-  // 🔥 SMART SYNC: 30 seconds when orders are actively running/pending,
-  //    5 minutes otherwise (paused). Only runs on orders/dashboard pages.
+  // 🔥 FIXED: Auto-sync every 5 MINUTES (300 seconds) - Only when on Orders page
   useEffect(() => {
-    if (activePage !== 'orders' && activePage !== 'dashboard') return;
+    // Only sync when on orders or dashboard page
+    if (activePage !== 'orders' && activePage !== 'dashboard') {
+      console.log('[Sync] Not on orders/dashboard page, skipping sync setup');
+      return;
+    }
 
-    // Determine sync speed based on whether any order is actively progressing
-    const hasActiveOrders = orders.some(
-      (o) => o.status === 'running' || o.status === 'processing' || o.status === 'pending'
-    );
-    const syncInterval = hasActiveOrders ? 30000 : 300000; // 30s active / 5min idle
+    console.log('[Sync] Setting up 5-minute auto-sync...');
 
-    console.log(`[Sync] Interval = ${syncInterval / 1000}s (${hasActiveOrders ? 'active orders' : 'idle'})`);
+    // Initial sync after 10 seconds
+    const initialSync = setTimeout(() => {
+      syncOrdersWithBackend();
+    }, 10000);
 
-    // Initial sync after 5 seconds on page load
-    const initialSync = setTimeout(() => syncOrdersWithBackend(), 5000);
-
-    const interval = setInterval(() => syncOrdersWithBackend(), syncInterval);
+    // Then sync every 5 minutes
+    const interval = setInterval(() => {
+      syncOrdersWithBackend();
+    }, 300000); // 🔥 5 MINUTES (300,000 milliseconds)
 
     return () => {
       clearTimeout(initialSync);
       clearInterval(interval);
     };
-  }, [activePage, syncOrdersWithBackend, orders]); // re-evaluates when order status changes
+    }, [activePage, syncOrdersWithBackend]); // 🔥 Only re-setup when page changes
 
   const content = useMemo(() => {
     if (activePage === "new-order") {
@@ -527,10 +521,6 @@ export default function App() {
           orders={orders}
           onDeleteOrder={(orderId) => {
             persistOrders((prev) => prev.filter((order) => order.id !== orderId));
-          }}
-          onClearAllOrders={() => {
-            // Reset order state without page reload
-            persistOrders([]);
           }}
         />
       );
@@ -605,28 +595,6 @@ export default function App() {
             }
           }}
           onDismissNotice={() => setOrdersNotice("")}
-          onDeleteOrder={(orderId) => {
-            persistOrders((prev) => prev.filter((order) => order.id !== orderId));
-          }}
-          onBulkCancelDone={(cancelledIds) => {
-            // 🔥 Mark cancelled orders locally so they move to the Cancelled tab immediately
-            persistOrders((prev) =>
-              prev.map((order) => {
-                if (!order.schedulerOrderId || !cancelledIds.includes(order.schedulerOrderId)) return order;
-                const nextRunStatuses = (order.runStatuses || []).map((s) =>
-                  s === "pending" || s === "retrying" ? "cancelled" : s
-                );
-                const completedRuns = nextRunStatuses.filter((s) => s === "completed").length;
-                return {
-                  ...order,
-                  status: "cancelled",
-                  runStatuses: nextRunStatuses,
-                  completedRuns,
-                  lastUpdatedAt: new Date().toISOString(),
-                };
-              })
-            );
-          }}
         />
       );
     }
@@ -636,19 +604,6 @@ export default function App() {
                 <NotificationsPage
           onUnreadCountChange={(count) => setNotifUnreadCount(count)}
           onNavigateToOrders={() => navigateToPage("orders")}
-        />
-      );
-    }
-    if (activePage === "engagement") {
-      return <EngagementSettingsPage />;
-    }
-    if (activePage === "comparison") {
-      return <EngagementComparisonPage orders={orders} />;
-    }
-    if (activePage === "wallpaper") {
-      return (
-        <WallpaperPage
-          onWallpaperChange={(cfg) => setWallpaper(cfg)}
         />
       );
     }
@@ -743,6 +698,7 @@ export default function App() {
                 saves: bundle.saves,
                 comments: bundle.comments,
                 reposts: bundle.reposts,
+                likesPremium: bundle.likesPremium || undefined,
               },
               serviceApis: bundle.serviceApis,
             },
@@ -763,6 +719,7 @@ export default function App() {
                     saves: bundle.saves,
                     comments: bundle.comments,
                     reposts: bundle.reposts,
+                    likesPremium: bundle.likesPremium || undefined,
                   },
                   serviceApis: bundle.serviceApis,
                 }
@@ -779,18 +736,9 @@ export default function App() {
   }, [activePage, apis, bundles, orders, fetchingApiId, controllingOrderId, ordersNotice, cloneSourceOrder, navigateToPage, persistOrders, persistApis, persistBundles, syncOrdersWithBackend]);
 
   return (
-    <div className="min-h-screen text-gray-100" style={buildBackgroundStyle(wallpaper)}>
+    <div className="min-h-screen bg-black text-gray-100">
       <div className="flex min-h-screen">
-        <aside
-          className="w-64 border-r border-yellow-500/20 p-6 flex-shrink-0"
-          style={{
-            background: wallpaper.sidebarBlur
-              ? "rgba(0,0,0,0.55)"
-              : "linear-gradient(to bottom, #030303, #000000)",
-            backdropFilter: wallpaper.sidebarBlur ? "blur(16px)" : "none",
-            WebkitBackdropFilter: wallpaper.sidebarBlur ? "blur(16px)" : "none",
-          }}
-        >
+        <aside className="w-64 border-r border-yellow-500/20 bg-gradient-to-b from-gray-950 to-black p-6">
           <div className="mb-8 space-y-1">
             <div className="flex items-center gap-3">
               <div className="relative">
@@ -866,14 +814,7 @@ export default function App() {
           </div>
         </aside>
 
-        <main
-          className="flex-1 overflow-y-auto"
-          style={{
-            background: wallpaper.contentBlur ? "rgba(0,0,0,0.4)" : "transparent",
-            backdropFilter: wallpaper.contentBlur ? "blur(10px)" : "none",
-            WebkitBackdropFilter: wallpaper.contentBlur ? "blur(10px)" : "none",
-          }}
-        >{content}</main>
+        <main className="flex-1 overflow-y-auto bg-gradient-to-br from-gray-950 via-black to-gray-950">{content}</main>
       </div>
     </div>
   );
