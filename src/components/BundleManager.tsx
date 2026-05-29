@@ -12,12 +12,16 @@ interface BundleManagerProps {
     shares: string;
     saves: string;
     comments: string;
+    reposts: string;
+    likesPremium: string; // 🔥 NEW: dedicated min=1 service for sub-likes
     serviceApis: {
       views: string;
       likes: string;
       shares: string;
       saves: string;
       comments: string;
+      reposts: string;
+      likesPremium: string;
     };
   }) => void;
   onUpdateBundle: (
@@ -30,12 +34,16 @@ interface BundleManagerProps {
       shares: string;
       saves: string;
       comments: string;
+      reposts: string;
+      likesPremium: string;
       serviceApis: {
         views: string;
         likes: string;
         shares: string;
         saves: string;
         comments: string;
+        reposts: string;
+        likesPremium: string;
       };
     }
   ) => void;
@@ -218,6 +226,11 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
   const [commentsService, setCommentsService] = useState("");
   const [repostsApi, setRepostsApi] = useState("");
   const [repostsService, setRepostsService] = useState("");
+  // 🔥 NEW: dedicated min=1 likes service for the Sub-Likes feature.
+  // Optional in the bundle — only required when the user enables Sub-Likes
+  // on the New Order page.
+  const [likesPremiumApi, setLikesPremiumApi] = useState("");
+  const [likesPremiumService, setLikesPremiumService] = useState("");
 
   const resetForm = () => {
     setName("");
@@ -228,6 +241,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
     setSavesApi(""); setSavesService("");
        setCommentsApi(""); setCommentsService("");
     setRepostsApi(""); setRepostsService("");
+    setLikesPremiumApi(""); setLikesPremiumService("");
     setEditingBundleId(null);
     setShowForm(false);
   };
@@ -241,6 +255,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
     setSavesService("");
        setCommentsService("");
     setRepostsService("");
+    setLikesPremiumService("");
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -257,6 +272,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
       saves: savesService,
       comments: commentsService,
       reposts: repostsService,
+      likesPremium: likesPremiumService, // 🔥 NEW (empty string when unset = optional)
       serviceApis: {
         views: viewsApi || defaultApiId,
         likes: likesApi || defaultApiId,
@@ -264,6 +280,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
         saves: savesApi || defaultApiId,
         comments: commentsApi || defaultApiId,
         reposts: repostsApi || defaultApiId,
+        likesPremium: likesPremiumApi || defaultApiId,
       },
     };
 
@@ -362,6 +379,46 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
                 selectedApiId={repostsApi} selectedServiceId={repostsService}
                 onApiChange={setRepostsApi} onServiceChange={setRepostsService}
               />
+
+              {/* 🔥 NEW: Likes (min=1) — used only by the Sub-Likes feature on New Order */}
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                <p className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+                  <span>🪶 Likes (min=1) — for Sub-Likes feature</span>
+                  <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[8px] font-normal text-emerald-200">
+                    OPTIONAL
+                  </span>
+                </p>
+                <p className="mb-2 text-[10px] text-gray-500">
+                  Pick a service with <strong>min=1</strong>. Only used when you turn ON
+                  the "Sub-Likes" toggle on the New Order page — small likes runs get
+                  split into tiny drips through this service.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="mb-1 block text-[10px] text-gray-600">API Panel</label>
+                    <select
+                      value={likesPremiumApi || defaultApiId}
+                      onChange={(e) => {
+                        setLikesPremiumApi(e.target.value);
+                        setLikesPremiumService("");
+                      }}
+                      className="w-full rounded-lg border border-emerald-500/20 bg-gray-950 px-2 py-1.5 text-xs text-gray-200"
+                    >
+                      {apis.map((api) => (
+                        <option key={api.id} value={api.id}>{api.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <SearchableSelect
+                    options={getApiServices(apis, likesPremiumApi || defaultApiId)}
+                    value={likesPremiumService}
+                    onChange={setLikesPremiumService}
+                    placeholder="Pick min=1 service..."
+                    label="Service ID"
+                    disabled={!(likesPremiumApi || defaultApiId)}
+                  />
+                </div>
+              </div>
             </>
           )}
 
@@ -394,7 +451,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
           const getApiName = (apiId: string) => apis.find(a => a.id === apiId)?.name ?? "Unknown";
           const defaultApiName = getApiName(bundle.apiId);
 
-                   const serviceRows = [
+                   const serviceRows: Array<{ emoji: string; label: string; serviceId: string | undefined; apiId: string; isPremium?: boolean }> = [
             { emoji: "👁️", label: "Views", serviceId: bundle.serviceIds.views, apiId: bundle.serviceApis?.views || bundle.apiId },
             { emoji: "❤️", label: "Likes", serviceId: bundle.serviceIds.likes, apiId: bundle.serviceApis?.likes || bundle.apiId },
             { emoji: "🔄", label: "Shares", serviceId: bundle.serviceIds.shares, apiId: bundle.serviceApis?.shares || bundle.apiId },
@@ -402,6 +459,15 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
             { emoji: "💬", label: "Comments", serviceId: bundle.serviceIds.comments, apiId: bundle.serviceApis?.comments || bundle.apiId },
             { emoji: "🔁", label: "Reposts", serviceId: bundle.serviceIds.reposts, apiId: bundle.serviceApis?.reposts || bundle.apiId },
           ];
+          if (bundle.serviceIds.likesPremium) {
+            serviceRows.push({
+              emoji: "🪶",
+              label: "Likes min=1",
+              serviceId: bundle.serviceIds.likesPremium,
+              apiId: bundle.serviceApis?.likesPremium || bundle.apiId,
+              isPremium: true,
+            });
+          }
 
           return (
             <article key={bundle.id} className="rounded-2xl border border-yellow-500/20 bg-gradient-to-br from-gray-900 to-black p-4">
@@ -411,13 +477,19 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
               </div>
 
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {serviceRows.map(({ emoji, label, serviceId, apiId }) => {
+                {serviceRows.map(({ emoji, label, serviceId, apiId, isPremium }) => {
                   const isOverridden = apiId !== bundle.apiId;
                   const apiName = getApiName(apiId);
+                  const borderClass = isPremium
+                    ? "border-emerald-500/40 bg-emerald-500/5"
+                    : isOverridden
+                      ? "border-blue-500/30 bg-blue-500/5"
+                      : "border-yellow-500/20 bg-yellow-500/5";
+                  const idColor = isPremium ? "text-emerald-300" : "text-yellow-400";
                   return (
-                    <div key={label} className={`rounded-lg border px-3 py-2 ${isOverridden ? "border-blue-500/30 bg-blue-500/5" : "border-yellow-500/20 bg-yellow-500/5"}`}>
+                    <div key={label} className={`rounded-lg border px-3 py-2 ${borderClass}`}>
                       <p className="text-xs text-gray-600">{emoji} {label}</p>
-                      <p className="mt-0.5 text-xs font-mono text-yellow-400">{serviceId}</p>
+                      <p className={`mt-0.5 text-xs font-mono ${idColor}`}>{serviceId}</p>
                       {isOverridden && (
                         <p className="mt-0.5 text-[9px] text-blue-400">via {apiName}</p>
                       )}
@@ -445,6 +517,8 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
                     setCommentsService(bundle.serviceIds.comments || "");
                     setRepostsApi(bundle.serviceApis?.reposts || bundle.apiId);
                     setRepostsService(bundle.serviceIds.reposts || "");
+                    setLikesPremiumApi(bundle.serviceApis?.likesPremium || bundle.apiId);
+                    setLikesPremiumService(bundle.serviceIds.likesPremium || "");
                     setShowForm(true);
                   }}
                   className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-1.5 text-xs text-yellow-300 transition hover:bg-yellow-500/20"
