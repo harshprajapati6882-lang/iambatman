@@ -56,6 +56,14 @@ export interface OrderConfig {
   // defined bracket fall back to the normal automatic logic.
   engagementRulesEnabled?: boolean;
   engagementRules?: EngagementRule[];
+
+  // 🔥 NEW: Premium Drip Likes — route small likes runs (≤ threshold) to a
+  // dedicated min=1 service. Bigger runs keep using the bundle's normal
+  // service. Opt-in; defaults to OFF; persisted in localStorage on the page.
+  premiumLikesEnabled?: boolean;
+  premiumLikesApiId?: string;       // which ApiPanel hosts the premium service
+  premiumLikesServiceId?: string;   // SMM panel service id (min=1)
+  premiumLikesThreshold?: number;   // runs with likes <= this go to premium
 }
 
 export type EngagementRuleService = "likes" | "shares" | "saves" | "comments" | "reposts";
