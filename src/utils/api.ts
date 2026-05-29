@@ -505,6 +505,11 @@ export async function cancelMultipleOrders(schedulerOrderIds: string[]): Promise
   };
 }
 
+// 🔥 BACK-COMPAT ALIAS: OrdersPage.tsx imports `bulkCancelOrders`, while
+// this file historically named the function `cancelMultipleOrders`. Keep both
+// names exported so the import in OrdersPage.tsx (and anywhere else) works.
+export const bulkCancelOrders = cancelMultipleOrders;
+
 // 🔥 NEW: Check provider status for all runs of an order
 export interface ProviderRunStatus {
   runId: string;
