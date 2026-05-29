@@ -57,13 +57,11 @@ export interface OrderConfig {
   engagementRulesEnabled?: boolean;
   engagementRules?: EngagementRule[];
 
-  // 🔥 NEW: Premium Drip Likes — route small likes runs (≤ threshold) to a
-  // dedicated min=1 service. Bigger runs keep using the bundle's normal
-  // service. Opt-in; defaults to OFF; persisted in localStorage on the page.
-  premiumLikesEnabled?: boolean;
-  premiumLikesApiId?: string;       // which ApiPanel hosts the premium service
-  premiumLikesServiceId?: string;   // SMM panel service id (min=1)
-  premiumLikesThreshold?: number;   // runs with likes <= this go to premium
+  // 🔥 NEW: Sub-Likes mode. When ON, runs with likes <= subLikesThreshold
+  // are split into many tiny sub-runs spread across the gap to the next run.
+  // Each sub-run is sent to the bundle's `likesPremium` service (min=1).
+  subLikesEnabled?: boolean;
+  subLikesThreshold?: number;  // default 20
 }
 
 export type EngagementRuleService = "likes" | "shares" | "saves" | "comments" | "reposts";
@@ -103,6 +101,16 @@ export interface RunStep {
   cumulativeSaves: number;
   cumulativeComments: number;
   cumulativeReposts: number;
+  // 🔥 NEW: when Sub-Likes mode is ON and this run's likes <= threshold,
+  // the parent likes amount is split into several smaller sub-runs spread
+  // across the gap to the next run. Each sub-run becomes its own provider
+  // call to the bundle's `likesPremium` service.
+  likesSubRuns?: LikesSubRun[];
+}
+
+export interface LikesSubRun {
+  at: Date;        // when the sub-run fires (after the parent run's `at`)
+  quantity: number; // 1-3 likes typically
 }
 
 export interface PatternPlan {
@@ -157,6 +165,9 @@ export interface Bundle {
     saves: string;
     comments: string;
     reposts: string;
+    // 🔥 NEW: dedicated min=1 likes service for the "Sub-Likes" feature.
+    // Optional so existing bundles in localStorage keep working unchanged.
+    likesPremium?: string;
   };
   // 🔥 NEW: Per-service API override
   serviceApis?: {
@@ -166,6 +177,7 @@ export interface Bundle {
     saves?: string;
     comments?: string;
     reposts?: string;
+    likesPremium?: string;
   };
 }
 
