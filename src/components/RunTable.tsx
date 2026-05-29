@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { RunStep } from "../types/order";
 
 // 🔥 Extended run status type
@@ -131,6 +131,55 @@ export function RunTable({
     };
   }, [safeRuns, safeRunStatuses, safeRunRetries]);
 
+  // 🔥 NEW: track which run's sub-likes dropdown is open
+  const [openSubLikes, setOpenSubLikes] = useState<Set<number>>(new Set());
+  const toggleSubLikes = (runId: number) => {
+    setOpenSubLikes((prev) => {
+      const next = new Set(prev);
+      if (next.has(runId)) next.delete(runId);
+      else next.add(runId);
+      return next;
+    });
+  };
+
+  // 🔥 Helper: renders likes cell with optional ▼ dropdown for sub-runs.
+  const renderLikesCell = (run: any, baseClassName: string) => {
+    const subs: Array<{ at: Date | string; quantity: number }> | undefined = (run as any).likesSubRuns;
+    if (!subs || subs.length < 2) {
+      return <td className={baseClassName}>{run.likes}</td>;
+    }
+    const isOpen = openSubLikes.has(run.run);
+    return (
+      <td className={baseClassName}>
+        <button
+          type="button"
+          onClick={() => toggleSubLikes(run.run)}
+          className="inline-flex items-center gap-1 rounded px-1 hover:bg-emerald-500/10"
+          title={`${subs.length} sub-likes drip — click to expand`}
+        >
+          <span className="font-semibold text-emerald-300">{run.likes}</span>
+          <span className="text-[9px] text-emerald-400/70">🪶×{subs.length}</span>
+          <span className="text-[8px] text-emerald-400/60">{isOpen ? "▲" : "▼"}</span>
+        </button>
+        {isOpen && (
+          <div className="mt-1 max-h-32 overflow-y-auto rounded border border-emerald-500/30 bg-black/60 p-1.5 text-[10px]">
+            {subs.map((sub, i) => {
+              const subDate = sub.at instanceof Date ? sub.at : new Date(sub.at);
+              const time = subDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+              return (
+                <div key={i} className="flex items-center justify-between gap-2 py-0.5 text-emerald-200/80">
+                  <span className="text-emerald-500/70">#{i + 1}</span>
+                  <span className="font-mono">{time}</span>
+                  <span className="font-semibold">+{sub.quantity}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </td>
+    );
+  };
+
   // Schedule mode (simple view)
   if (mode === "schedule") {
     return (
@@ -154,7 +203,7 @@ export function RunTable({
                 <td className="px-3 py-2">#{run.run}</td>
                 <td className="px-3 py-2 text-slate-400">{run.at.toLocaleString()}</td>
                 <td className="px-3 py-2">{run.views}</td>
-                <td className="px-3 py-2">{run.likes}</td>
+                {renderLikesCell(run, "px-3 py-2")}
                 <td className="px-3 py-2">{run.shares}</td>
                 <td className="px-3 py-2">{run.saves}</td>
                 <td className="px-3 py-2">{run.comments || 0}</td>
@@ -249,7 +298,7 @@ export function RunTable({
                   </td>                  
                   {/* Quantities */}
                   <td className="px-3 py-2 text-slate-400">{run.views}</td>
-                  <td className="px-3 py-2 text-slate-400">{run.likes}</td>
+                  {renderLikesCell(run, "px-3 py-2 text-slate-400")}
                   <td className="px-3 py-2 text-slate-400">{run.shares}</td>
                   <td className="px-3 py-2 text-slate-400">{run.saves}</td>
                   <td className="px-3 py-2 text-slate-400">{run.comments}</td>
