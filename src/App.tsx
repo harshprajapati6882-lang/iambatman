@@ -6,12 +6,13 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { NewOrderPage } from "./pages/NewOrderPage";
 import { OrdersPage } from "./pages/OrdersPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
+import { EngagementComparisonPage } from "./pages/EngagementComparisonPage";
 import { fetchNotifications } from "./utils/api";
 import type { ApiPanel, Bundle, CreatedOrder, RunStatus } from "./types/order";
 import { fetchServices, updateOrderControl, fetchOrderRuns } from "./utils/api";
 import { cn } from "./utils/cn";
 
-type NavKey = "dashboard" | "new-order" | "orders" | "notifications" | "apis" | "bundles";
+type NavKey = "dashboard" | "new-order" | "orders" | "notifications" | "apis" | "bundles" | "comparison";
 
 const NAV_ITEMS: { key: NavKey; label: string; icon: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: "📊" },
@@ -20,6 +21,7 @@ const NAV_ITEMS: { key: NavKey; label: string; icon: string }[] = [
   { key: "notifications", label: "Alerts", icon: "🔔" },
   { key: "apis", label: "APIs", icon: "🔗" },
   { key: "bundles", label: "Bundles", icon: "📁" },
+  { key: "comparison", label: "Comparison", icon: "📈" },
 ];
 
 const BATMAN_QUOTES = [
@@ -150,7 +152,7 @@ function hydrateBundles(bundles: Bundle[]): Bundle[] {
 export default function App() {
   const [activePage, setActivePage] = useState<NavKey>(() => {
     const saved = localStorage.getItem("dev-smm-active-page");
-  if (saved === "dashboard" || saved === "new-order" || saved === "orders" || saved === "notifications" || saved === "apis" || saved === "bundles") {
+  if (saved === "dashboard" || saved === "new-order" || saved === "orders" || saved === "notifications" || saved === "apis" || saved === "bundles" || saved === "comparison") {
       return saved;
     }
     return "new-order";
@@ -606,6 +608,9 @@ export default function App() {
           onNavigateToOrders={() => navigateToPage("orders")}
         />
       );
+    }
+    if (activePage === "comparison") {
+      return <EngagementComparisonPage orders={orders} />;
     }
     if (activePage === "apis") {
       return (
