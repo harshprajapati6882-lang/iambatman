@@ -13,12 +13,16 @@ interface BundlesPageProps {
     shares: string;
     saves: string;
     comments: string;
+    reposts: string;
+    likesPremium: string;
     serviceApis: {
       views: string;
       likes: string;
       shares: string;
       saves: string;
       comments: string;
+      reposts: string;
+      likesPremium: string;
     };
   }) => void;
   onUpdateBundle: (
@@ -31,12 +35,16 @@ interface BundlesPageProps {
       shares: string;
       saves: string;
       comments: string;
+      reposts: string;
+      likesPremium: string;
       serviceApis: {
         views: string;
         likes: string;
         shares: string;
         saves: string;
         comments: string;
+        reposts: string;
+        likesPremium: string;
       };
     }
   ) => void;
