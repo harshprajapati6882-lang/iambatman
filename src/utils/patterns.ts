@@ -11,7 +11,7 @@ const PATTERN_TYPES: PatternType[] = [
   "fibonacci-spiral",
 ];
 
-interface OrganicPatternProfile { 
+interface OrganicPatternProfile {
   key: string;
   name: string;
   baseType: PatternType;
@@ -2619,22 +2619,7 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
     if (!config.engagementRulesEnabled || !config.engagementRules || config.engagementRules.length === 0) return;
     if (arr.length !== provisionalRuns.length) return;
 
-    // 🔥 LIKES with Premium Drip enabled: the per-run floor drops to the
-    // premium service's own min (usually 1). All other services stay at 10.
-    // The frontend's payload-split logic decides which RUNS go to which
-    // service; here we just need the engine to permit sub-10 values for
-    // those small runs so the user's "10 likes ÷ 5-run drip = 2 each"
-    // intent actually survives.
-    let MIN_PROVIDER = 10;
-    if (service === "likes"
-        && config.premiumLikesEnabled
-        && typeof config.premiumLikesThreshold === "number"
-        && config.premiumLikesThreshold >= 1) {
-      // We don't actually know the premium service's min here — but if the
-      // user enabled premium, they've picked a service that accepts < 10.
-      // Use 1 as the soft floor for likes (provider service handles validation).
-      MIN_PROVIDER = 1;
-    }
+    const MIN_PROVIDER = 10;
 
     // ---------------------------------------------------------------------
     // GOAL: preserve the ORIGINAL total. The rules decide HOW the total is
@@ -2977,6 +2962,101 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
       cumulativeReposts,
     };
   });
+
+  // =========================================================
+  // 🔥 SUB-LIKES GENERATION
+  // When `subLikesEnabled` is true, walk each run; if its `likes` is in
+  // [10, subLikesThreshold] (default threshold = 20), split into 5-10
+  // sub-runs of 1-3 likes each, spaced 4-5 min apart within the gap to
+  // the NEXT run. Sub-runs are emitted to a separate provider service
+  // (the bundle's `likesPremium` slot) by the frontend payload builder.
+  // The graph + table consume `run.likesSubRuns` to render the drip.
+  // =========================================================
+  if (config.subLikesEnabled) {
+    const threshold = Math.max(1, Math.floor(config.subLikesThreshold ?? 20));
+    // Provider minimum on the normal likes service. Runs with parent likes
+    // BELOW this would otherwise be 0 — but if subLikes is ON, the engine
+    // lets us deliver tiny totals.
+    for (let i = 0; i < runs.length; i++) {
+      const r = runs[i];
+      const total = r.likes;
+      if (total <= 0 || total > threshold) continue;
+      // Time window: from this run's `at` to the next run's `at`.
+      // For the LAST run we use a generous 30-min window.
+      const nextAt = i + 1 < runs.length
+        ? runs[i + 1].at.getTime()
+        : r.at.getTime() + 30 * 60_000;
+      const windowMs = Math.max(60_000, nextAt - r.at.getTime() - 30_000); // leave 30s gap
+
+      // 🔥 Choose sub-run COUNT first based on total — guarantees every
+      // sub-run can be 1-3 likes and the sum matches the parent total.
+      //   total likes → min subRuns = ceil(total / 3), max subRuns = total
+      //   we pick a "natural-feeling" count in [5, 10] but clamped so it
+      //   stays within the achievable range.
+      const minRuns = Math.max(2, Math.ceil(total / 3));   // each sub <= 3
+      const maxRuns = Math.min(total, 12);                  // each sub >= 1
+      if (maxRuns < minRuns) continue;                       // impossible — skip
+      const desiredMin = Math.max(minRuns, 5);
+      const desiredMax = Math.min(maxRuns, 10);
+      const subRunCount = desiredMax >= desiredMin
+        ? randomInt(desiredMin, desiredMax)
+        : minRuns;
+      if (subRunCount < 2) continue;
+
+      // Distribute total across subRunCount sub-runs with sizes in [1,3].
+      // Start everyone at 1, then randomly bump until we reach total.
+      const sizes: number[] = new Array(subRunCount).fill(1);
+      let remaining = total - subRunCount;
+      let safety = subRunCount * 4;
+      while (remaining > 0 && safety > 0) {
+        const k = randomInt(0, subRunCount - 1);
+        if (sizes[k] < 3) {
+          sizes[k]++;
+          remaining--;
+        }
+        safety--;
+      }
+      // If we still have remaining (every slot at 3), bail safely
+      if (remaining > 0) continue;
+
+      // Schedule sub-runs across the window, 4-5 min spacing where possible.
+      // If the window is tight, fall back to even distribution.
+      const idealSpacingMs = 4.5 * 60_000;
+      const maxFit = Math.max(2, Math.floor(windowMs / idealSpacingMs));
+      const useSpacingMs = sizes.length <= maxFit
+        ? idealSpacingMs + (random(-0.5, 0.5) * 60_000)
+        : Math.max(60_000, windowMs / sizes.length);
+
+      const subs: { at: Date; quantity: number }[] = [];
+      let offsetMs = 30_000; // first sub-run fires ~30s after parent run's `at`
+      for (const qty of sizes) {
+        subs.push({
+          at: new Date(r.at.getTime() + offsetMs),
+          quantity: qty,
+        });
+        // Add jitter ±30s to each spacing
+        offsetMs += useSpacingMs + random(-30_000, 30_000);
+        if (offsetMs > windowMs) break; // safety — never overrun
+      }
+
+      // Trim sub-runs if any ended up past the window
+      const validSubs = subs.filter((s) => (s.at.getTime() - r.at.getTime()) <= windowMs + 30_000);
+      // Rebalance qty if we dropped any (rare)
+      if (validSubs.length !== sizes.length && validSubs.length > 0) {
+        const droppedQty = sizes.reduce((a, b) => a + b, 0) - validSubs.reduce((s, x) => s + x.quantity, 0);
+        let extra = droppedQty;
+        for (let k = 0; k < validSubs.length && extra > 0; k++) {
+          if (validSubs[k].quantity < 3) { validSubs[k].quantity++; extra--; }
+        }
+      }
+
+      if (validSubs.length >= 2) {
+        // Replace parent's likes count with the sub-runs total (they will
+        // execute INSTEAD of the parent like-run).
+        runs[i] = { ...r, likesSubRuns: validSubs };
+      }
+    }
+  }
 
   const viewsPerHour = totalViews / Math.max(1, durationHours);
 
