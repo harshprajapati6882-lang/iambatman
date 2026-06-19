@@ -7,16 +7,18 @@ import { NewOrderPage } from "./pages/NewOrderPage";
 import { OrdersPage } from "./pages/OrdersPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { EngagementComparisonPage } from "./pages/EngagementComparisonPage";
+import { ApprovalPage } from "./pages/ApprovalPage";
 import { fetchNotifications } from "./utils/api";
 import type { ApiPanel, Bundle, CreatedOrder, RunStatus } from "./types/order";
 import { fetchServices, updateOrderControl, fetchOrderRuns } from "./utils/api";
 import { cn } from "./utils/cn";
 
-type NavKey = "dashboard" | "new-order" | "orders" | "notifications" | "apis" | "bundles" | "comparison";
+type NavKey = "dashboard" | "new-order" | "orders" | "notifications" | "apis" | "bundles" | "comparison" | "approval";
 
 const NAV_ITEMS: { key: NavKey; label: string; icon: string }[] = [
   { key: "dashboard", label: "Dashboard", icon: "📊" },
   { key: "new-order", label: "New Order", icon: "⚡" },
+  { key: "approval", label: "Approval", icon: "🛡️" },
   { key: "orders", label: "Orders", icon: "📦" },
   { key: "notifications", label: "Alerts", icon: "🔔" },
   { key: "apis", label: "APIs", icon: "🔗" },
@@ -152,7 +154,7 @@ function hydrateBundles(bundles: Bundle[]): Bundle[] {
 export default function App() {
   const [activePage, setActivePage] = useState<NavKey>(() => {
     const saved = localStorage.getItem("dev-smm-active-page");
-  if (saved === "dashboard" || saved === "new-order" || saved === "orders" || saved === "notifications" || saved === "apis" || saved === "bundles" || saved === "comparison") {
+      if (saved === "dashboard" || saved === "new-order" || saved === "orders" || saved === "notifications" || saved === "apis" || saved === "bundles" || saved === "comparison" || saved === "approval") {
       return saved;
     }
     return "new-order";
@@ -502,6 +504,21 @@ export default function App() {
     }, [activePage, syncOrdersWithBackend]); // 🔥 Only re-setup when page changes
 
   const content = useMemo(() => {
+        if (activePage === "approval") {
+      return (
+        <ApprovalPage
+          apis={apis}
+          bundles={bundles}
+          onCreateOrder={(order) => {
+            persistOrders((prev) => [order, ...prev]);
+          }}
+          onNavigateToOrders={(notice) => {
+            if (notice) setOrdersNotice(notice);
+            navigateToPage("orders");
+          }}
+        />
+      );
+    }
     if (activePage === "new-order") {
       return (
         <NewOrderPage
