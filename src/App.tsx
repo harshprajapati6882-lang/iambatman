@@ -8,6 +8,7 @@ import { OrdersPage } from "./pages/OrdersPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { EngagementComparisonPage } from "./pages/EngagementComparisonPage";
 import { ApprovalPage } from "./pages/ApprovalPage";
+import { loadApprovalBundles } from "./components/ApprovalBundleManager";
 import { fetchNotifications } from "./utils/api";
 import type { ApiPanel, Bundle, CreatedOrder, RunStatus } from "./types/order";
 import { fetchServices, updateOrderControl, fetchOrderRuns } from "./utils/api";
@@ -75,25 +76,25 @@ function readStorage<T>(key: string, fallback: T): T {
 function hydrateOrderDates(orders: CreatedOrder[]): CreatedOrder[] {
   return (orders || []).map((order) => {
     const safeRuns = Array.isArray(order?.runs)
-  ? order.runs.map((run, index) => ({
-      run: Number.isFinite(run?.run) ? run.run : index + 1,
-      at: run?.at ? new Date(run.at) : new Date(),
-      minutesFromStart: Number.isFinite(run?.minutesFromStart) ? run.minutesFromStart : 0,
+      ? order.runs.map((run, index) => ({
+          run: Number.isFinite(run?.run) ? run.run : index + 1,
+          at: run?.at ? new Date(run.at) : new Date(),
+          minutesFromStart: Number.isFinite(run?.minutesFromStart) ? run.minutesFromStart : 0,
 
-      views: Number.isFinite(run?.views) ? run.views : 0,
-      likes: Number.isFinite(run?.likes) ? run.likes : 0,
-      shares: Number.isFinite(run?.shares) ? run.shares : 0,
-      saves: Number.isFinite(run?.saves) ? run.saves : 0,
-           comments: Number.isFinite(run?.comments) ? run.comments : 0,
-      reposts: Number.isFinite(run?.reposts) ? run.reposts : 0,
+          views: Number.isFinite(run?.views) ? run.views : 0,
+          likes: Number.isFinite(run?.likes) ? run.likes : 0,
+          shares: Number.isFinite(run?.shares) ? run.shares : 0,
+          saves: Number.isFinite(run?.saves) ? run.saves : 0,
+          comments: Number.isFinite(run?.comments) ? run.comments : 0,
+          reposts: Number.isFinite(run?.reposts) ? run.reposts : 0,
 
-      cumulativeViews: Number.isFinite(run?.cumulativeViews) ? run.cumulativeViews : 0,
-      cumulativeLikes: Number.isFinite(run?.cumulativeLikes) ? run.cumulativeLikes : 0,
-      cumulativeShares: Number.isFinite(run?.cumulativeShares) ? run.cumulativeShares : 0,
-      cumulativeSaves: Number.isFinite(run?.cumulativeSaves) ? run.cumulativeSaves : 0,
-      cumulativeComments: Number.isFinite(run?.cumulativeComments) ? run.cumulativeComments : 0,
-      cumulativeReposts: Number.isFinite(run?.cumulativeReposts) ? run.cumulativeReposts : 0,
-    }))
+          cumulativeViews: Number.isFinite(run?.cumulativeViews) ? run.cumulativeViews : 0,
+          cumulativeLikes: Number.isFinite(run?.cumulativeLikes) ? run.cumulativeLikes : 0,
+          cumulativeShares: Number.isFinite(run?.cumulativeShares) ? run.cumulativeShares : 0,
+          cumulativeSaves: Number.isFinite(run?.cumulativeSaves) ? run.cumulativeSaves : 0,
+          cumulativeComments: Number.isFinite(run?.cumulativeComments) ? run.cumulativeComments : 0,
+          cumulativeReposts: Number.isFinite(run?.cumulativeReposts) ? run.cumulativeReposts : 0,
+        }))
       : [];
 
     const safeRunStatuses: RunStatus[] = Array.isArray(order?.runStatuses)
@@ -111,7 +112,7 @@ function hydrateOrderDates(orders: CreatedOrder[]): CreatedOrder[] {
       name: order?.name || `Order #${order?.id ?? Date.now()}`,
       smmOrderId: order?.smmOrderId ?? "N/A",
       serviceId: order?.serviceId ?? "N/A",
-            status:
+      status:
         order?.status === "failed" ||
         order?.status === "paused" ||
         order?.status === "cancelled" ||
@@ -127,7 +128,7 @@ function hydrateOrderDates(orders: CreatedOrder[]): CreatedOrder[] {
       runRetries: order?.runRetries || [],
       runOriginalTimes: order?.runOriginalTimes || [],
       runCurrentTimes: order?.runCurrentTimes || [],
-            runReasons: order?.runReasons || [],
+      runReasons: order?.runReasons || [],
       runActualExecutedTimes: order?.runActualExecutedTimes || [],
       lastUpdatedAt: order?.lastUpdatedAt ?? order?.createdAt ?? new Date().toISOString(),
       runs: safeRuns,
@@ -152,29 +153,31 @@ function hydrateBundles(bundles: Bundle[]): Bundle[] {
 }
 
 export default function App() {
-  const [activePage, setActivePage] = useState<NavKey>(() => {
+  const [activePage, setActivePage] = useState(() => {
     const saved = localStorage.getItem("dev-smm-active-page");
-      if (saved === "dashboard" || saved === "new-order" || saved === "orders" || saved === "notifications" || saved === "apis" || saved === "bundles" || saved === "comparison" || saved === "approval") {
+    if (saved === "dashboard" || saved === "new-order" || saved === "orders" || saved === "notifications" || saved === "apis" || saved === "bundles" || saved === "comparison" || saved === "approval") {
       return saved;
     }
     return "new-order";
   });
 
   const [ordersNotice, setOrdersNotice] = useState("");
-  const [orders, setOrders] = useState<CreatedOrder[]>(() => hydrateOrderDates(readStorage<CreatedOrder[]>("dev-smm-orders", [])));
-  const [apis, setApis] = useState<ApiPanel[]>(() => hydrateApis(readStorage<ApiPanel[]>("dev-smm-apis", [])));
-  const [bundles, setBundles] = useState<Bundle[]>(() => hydrateBundles(readStorage<Bundle[]>("dev-smm-bundles", [])));
+  const [orders, setOrders] = useState(() => hydrateOrderDates(readStorage("dev-smm-orders", [])));
+  const [apis, setApis] = useState(() => hydrateApis(readStorage("dev-smm-apis", [])));
+  const [bundles, setBundles] = useState(() => hydrateBundles(readStorage("dev-smm-bundles", [])));
+  const [approvalBundles, setApprovalBundles] = useState(() => loadApprovalBundles());
   const [cloneSourceOrder, setCloneSourceOrder] = useState<CreatedOrder | null>(null);
   const [fetchingApiId, setFetchingApiId] = useState<string | null>(null);
   const [controllingOrderId, setControllingOrderId] = useState<string | null>(null);
-  
+
   const [batmanQuote] = useState(() => getRandomQuote());
   const [notifUnreadCount, setNotifUnreadCount] = useState(0);
 
-  // 🔥 NEW: Track if sync is in progress to prevent render loops
+  // Track if sync is in progress to prevent render loops
   const isSyncingRef = useRef(false);
   const lastSyncTimeRef = useRef(0);
-    // 🔥 Fetch notification count on mount and periodically
+
+  // Fetch notification count on mount and periodically
   useEffect(() => {
     const loadCount = async () => {
       try {
@@ -215,7 +218,7 @@ export default function App() {
     localStorage.setItem("dev-smm-bundles", JSON.stringify(next));
   }, []);
 
-  // 🔥 IMPROVED: Smarter sync that prevents render loops
+  // Smarter sync that prevents render loops
   const syncOrdersWithBackend = useCallback(async () => {
     if (isSyncingRef.current) {
       console.log('[Sync] Already syncing, skipping...');
@@ -233,16 +236,16 @@ export default function App() {
     lastSyncTimeRef.current = now;
 
     try {
-      const currentOrders = hydrateOrderDates(readStorage<CreatedOrder[]>("dev-smm-orders", []));
+      const currentOrders = hydrateOrderDates(readStorage("dev-smm-orders", []));
 
-            // 🔥 FIX: Only sync orders that are actually active
+      // Only sync orders that are actually active
       // NEVER re-sync completed, cancelled, or failed orders
       const activeOrders = currentOrders.filter(
-        order => order.schedulerOrderId && 
-        order.status !== "completed" &&
-        order.status !== "cancelled" &&
-        order.status !== "failed" &&
-        (order.status === "running" || order.status === "processing" || order.status === "paused" || order.status === "pending")
+        order => order.schedulerOrderId &&
+          order.status !== "completed" &&
+          order.status !== "cancelled" &&
+          order.status !== "failed" &&
+          (order.status === "running" || order.status === "processing" || order.status === "paused" || order.status === "pending")
       );
 
       if (activeOrders.length === 0) {
@@ -267,7 +270,7 @@ export default function App() {
 
           result.runs.forEach((backendRun) => {
             const backendStatus = backendRun.status || "pending";
-            
+
             let frontendStatus: RunStatus;
             if (backendStatus === "cancelled") {
               frontendStatus = "cancelled";
@@ -289,17 +292,12 @@ export default function App() {
             runReasons.push(backendRun.retryReason || "");
           });
 
-                    // 🔥 FIX: Backend returns runs for ALL service types (views, likes, shares, saves, comments)
+          // Backend returns runs for ALL service types (views, likes, shares, saves, comments)
           // But frontend runs array only has ONE entry per time slot
           // We need to match backend runs to frontend runs by grouping by time
           const frontendRunCount = order.runs?.length || 0;
 
-          // 🔥 Group backend runs by scheduled time to match frontend runs
-          // Each frontend "run" = one time slot that may have views + likes + shares + saves + comments
-          // Backend creates separate Run documents for each service type
-          // So we need to determine status per TIME SLOT, not per backend run
-
-                    // 🔥 FIX: Group backend runs by VIEWS time slots
+          // Group backend runs by VIEWS time slots
           // With staggered execution, likes/shares/saves have different times than views
           // So we first collect all VIEWS times as anchors, then assign other services to nearest anchor
 
@@ -365,7 +363,7 @@ export default function App() {
               slot.errors.push(run.error || run.lastError || "");
             }
           });
-          // 🔥 Build per-time-slot status (a slot is "completed" only if ALL its services are completed)
+          // Build per-time-slot status (a slot is "completed" only if ALL its services are completed)
           const slotStatuses: RunStatus[] = [];
           const slotErrors: string[] = [];
 
@@ -392,7 +390,7 @@ export default function App() {
             slotErrors.push(slot.errors.length > 0 ? slot.errors[0] : "");
           });
 
-          // 🔥 Trim to match frontend run count (in case of mismatch)
+          // Trim to match frontend run count (in case of mismatch)
           const trimmedStatuses = slotStatuses.slice(0, frontendRunCount);
           const trimmedErrors = slotErrors.slice(0, frontendRunCount);
 
@@ -407,12 +405,12 @@ export default function App() {
           const trimmedCurrentTimes = runCurrentTimes.slice(0, frontendRunCount);
           const trimmedReasons = runReasons.slice(0, frontendRunCount);
 
-                    while (trimmedRetries.length < frontendRunCount) trimmedRetries.push(0);
+          while (trimmedRetries.length < frontendRunCount) trimmedRetries.push(0);
           while (trimmedOriginalTimes.length < frontendRunCount) trimmedOriginalTimes.push("");
           while (trimmedCurrentTimes.length < frontendRunCount) trimmedCurrentTimes.push("");
           while (trimmedReasons.length < frontendRunCount) trimmedReasons.push("");
 
-          // 🔥 Build actualExecutedTimes per time slot (from VIEWS runs)
+          // Build actualExecutedTimes per time slot (from VIEWS runs)
           const trimmedActualExecutedTimes: string[] = sortedSlots.map(([key]) => {
             const viewsRun = viewsRuns.find(vr => {
               const timeKey = vr.time ? new Date(vr.time).toISOString().slice(0, 16) : "unknown";
@@ -425,7 +423,7 @@ export default function App() {
 
           const slotCompletedCount = trimmedStatuses.filter(s => s === "completed").length;
 
-          // 🔥 Determine order status from trimmed slot statuses
+          // Determine order status from trimmed slot statuses
           let orderStatus: CreatedOrder["status"] = order.status;
 
           if (trimmedStatuses.length > 0) {
@@ -448,7 +446,7 @@ export default function App() {
               runOriginalTimes: trimmedOriginalTimes,
               runCurrentTimes: trimmedCurrentTimes,
               runReasons: trimmedReasons,
-                            runStatuses: trimmedStatuses,
+              runStatuses: trimmedStatuses,
               runErrors: trimmedErrors,
               runActualExecutedTimes: trimmedActualExecutedTimes,
               completedRuns: slotCompletedCount,
@@ -477,7 +475,7 @@ export default function App() {
     }
   }, [persistOrders]);
 
-  // 🔥 FIXED: Auto-sync every 5 MINUTES (300 seconds) - Only when on Orders page
+  // Auto-sync every 5 MINUTES (300 seconds) - Only when on Orders page
   useEffect(() => {
     // Only sync when on orders or dashboard page
     if (activePage !== 'orders' && activePage !== 'dashboard') {
@@ -495,20 +493,20 @@ export default function App() {
     // Then sync every 5 minutes
     const interval = setInterval(() => {
       syncOrdersWithBackend();
-    }, 300000); // 🔥 5 MINUTES (300,000 milliseconds)
+    }, 300000); // 5 MINUTES (300,000 milliseconds)
 
     return () => {
       clearTimeout(initialSync);
       clearInterval(interval);
     };
-    }, [activePage, syncOrdersWithBackend]); // 🔥 Only re-setup when page changes
+  }, [activePage, syncOrdersWithBackend]); // Only re-setup when page changes
 
   const content = useMemo(() => {
-        if (activePage === "approval") {
+    if (activePage === "approval") {
       return (
         <ApprovalPage
           apis={apis}
-          bundles={bundles}
+          approvalBundles={approvalBundles}
           onCreateOrder={(order) => {
             persistOrders((prev) => [order, ...prev]);
           }}
@@ -526,7 +524,9 @@ export default function App() {
           bundles={bundles}
           orders={orders}
           prefillOrder={cloneSourceOrder}
-          onCreateOrder={(order) => persistOrders((prev) => [order, ...prev])}
+          onCreateOrder={(order) => {
+            persistOrders((prev) => [order, ...prev]);
+          }}
           onNavigateToOrders={(notice) => {
             if (notice) setOrdersNotice(notice);
             navigateToPage("orders");
@@ -535,7 +535,7 @@ export default function App() {
       );
     }
     if (activePage === "dashboard") {
-            return (
+      return (
         <DashboardPage
           orders={orders}
           onDeleteOrder={(orderId) => {
@@ -545,7 +545,7 @@ export default function App() {
       );
     }
     if (activePage === "orders") {
-            return (
+      return (
         <OrdersPage
           orders={orders}
           notice={ordersNotice}
@@ -602,7 +602,7 @@ export default function App() {
                     };
                   })
                 );
-                // 🔥 Sync immediately after control action
+                // Sync immediately after control action
                 setTimeout(() => syncOrdersWithBackend(), 2000);
               } else {
                 applyLocalUpdate(action === "pause" ? "paused" : action === "resume" ? "running" : "cancelled");
@@ -618,9 +618,9 @@ export default function App() {
       );
     }
 
-        if (activePage === "notifications") {
+    if (activePage === "notifications") {
       return (
-                <NotificationsPage
+        <NotificationsPage
           onUnreadCountChange={(count) => setNotifUnreadCount(count)}
           onNavigateToOrders={() => navigateToPage("orders")}
         />
@@ -702,11 +702,11 @@ export default function App() {
         />
       );
     }
-        return (
+    return (
       <BundlesPage
         apis={apis}
         bundles={bundles}
-                  onAddBundle={(bundle) => {
+        onAddBundle={(bundle) => {
           const next: Bundle[] = [
             ...bundles,
             {
@@ -726,8 +726,8 @@ export default function App() {
             },
           ];
           persistBundles(next);
-        }}  
-                       onUpdateBundle={(id, bundle) => {
+        }}
+        onUpdateBundle={(id, bundle) => {
           const next: Bundle[] = bundles.map((item) =>
             item.id === id
               ? {
@@ -753,59 +753,41 @@ export default function App() {
           const next = bundles.filter((bundle) => bundle.id !== id);
           persistBundles(next);
         }}
+        approvalBundles={approvalBundles}
+        onApprovalBundlesChange={setApprovalBundles}
       />
     );
-  }, [activePage, apis, bundles, orders, fetchingApiId, controllingOrderId, ordersNotice, cloneSourceOrder, navigateToPage, persistOrders, persistApis, persistBundles, syncOrdersWithBackend]);
+  }, [activePage, apis, bundles, approvalBundles, orders, fetchingApiId, controllingOrderId, ordersNotice, cloneSourceOrder, navigateToPage, persistOrders, persistApis, persistBundles, syncOrdersWithBackend]);
 
   return (
-    <div className="min-h-screen bg-black text-gray-100">
-      <div className="flex min-h-screen">
-        <aside className="w-64 border-r border-yellow-500/20 bg-gradient-to-b from-gray-950 to-black p-6">
-          <div className="mb-8 space-y-1">
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <div className="absolute inset-0 animate-ping rounded-full bg-yellow-500/20" style={{ animationDuration: '3s' }} />
-                <span className="relative text-3xl">🦇</span>
-              </div>
-              <div>
-                <h1 className="text-xl font-bold tracking-tight text-yellow-400">GOTHAM</h1>
-                <p className="text-xs text-yellow-600">SMM Command Center</p>
-              </div>
-            </div>
-          </div>
-
-          <nav className="space-y-2">
+    <div className="min-h-screen bg-gray-950 text-gray-100">
+      {/* Sidebar Navigation */}
+      <div className="fixed left-0 top-0 z-50 hidden h-full w-64 flex-col border-r border-gray-800 bg-gray-950 md:flex">
+        <div className="flex items-center gap-2 border-b border-gray-800 px-4 py-3">
+          <span className="text-xl">🦇</span>
+          <h1 className="text-sm font-bold tracking-wider text-yellow-400 uppercase">I AM BATMAN</h1>
+        </div>
+        <div className="flex-1 overflow-y-auto px-2 py-3">
+          <nav className="space-y-1">
             {NAV_ITEMS.map((item) => {
               const isActive = activePage === item.key;
+              const isAlert = item.key === "notifications" && notifUnreadCount > 0;
               return (
                 <button
                   key={item.key}
-                  type="button"
-                  onClick={() => {
-                    if (item.key === "new-order") {
-                      setCloneSourceOrder(null);
-                    }
-                    navigateToPage(item.key);
-                  }}
+                  onClick={() => navigateToPage(item.key)}
                   className={cn(
-                    "relative flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium transition-all",
-                    isActive 
-                      ? "bg-yellow-500/20 text-yellow-400 shadow-lg shadow-yellow-500/10" 
-                      : "text-gray-400 hover:bg-yellow-500/10 hover:text-yellow-300"
+                    "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition",
+                    isActive
+                      ? "bg-yellow-500/10 text-yellow-400"
+                      : "text-gray-400 hover:bg-gray-900 hover:text-gray-200"
                   )}
                 >
-                  {isActive && (
-                    <motion.span
-                      layoutId="active-nav"
-                      className="absolute inset-0 rounded-xl border border-yellow-500/50"
-                      transition={{ type: "spring", stiffness: 280, damping: 28 }}
-                    />
-                  )}
-                                    <span className="relative text-lg">{item.icon}</span>
-                  <span className="relative">{item.label}</span>
-                  {item.key === "notifications" && notifUnreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white">
-                      {notifUnreadCount > 9 ? "9+" : notifUnreadCount}
+                  <span className="text-sm">{item.icon}</span>
+                  <span>{item.label}</span>
+                  {isAlert && (
+                    <span className="ml-auto rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                      {notifUnreadCount}
                     </span>
                   )}
                 </button>
@@ -813,30 +795,43 @@ export default function App() {
             })}
           </nav>
 
-          <motion.div 
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-            className="mt-8 rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-4"
-          >
-            <div className="mb-2 flex items-center gap-2">
-              <span className="text-yellow-400">🦇</span>
-              <span className="text-[10px] font-medium uppercase tracking-wider text-yellow-600">
-                Quote of the Visit
-              </span>
-            </div>
-            <p className="text-xs italic leading-relaxed text-yellow-500/70">
+          <div className="mt-6 border-t border-gray-800 px-3 py-3">
+            <p className="text-[10px] italic leading-relaxed text-gray-600">
               "{batmanQuote}"
             </p>
-            <p className="mt-2 text-right text-[10px] font-medium text-yellow-600">— Batman</p>
-          </motion.div>
-
-          <div className="mt-4 rounded-lg border border-gray-800 bg-black/50 px-3 py-2 text-center">
-            <p className="text-[10px] text-gray-600">Auto-syncs every 5 min ⚡</p>
           </div>
-        </aside>
+        </div>
+      </div>
 
-        <main className="flex-1 overflow-y-auto bg-gradient-to-br from-gray-950 via-black to-gray-950">{content}</main>
+      {/* Mobile Header */}
+      <div className="sticky top-0 z-40 border-b border-gray-800 bg-gray-950/95 backdrop-blur-md md:hidden">
+        <div className="flex items-center justify-between px-3 py-2">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🦇</span>
+            <span className="text-xs font-bold tracking-wider text-yellow-400 uppercase">I AM BATMAN</span>
+          </div>
+          <div className="flex items-center gap-1">
+            {NAV_ITEMS.map((item) => (
+              <button
+                key={item.key}
+                onClick={() => navigateToPage(item.key)}
+                className={cn(
+                  "rounded-md px-2 py-1 text-xs transition",
+                  activePage === item.key
+                    ? "bg-yellow-500/10 text-yellow-400"
+                    : "text-gray-400 hover:bg-gray-900 hover:text-gray-200"
+                )}
+              >
+                {item.icon}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="md:ml-64">
+        {content}
       </div>
     </div>
   );
