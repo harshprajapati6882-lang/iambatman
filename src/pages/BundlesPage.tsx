@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { BundleManager } from "../components/BundleManager";
+import { ApprovalBundleManager, type ApprovalBundle } from "../components/ApprovalBundleManager";
 import type { ApiPanel, Bundle } from "../types/order";
 
 interface BundlesPageProps {
@@ -49,6 +50,8 @@ interface BundlesPageProps {
     }
   ) => void;
   onDeleteBundle: (id: string) => void;
+  approvalBundles: ApprovalBundle[];
+  onApprovalBundlesChange: (bundles: ApprovalBundle[]) => void;
 }
 
 // 🔥 Shared USD→INR rate — stored in localStorage, used across all pages
@@ -69,7 +72,7 @@ export function setUsdToInrRate(rate: number): void {
   localStorage.setItem(USD_RATE_KEY, String(rate));
 }
 
-export function BundlesPage({ apis, bundles, onAddBundle, onUpdateBundle, onDeleteBundle }: BundlesPageProps) {
+export function BundlesPage({ apis, bundles, onAddBundle, onUpdateBundle, onDeleteBundle, approvalBundles, onApprovalBundlesChange }: BundlesPageProps) {
   const [usdRate, setUsdRate] = useState(() => getUsdToInrRate());
   const [editRate, setEditRate] = useState(String(usdRate));
   const [showRateEditor, setShowRateEditor] = useState(false);
@@ -94,23 +97,58 @@ export function BundlesPage({ apis, bundles, onAddBundle, onUpdateBundle, onDele
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 px-6 py-7">
-      {/* 🔥 Currency Settings */}
-      <div className="rounded-xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/5 to-black p-4">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-2">
+    <div className="min-h-screen bg-gray-950 text-gray-100">
+      <div className="border-b border-yellow-500/20 bg-gray-950/80 px-4 py-3 backdrop-blur-md">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">📁</span>
+          <h2 className="text-sm font-bold tracking-wide text-yellow-400 uppercase">Bundles</h2>
+        </div>
+      </div>
+
+      <div className="mx-auto max-w-5xl px-4 py-4 space-y-6">
+        {/* 🔥 Approval Bundles Section */}
+        <div className="rounded-lg border border-emerald-500/20 bg-gray-900/50 p-4">
+          <h3 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-400">
+            🛡️ Approval Bundles (Views + Likes Only)
+          </h3>
+          <p className="mb-3 text-[10px] text-gray-500">
+            Create lightweight bundles for the Approval page. These only need a Views service and a Likes service.
+          </p>
+          <ApprovalBundleManager
+            apis={apis}
+            bundles={approvalBundles}
+            onChange={onApprovalBundlesChange}
+          />
+        </div>
+
+        {/* Normal Bundles Section */}
+        <div>
+          <h3 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-yellow-400">
+            📦 Standard Bundles (Full Multi-Service)
+          </h3>
+          <BundleManager
+            apis={apis}
+            bundles={bundles}
+            onAddBundle={onAddBundle}
+            onUpdateBundle={onUpdateBundle}
+            onDeleteBundle={onDeleteBundle}
+          />
+        </div>
+
+        {/* 🔥 Currency Settings */}
+        <div className="rounded-lg border border-gray-800 bg-gray-900/50 p-4">
+          <div className="mb-2 flex items-center gap-2">
             <span className="text-lg">💱</span>
-            <div>
-              <h3 className="text-sm font-semibold text-emerald-400">Currency Settings</h3>
-              <p className="text-[10px] text-gray-500">
-                USD panels (like yoyomedia.in) get their rates multiplied by this value to show in INR.
-                Change this whenever the exchange rate moves.
-              </p>
-            </div>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-300">Currency Settings</h3>
           </div>
+          <p className="mb-3 text-[10px] text-gray-500">
+            USD panels (like yoyomedia.in) get their rates multiplied by this value to show in INR.
+            Change this whenever the exchange rate moves.
+          </p>
+
           {showRateEditor ? (
             <div className="flex items-center gap-2">
-              <span className="text-[10px] text-gray-500">1 USD =</span>
+              <span className="text-xs text-gray-400">1 USD =</span>
               <input
                 type="number"
                 value={editRate}
@@ -119,32 +157,25 @@ export function BundlesPage({ apis, bundles, onAddBundle, onUpdateBundle, onDele
                 className="w-20 rounded-lg border border-emerald-500/40 bg-black px-2 py-1 text-xs text-emerald-300 text-center focus:outline-none focus:border-emerald-400"
                 autoFocus
               />
-              <span className="text-[10px] text-gray-500">INR</span>
-              <button type="button" onClick={handleSaveRate} className="rounded-md border border-emerald-500/40 bg-emerald-500/20 px-2 py-1 text-[10px] text-emerald-300 hover:bg-emerald-500/30">✓</button>
-              <button type="button" onClick={() => { setShowRateEditor(false); setEditRate(String(usdRate)); }} className="text-[10px] text-gray-500 hover:text-gray-300">✕</button>
+              <span className="text-xs text-gray-400">INR</span>
+              <button onClick={handleSaveRate} className="rounded-md bg-emerald-500 px-2 py-1 text-[10px] font-bold text-black hover:bg-emerald-400">✓</button>
+              <button onClick={() => { setShowRateEditor(false); setEditRate(String(usdRate)); }} className="text-[10px] text-gray-500 hover:text-gray-300">✕</button>
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-sm font-bold text-emerald-300">1 USD = ₹{usdRate}</span>
-              <button type="button" onClick={() => setShowRateEditor(true)} className="rounded-md border border-gray-600 bg-black px-2 py-1 text-[10px] text-gray-400 hover:text-white">✏️ Edit</button>
+              <span className="text-xs text-gray-400">1 USD = ₹{usdRate}</span>
+              <button onClick={() => setShowRateEditor(true)} className="rounded-md border border-gray-600 bg-black px-2 py-1 text-[10px] text-gray-400 hover:text-white">✏️ Edit</button>
               {usdRate !== USD_RATE_DEFAULT && (
-                <button type="button" onClick={handleResetRate} className="rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-[10px] text-orange-400 hover:bg-orange-500/20">↩ Reset to {USD_RATE_DEFAULT}</button>
+                <button onClick={handleResetRate} className="text-[10px] text-gray-500 hover:text-gray-300">↩ Reset to {USD_RATE_DEFAULT}</button>
               )}
             </div>
           )}
-        </div>
-        <p className="mt-2 text-[9px] text-gray-600">
-          ⚠️ After changing this rate, switch to New Order page and back to see updated costs. This setting is saved in your browser.
-        </p>
-      </div>
 
-      <BundleManager
-        apis={apis}
-        bundles={bundles}
-        onAddBundle={onAddBundle}
-        onUpdateBundle={onUpdateBundle}
-        onDeleteBundle={onDeleteBundle}
-      />
+          <p className="mt-2 text-[10px] text-gray-600">
+            ⚠️ After changing this rate, switch to New Order page and back to see updated costs. This setting is saved in your browser.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
