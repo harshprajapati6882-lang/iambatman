@@ -707,6 +707,9 @@ export default function App() {
         apis={apis}
         bundles={bundles}
         onAddBundle={(bundle) => {
+          const rotIds = [bundle.viewsServiceId, ...(bundle.viewsServiceIds || [])]
+            .map((s) => s.trim())
+            .filter(Boolean);
           const next: Bundle[] = [
             ...bundles,
             {
@@ -715,6 +718,7 @@ export default function App() {
               name: bundle.name,
               serviceIds: {
                 views: bundle.views,
+                viewsServiceIds: rotIds.length > 1 ? rotIds : undefined,
                 likes: bundle.likes,
                 shares: bundle.shares,
                 saves: bundle.saves,
@@ -728,6 +732,9 @@ export default function App() {
           persistBundles(next);
         }}
         onUpdateBundle={(id, bundle) => {
+          const rotIds = [bundle.viewsServiceId, ...(bundle.viewsServiceIds || [])]
+            .map((s) => s.trim())
+            .filter(Boolean);
           const next: Bundle[] = bundles.map((item) =>
             item.id === id
               ? {
@@ -736,6 +743,7 @@ export default function App() {
                   name: bundle.name,
                   serviceIds: {
                     views: bundle.views,
+                    viewsServiceIds: rotIds.length > 1 ? rotIds : undefined,
                     likes: bundle.likes,
                     shares: bundle.shares,
                     saves: bundle.saves,
