@@ -8,12 +8,13 @@ interface BundleManagerProps {
     name: string;
     apiId: string;
     views: string;
+    viewsServiceIds: string[];
     likes: string;
     shares: string;
     saves: string;
     comments: string;
     reposts: string;
-    likesPremium: string; // 🔥 NEW: dedicated min=1 service for sub-likes
+    likesPremium: string;
     serviceApis: {
       views: string;
       likes: string;
@@ -30,6 +31,7 @@ interface BundleManagerProps {
       name: string;
       apiId: string;
       views: string;
+      viewsServiceIds: string[];
       likes: string;
       shares: string;
       saves: string;
@@ -147,7 +149,6 @@ function SearchableSelect({
   );
 }
 
-// 🔥 Per-service row: API selector + service selector
 function ServiceRow({
   emoji,
   label,
@@ -176,14 +177,13 @@ function ServiceRow({
         {emoji} {label}
       </p>
       <div className="grid grid-cols-2 gap-2">
-        {/* API selector for this service */}
         <div>
           <label className="mb-1 block text-[10px] text-gray-600">API Panel</label>
           <select
             value={selectedApiId || defaultApiId}
             onChange={(e) => {
               onApiChange(e.target.value);
-              onServiceChange(""); // reset service when API changes
+              onServiceChange("");
             }}
             className="w-full rounded-lg border border-yellow-500/20 bg-gray-950 px-2 py-1.5 text-xs text-gray-200"
           >
@@ -192,8 +192,6 @@ function ServiceRow({
             ))}
           </select>
         </div>
-
-        {/* Service selector */}
         <SearchableSelect
           options={services}
           value={selectedServiceId}
@@ -213,33 +211,30 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
   const [name, setName] = useState("");
   const [defaultApiId, setDefaultApiId] = useState("");
 
-  // Per-service state: { apiId, serviceId }
   const [viewsApi, setViewsApi] = useState("");
   const [viewsService, setViewsService] = useState("");
+  const [viewsRotServices, setViewsRotServices] = useState<string[]>(["", ""]);
   const [likesApi, setLikesApi] = useState("");
   const [likesService, setLikesService] = useState("");
   const [sharesApi, setSharesApi] = useState("");
   const [sharesService, setSharesService] = useState("");
   const [savesApi, setSavesApi] = useState("");
   const [savesService, setSavesService] = useState("");
-    const [commentsApi, setCommentsApi] = useState("");
+  const [commentsApi, setCommentsApi] = useState("");
   const [commentsService, setCommentsService] = useState("");
   const [repostsApi, setRepostsApi] = useState("");
   const [repostsService, setRepostsService] = useState("");
-  // 🔥 NEW: dedicated min=1 likes service for the Sub-Likes feature.
-  // Optional in the bundle — only required when the user enables Sub-Likes
-  // on the New Order page.
   const [likesPremiumApi, setLikesPremiumApi] = useState("");
   const [likesPremiumService, setLikesPremiumService] = useState("");
 
   const resetForm = () => {
     setName("");
     setDefaultApiId("");
-    setViewsApi(""); setViewsService("");
+    setViewsApi(""); setViewsService(""); setViewsRotServices(["", ""]);
     setLikesApi(""); setLikesService("");
     setSharesApi(""); setSharesService("");
     setSavesApi(""); setSavesService("");
-       setCommentsApi(""); setCommentsService("");
+    setCommentsApi(""); setCommentsService("");
     setRepostsApi(""); setRepostsService("");
     setLikesPremiumApi(""); setLikesPremiumService("");
     setEditingBundleId(null);
@@ -248,12 +243,11 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
 
   const handleDefaultApiChange = (newApiId: string) => {
     setDefaultApiId(newApiId);
-    // Reset all services when default API changes, but keep their API overrides
-    setViewsService("");
+    setViewsService(""); setViewsRotServices(["", ""]);
     setLikesService("");
     setSharesService("");
     setSavesService("");
-       setCommentsService("");
+    setCommentsService("");
     setRepostsService("");
     setLikesPremiumService("");
   };
@@ -263,16 +257,18 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
     if (!name.trim() || !defaultApiId) return;
     if (!viewsService || !likesService || !sharesService || !savesService || !commentsService) return;
 
-      const payload = {
+    const rotIds = viewsRotServices.map((s) => s.trim()).filter(Boolean);
+    const payload = {
       name: name.trim(),
       apiId: defaultApiId,
       views: viewsService,
+      viewsServiceIds: rotIds.length > 0 ? rotIds : [],
       likes: likesService,
       shares: sharesService,
       saves: savesService,
       comments: commentsService,
       reposts: repostsService,
-      likesPremium: likesPremiumService, // 🔥 NEW (empty string when unset = optional)
+      likesPremium: likesPremiumService,
       serviceApis: {
         views: viewsApi || defaultApiId,
         likes: likesApi || defaultApiId,
@@ -292,6 +288,9 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
     resetForm();
   };
 
+  const viewsEffectiveApiId = viewsApi || defaultApiId;
+  const viewsServices = getApiServices(apis, viewsEffectiveApiId);
+
   return (
     <section className="space-y-5">
       <div className="flex items-center justify-between">
@@ -310,7 +309,6 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
 
       {showForm && (
         <form onSubmit={handleSubmit} className="rounded-2xl border border-yellow-500/30 bg-gradient-to-br from-gray-900 to-black p-5 space-y-4">
-          {/* Bundle name */}
           <div>
             <label className="mb-1 block text-xs text-gray-500">Bundle Name</label>
             <input
@@ -321,7 +319,6 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
             />
           </div>
 
-          {/* Default API */}
           <div>
             <label className="mb-1 block text-xs text-gray-500">Default API Panel</label>
             <select
@@ -344,11 +341,38 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
               </p>
 
               <ServiceRow
-                emoji="👁️" label="Views"
+                emoji="👁️" label="Views (Primary)"
                 apis={apis} defaultApiId={defaultApiId}
                 selectedApiId={viewsApi} selectedServiceId={viewsService}
                 onApiChange={setViewsApi} onServiceChange={setViewsService}
               />
+
+              {/* 🔥 NEW: Rotating Views Services */}
+              <div className="rounded-xl border border-yellow-500/15 bg-black/40 p-3">
+                <p className="text-[10px] font-semibold text-yellow-500/70 uppercase tracking-wider mb-2">
+                  🔄 Additional Views Services (Rotation)
+                </p>
+                <p className="text-[10px] text-gray-500 mb-2">
+                  Optional: add up to 2 more views services. All use the same API as primary views. Runs will rotate through all selected views services round-robin.
+                </p>
+                {[0, 1].map((i) => (
+                  <div key={i} className="mb-2">
+                    <SearchableSelect
+                      options={viewsServices}
+                      value={viewsRotServices[i]}
+                      onChange={(val) => {
+                        const next = [...viewsRotServices];
+                        next[i] = val;
+                        setViewsRotServices(next);
+                      }}
+                      placeholder={`Select views service #${i + 2}...`}
+                      label={`Service #${i + 2}`}
+                      disabled={!viewsEffectiveApiId}
+                    />
+                  </div>
+                ))}
+              </div>
+
               <ServiceRow
                 emoji="❤️" label="Likes"
                 apis={apis} defaultApiId={defaultApiId}
@@ -367,7 +391,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
                 selectedApiId={savesApi} selectedServiceId={savesService}
                 onApiChange={setSavesApi} onServiceChange={setSavesService}
               />
-                            <ServiceRow
+              <ServiceRow
                 emoji="💬" label="Comments"
                 apis={apis} defaultApiId={defaultApiId}
                 selectedApiId={commentsApi} selectedServiceId={commentsService}
@@ -380,18 +404,13 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
                 onApiChange={setRepostsApi} onServiceChange={setRepostsService}
               />
 
-              {/* 🔥 NEW: Likes (min=1) — used only by the Sub-Likes feature on New Order */}
               <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
                 <p className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
                   <span>🪶 Likes (min=1) — for Sub-Likes feature</span>
-                  <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[8px] font-normal text-emerald-200">
-                    OPTIONAL
-                  </span>
+                  <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[8px] font-normal text-emerald-200">OPTIONAL</span>
                 </p>
                 <p className="mb-2 text-[10px] text-gray-500">
-                  Pick a service with <strong>min=1</strong>. Only used when you turn ON
-                  the "Sub-Likes" toggle on the New Order page — small likes runs get
-                  split into tiny drips through this service.
+                  Pick a service with <strong>min=1</strong>. Only used when you turn ON the "Sub-Likes" toggle on the New Order page.
                 </p>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
@@ -399,7 +418,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
                     <select
                       value={likesPremiumApi || defaultApiId}
                       onChange={(e) => {
-                        setLikesPremiumApi(e.target.value);
+                        setLikesPremiumApi(e.target.value === defaultApiId ? "" : e.target.value);
                         setLikesPremiumService("");
                       }}
                       className="w-full rounded-lg border border-emerald-500/20 bg-gray-950 px-2 py-1.5 text-xs text-gray-200"
@@ -424,7 +443,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
 
           <button
             type="submit"
-                     disabled={!defaultApiId || !viewsService || !likesService || !sharesService || !savesService || !commentsService || !repostsService}
+            disabled={!defaultApiId || !viewsService || !likesService || !sharesService || !savesService || !commentsService || !repostsService}
             className="w-full rounded-lg border border-yellow-500/50 bg-yellow-500/20 px-3 py-2.5 text-sm font-medium text-yellow-300 transition hover:bg-yellow-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {editingBundleId ? "Update Bundle" : "Save Bundle"}
@@ -450,9 +469,10 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
         {bundles.map((bundle) => {
           const getApiName = (apiId: string) => apis.find(a => a.id === apiId)?.name ?? "Unknown";
           const defaultApiName = getApiName(bundle.apiId);
+          const viewsRotCount = bundle.serviceIds.viewsServiceIds?.length ?? 0;
 
-                   const serviceRows: Array<{ emoji: string; label: string; serviceId: string | undefined; apiId: string; isPremium?: boolean }> = [
-            { emoji: "👁️", label: "Views", serviceId: bundle.serviceIds.views, apiId: bundle.serviceApis?.views || bundle.apiId },
+          const serviceRows: Array<{ emoji: string; label: string; serviceId: string | undefined; apiId: string; isPremium?: boolean }> = [
+            { emoji: "👁️", label: viewsRotCount > 0 ? `Views (${viewsRotCount + 1} rotating)` : "Views", serviceId: bundle.serviceIds.views, apiId: bundle.serviceApis?.views || bundle.apiId },
             { emoji: "❤️", label: "Likes", serviceId: bundle.serviceIds.likes, apiId: bundle.serviceApis?.likes || bundle.apiId },
             { emoji: "🔄", label: "Shares", serviceId: bundle.serviceIds.shares, apiId: bundle.serviceApis?.shares || bundle.apiId },
             { emoji: "💾", label: "Saves", serviceId: bundle.serviceIds.saves, apiId: bundle.serviceApis?.saves || bundle.apiId },
@@ -507,13 +527,17 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
                     setDefaultApiId(bundle.apiId);
                     setViewsApi(bundle.serviceApis?.views || bundle.apiId);
                     setViewsService(bundle.serviceIds.views);
+                    setViewsRotServices([
+                      bundle.serviceIds.viewsServiceIds?.[0] || "",
+                      bundle.serviceIds.viewsServiceIds?.[1] || "",
+                    ]);
                     setLikesApi(bundle.serviceApis?.likes || bundle.apiId);
                     setLikesService(bundle.serviceIds.likes);
                     setSharesApi(bundle.serviceApis?.shares || bundle.apiId);
                     setSharesService(bundle.serviceIds.shares);
                     setSavesApi(bundle.serviceApis?.saves || bundle.apiId);
                     setSavesService(bundle.serviceIds.saves);
-                                       setCommentsApi(bundle.serviceApis?.comments || bundle.apiId);
+                    setCommentsApi(bundle.serviceApis?.comments || bundle.apiId);
                     setCommentsService(bundle.serviceIds.comments || "");
                     setRepostsApi(bundle.serviceApis?.reposts || bundle.apiId);
                     setRepostsService(bundle.serviceIds.reposts || "");
