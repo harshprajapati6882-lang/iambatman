@@ -38,37 +38,38 @@ function isValidUrl(value: string) {
   }
 }
 
-/** Distribute a manual total across runs proportionally by views, respecting a per-run minimum. */
+/** Distribute a manual total across runs that meet a views threshold.
+ *  Only runs with views >= threshold are eligible.
+ *  Likes are distributed round-robin among eligible runs sorted by views desc.
+ *  Runs below threshold get 0 likes. */
 function distributeManualLikes(
   runs: RunStep[],
   manualTotal: number,
-  minPerRun: number
+  minViewsPerLike: number
 ): RunStep[] {
   const n = runs.length;
   if (n === 0) return runs;
 
-  const totalViews = runs.reduce((s, r) => s + (r.views || 0), 0);
-  const proportions = runs.map((r) =>
-    totalViews > 0 ? (r.views || 0) / totalViews : 1 / n
-  );
+  // Find eligible runs (views >= threshold), sorted by views descending
+  const eligible = runs
+    .map((r, i) => ({ index: i, views: r.views || 0 }))
+    .filter((item) => item.views >= minViewsPerLike)
+    .sort((a, b) => b.views - a.views);
 
-  // Initial allocation, clamped to minimum
-  let allocations = proportions.map((p) =>
-    Math.max(minPerRun, Math.round(manualTotal * p))
-  );
-  const currentSum = allocations.reduce((s, v) => s + v, 0);
-  const diff = manualTotal - currentSum;
-
-  // Fix rounding drift by adjusting the largest run so the final total matches exactly
-  if (diff !== 0 && n > 0) {
-    const maxIdx = allocations.indexOf(Math.max(...allocations));
-    allocations[maxIdx] = Math.max(minPerRun, allocations[maxIdx] + diff);
+  if (eligible.length === 0) {
+    return runs.map((r) => ({ ...r, likes: 0, cumulativeLikes: 0 }));
   }
 
-  // Recompute cumulative likes
+  // Round-robin distribution among eligible runs (highest views get first dibs)
+  const likesArray = new Array(n).fill(0);
+  for (let i = 0; i < manualTotal; i++) {
+    const target = eligible[i % eligible.length];
+    likesArray[target.index]++;
+  }
+
   let cum = 0;
   return runs.map((r, i) => {
-    const likes = allocations[i];
+    const likes = likesArray[i];
     cum += likes;
     return { ...r, likes, cumulativeLikes: cum };
   });
@@ -104,6 +105,7 @@ export function ApprovalPage({
   const [includeLikes, setIncludeLikes] = useState(true);
   const [likesMode, setLikesMode] = useState<"auto" | "manual">("auto");
   const [manualTotalLikes, setManualTotalLikes] = useState(500);
+  const [minViewsPerLike, setMinViewsPerLike] = useState(200);
   const [likesDistribution, setLikesDistribution] = useState<
     "bracket" | "even-spread"
   >("even-spread");
@@ -118,7 +120,7 @@ export function ApprovalPage({
   const selectedBundle = approvalBundles.find((b) => b.id === selectedBundleId);
   const selectedApi = apis.find((a) => a.id === selectedBundle?.apiId);
 
-  // service minimums – Approval enforces min 100 views/run, min 1 like/run
+  // service minimums – Approval enforces min 100 views/run
   const viewsService = selectedApi?.services.find(
     (s) => s.id === selectedBundle?.viewsServiceId
   );
@@ -126,6 +128,7 @@ export function ApprovalPage({
     (s) => s.id === selectedBundle?.likesServiceId
   );
   const effectiveMinViews = Math.max(100, viewsService?.min || 0);
+  // 🔥 REMOVED: we no longer force a per-run likes minimum in manual mode
   const effectiveMinLikes = Math.max(1, likesService?.min || 1);
 
   const config: OrderConfig = useMemo(
@@ -173,7 +176,8 @@ export function ApprovalPage({
       if (includeLikes && p.runs?.length) {
         let runs: RunStep[];
         if (likesMode === "manual") {
-          runs = distributeManualLikes(p.runs, manualTotalLikes, effectiveMinLikes);
+          // 🔥 NEW: threshold-based distribution — no per-run minimum forced
+          runs = distributeManualLikes(p.runs, manualTotalLikes, minViewsPerLike);
         } else {
           let cum = 0;
           runs = p.runs.map((r) => {
@@ -199,13 +203,19 @@ export function ApprovalPage({
         runs: [],
       };
     }
-  }, [config, includeLikes, effectiveMinLikes, likesMode, manualTotalLikes]);
+  }, [config, includeLikes, effectiveMinLikes, likesMode, manualTotalLikes, minViewsPerLike]);
 
   const runs = plan.runs || [];
   const runCount = runs.length;
   const totalLikes = runs.reduce((s, r) => s + (r.likes || 0), 0);
   const avgViews = runCount ? Math.round(totalViews / runCount) : 0;
   const avgLikes = runCount && includeLikes ? Math.round(totalLikes / runCount) : 0;
+
+  // How many runs are eligible for likes under current threshold?
+  const eligibleRuns = useMemo(
+    () => runs.filter((r) => (r.views || 0) >= minViewsPerLike).length,
+    [runs, minViewsPerLike]
+  );
 
   // price
   const priceInfo = useMemo(() => {
@@ -328,10 +338,14 @@ export function ApprovalPage({
             time: r.at.toISOString(),
             quantity: Math.max(Math.floor(r.views), effectiveMinViews),
           }));
-          const likesRuns = runs.map((r) => ({
-            time: r.at.toISOString(),
-            quantity: Math.max(0, Math.floor(r.likes)),
-          }));
+
+          // 🔥 FIX: only send likes runs that actually have likes > 0
+          const likesRuns = runs
+            .filter((r) => Math.floor(r.likes) > 0)
+            .map((r) => ({
+              time: r.at.toISOString(),
+              quantity: Math.floor(r.likes),
+            }));
 
           const services: any = {
             views: {
@@ -342,7 +356,7 @@ export function ApprovalPage({
               serviceMin: viewsService?.min || effectiveMinViews,
             },
           };
-          if (includeLikes && selectedBundle.likesServiceId) {
+          if (includeLikes && selectedBundle.likesServiceId && likesRuns.length > 0) {
             services.likes = {
               serviceId: selectedBundle.likesServiceId,
               runs: likesRuns,
@@ -439,7 +453,7 @@ export function ApprovalPage({
                 Approval Mission
               </h2>
               <p className="text-[11px] text-gray-500">
-                Views + Likes only · min 100 views/run · min 1 like/run
+                Views + Likes only · min 100 views/run · likes only after enough views
               </p>
             </div>
           </div>
@@ -670,7 +684,7 @@ export function ApprovalPage({
           {includeLikes && (
             <span className="text-[11px] text-pink-400">
               ≈ {totalLikes.toLocaleString()} total
-              {likesMode === "manual" && ` · ${avgLikes.toLocaleString()}/run`}
+              {likesMode === "manual" && ` · ${eligibleRuns} eligible runs`}
             </span>
           )}
         </div>
@@ -705,33 +719,72 @@ export function ApprovalPage({
               <span className="text-[10px] text-gray-600">
                 {likesMode === "auto"
                   ? "Pattern decides the total"
-                  : "You decide the total"}
+                  : "You decide the total & threshold"}
               </span>
             </div>
 
-            {/* Manual Total Input */}
+            {/* Manual Controls */}
             {likesMode === "manual" && (
-              <div className="mb-3">
-                <label className="block text-[11px] text-gray-400">
-                  Total Likes Target
-                  <input
-                    type="number"
-                    min={0}
-                    value={manualTotalLikes}
-                    onChange={(e) =>
-                      setManualTotalLikes(
-                        Math.max(0, parseInt(e.target.value || "0", 10) || 0)
-                      )
-                    }
-                    className="mt-1 w-full rounded-lg border border-pink-500/25 bg-black px-2.5 py-1.5 text-sm text-white focus:border-pink-500/50 focus:outline-none"
-                  />
-                </label>
-                <p className="mt-1 text-[10px] text-gray-500">
-                  Distributed proportionally by views. Minimum {effectiveMinLikes} per run may raise the actual total above your target.
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block text-[11px] text-gray-400">
+                    Total Likes Target
+                    <input
+                      type="number"
+                      min={0}
+                      value={manualTotalLikes}
+                      onChange={(e) =>
+                        setManualTotalLikes(
+                          Math.max(0, parseInt(e.target.value || "0", 10) || 0)
+                        )
+                      }
+                      className="mt-1 w-full rounded-lg border border-pink-500/25 bg-black px-2.5 py-1.5 text-sm text-white focus:border-pink-500/50 focus:outline-none"
+                    />
+                  </label>
+                  <label className="block text-[11px] text-gray-400">
+                    Min Views per Like
+                    <input
+                      type="number"
+                      min={0}
+                      step={50}
+                      value={minViewsPerLike}
+                      onChange={(e) =>
+                        setMinViewsPerLike(
+                          Math.max(0, parseInt(e.target.value || "0", 10) || 0)
+                        )
+                      }
+                      className="mt-1 w-full rounded-lg border border-pink-500/25 bg-black px-2.5 py-1.5 text-sm text-white focus:border-pink-500/50 focus:outline-none"
+                    />
+                  </label>
+                </div>
+
+                <p className="text-[10px] text-gray-500">
+                  A run only gets a like if its views ≥ <b className="text-pink-400">{minViewsPerLike.toLocaleString()}</b>.
+                  Likes are given to the highest-view eligible runs first.
                 </p>
-                {runCount > 0 && (
-                  <p className="mt-0.5 text-[10px] text-pink-400/80">
-                    Actual scheduled: <b>{totalLikes.toLocaleString()}</b> likes across <b>{runCount}</b> runs (~{avgLikes}/run)
+
+                {eligibleRuns < manualTotalLikes && (
+                  <p className="text-[10px] text-amber-400">
+                    ⚠️ Only <b>{eligibleRuns}</b> runs are eligible (≥{minViewsPerLike} views).
+                    Some eligible runs will receive multiple likes to reach your total of {manualTotalLikes}.
+                  </p>
+                )}
+                {eligibleRuns === 0 && manualTotalLikes > 0 && (
+                  <p className="text-[10px] text-red-400">
+                    ❌ No runs meet the threshold. All likes will be 0. Lower the threshold or increase total views.
+                  </p>
+                )}
+                {runCount > 0 && eligibleRuns > 0 && (
+                  <p className="text-[10px] text-pink-400/80">
+                    Actual scheduled: <b>{totalLikes.toLocaleString()}</b> likes across{" "}
+                    <b>{runs.filter((r) => (r.likes || 0) > 0).length}</b> runs
+                    {runs.filter((r) => (r.likes || 0) > 1).length > 0 && (
+                      <span>
+                        {" "}
+                        (including{" "}
+                        <b>{runs.filter((r) => (r.likes || 0) > 1).length}</b> runs with 2+ likes)
+                      </span>
+                    )}
                   </p>
                 )}
               </div>
