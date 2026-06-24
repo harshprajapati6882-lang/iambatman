@@ -39,33 +39,47 @@ function isValidUrl(value: string) {
 }
 
 /**
- * Distribute a manual total across runs whose cumulative views have crossed a threshold.
- * Likes only start AFTER cumulative views reach `cumulativeViewsThreshold`.
- * The total likes are distributed round-robin among qualifying runs (highest cum views first).
+ * Milestone-based like distribution.
+ * Creates milestones at i * viewsPerLike (i=1,2,3... up to totalLikes).
+ * For each milestone, the FIRST run whose cumulative views >= milestone
+ * gets 1 like. If no run reaches a milestone, that like is simply dropped.
+ * Runs that don't cross any milestone get 0 likes.
  */
-function distributeManualLikes(
+function distributeMilestoneLikes(
   runs: RunStep[],
-  manualTotal: number,
-  cumulativeViewsThreshold: number
+  totalLikes: number,
+  viewsPerLike: number
 ): RunStep[] {
   const n = runs.length;
   if (n === 0) return runs;
 
-  // Find runs where cumulative views >= threshold
-  const eligible = runs
-    .map((r, i) => ({ index: i, cumulativeViews: r.cumulativeViews || 0 }))
-    .filter((item) => item.cumulativeViews >= cumulativeViewsThreshold)
-    .sort((a, b) => b.cumulativeViews - a.cumulativeViews); // highest cum views first
-
-  if (eligible.length === 0) {
-    return runs.map((r) => ({ ...r, likes: 0, cumulativeLikes: 0 }));
-  }
-
-  // Round-robin distribution among eligible runs
   const likesArray = new Array(n).fill(0);
-  for (let i = 0; i < manualTotal; i++) {
-    const target = eligible[i % eligible.length];
-    likesArray[target.index]++;
+
+  // Track which run was last used so we don't keep assigning to the same run
+  // if it has the highest cumulative views across many milestones.
+  // Actually, the natural behavior is: the first run that reaches a milestone
+  // gets the like. If one run jumps over multiple milestones, it gets multiple
+  // likes — which is correct because the milestone was crossed *during* that run.
+
+  for (let i = 1; i <= totalLikes; i++) {
+    const milestone = i * viewsPerLike;
+
+    // Find the first run whose cumulative views >= milestone
+    // and that hasn't already been assigned for this exact milestone.
+    let assigned = false;
+    for (let j = 0; j < n; j++) {
+      const cumViews = runs[j].cumulativeViews || 0;
+      if (cumViews >= milestone) {
+        likesArray[j]++;
+        assigned = true;
+        break;
+      }
+    }
+
+    // If no run reaches this milestone, the like is dropped (user said that's OK)
+    if (!assigned) {
+      // nothing — like simply doesn't get placed
+    }
   }
 
   let cum = 0;
@@ -105,8 +119,8 @@ export function ApprovalPage({
   // --- likes ---
   const [includeLikes, setIncludeLikes] = useState(true);
   const [likesMode, setLikesMode] = useState<"auto" | "manual">("auto");
-  const [manualTotalLikes, setManualTotalLikes] = useState(500);
-  const [cumulativeViewsThreshold, setCumulativeViewsThreshold] = useState(200);
+  const [manualTotalLikes, setManualTotalLikes] = useState(8);
+  const [viewsPerLike, setViewsPerLike] = useState(200);
   const [likesDistribution, setLikesDistribution] = useState<
     "bracket" | "even-spread"
   >("even-spread");
@@ -176,8 +190,8 @@ export function ApprovalPage({
       if (includeLikes && p.runs?.length) {
         let runs: RunStep[];
         if (likesMode === "manual") {
-          // 🔥 Likes only start AFTER cumulative views cross the threshold
-          runs = distributeManualLikes(p.runs, manualTotalLikes, cumulativeViewsThreshold);
+          // Milestone-based: 1 like every ~viewsPerLike cumulative views
+          runs = distributeMilestoneLikes(p.runs, manualTotalLikes, viewsPerLike);
         } else {
           let cum = 0;
           runs = p.runs.map((r) => {
@@ -203,7 +217,7 @@ export function ApprovalPage({
         runs: [],
       };
     }
-  }, [config, includeLikes, effectiveMinLikes, likesMode, manualTotalLikes, cumulativeViewsThreshold]);
+  }, [config, includeLikes, effectiveMinLikes, likesMode, manualTotalLikes, viewsPerLike]);
 
   const runs = plan.runs || [];
   const runCount = runs.length;
@@ -211,10 +225,14 @@ export function ApprovalPage({
   const avgViews = runCount ? Math.round(totalViews / runCount) : 0;
   const avgLikes = runCount && includeLikes ? Math.round(totalLikes / runCount) : 0;
 
-  // Which run does likes start at?
-  const firstLikeRunIndex = useMemo(() => {
-    return runs.findIndex((r) => (r.likes || 0) > 0);
-  }, [runs]);
+  // How many runs actually got at least 1 like?
+  const likedRunsCount = useMemo(
+    () => runs.filter((r) => (r.likes || 0) > 0).length,
+    [runs]
+  );
+
+  // How many likes got placed vs dropped?
+  const droppedLikes = manualTotalLikes - totalLikes;
 
   // price
   const priceInfo = useMemo(() => {
@@ -452,7 +470,7 @@ export function ApprovalPage({
                 Approval Mission
               </h2>
               <p className="text-[11px] text-gray-500">
-                Views + Likes only · min 100 views/run · likes kick in after enough views
+                Views + Likes only · milestone-based likes
               </p>
             </div>
           </div>
@@ -682,9 +700,9 @@ export function ApprovalPage({
           </label>
           {includeLikes && (
             <span className="text-[11px] text-pink-400">
-              ≈ {totalLikes.toLocaleString()} total
-              {likesMode === "manual" && firstLikeRunIndex >= 0 && (
-                <span> · start at run #{firstLikeRunIndex + 1}</span>
+              ≈ {totalLikes.toLocaleString()} placed · {likedRunsCount} runs
+              {droppedLikes > 0 && (
+                <span className="text-amber-400"> · {droppedLikes} dropped</span>
               )}
             </span>
           )}
@@ -720,7 +738,7 @@ export function ApprovalPage({
               <span className="text-[10px] text-gray-600">
                 {likesMode === "auto"
                   ? "Pattern decides the total"
-                  : "You control when likes start"}
+                  : "1 like per milestone"}
               </span>
             </div>
 
@@ -729,7 +747,7 @@ export function ApprovalPage({
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <label className="block text-[11px] text-gray-400">
-                    Total Likes Target
+                    Total Likes
                     <input
                       type="number"
                       min={0}
@@ -743,15 +761,15 @@ export function ApprovalPage({
                     />
                   </label>
                   <label className="block text-[11px] text-gray-400">
-                    Start Likes After (cum. views)
+                    1 Like Every ~ Views
                     <input
                       type="number"
-                      min={0}
+                      min={1}
                       step={50}
-                      value={cumulativeViewsThreshold}
+                      value={viewsPerLike}
                       onChange={(e) =>
-                        setCumulativeViewsThreshold(
-                          Math.max(0, parseInt(e.target.value || "0", 10) || 0)
+                        setViewsPerLike(
+                          Math.max(1, parseInt(e.target.value || "1", 10) || 1)
                         )
                       }
                       className="mt-1 w-full rounded-lg border border-pink-500/25 bg-black px-2.5 py-1.5 text-sm text-white focus:border-pink-500/50 focus:outline-none"
@@ -760,26 +778,32 @@ export function ApprovalPage({
                 </div>
 
                 <p className="text-[10px] text-gray-500">
-                  Likes begin only when cumulative views reach <b className="text-pink-400">{cumulativeViewsThreshold.toLocaleString()}</b>.
-                  Early runs (below threshold) get <b className="text-pink-400">0 likes</b>.
+                  Milestones:{" "}
+                  <b className="text-pink-400">
+                    {Array.from({ length: Math.min(manualTotalLikes, 10) }, (_, i) =>
+                      ((i + 1) * viewsPerLike).toLocaleString()
+                    ).join(", ")}
+                    {manualTotalLikes > 10 ? `, …` : ""}
+                  </b>
+                  . The first run crossing each milestone gets 1 like. Other runs get 0.
                 </p>
 
-                {firstLikeRunIndex >= 0 && (
+                {likedRunsCount > 0 && (
                   <p className="text-[10px] text-pink-400/80">
-                    Likes start at <b>Run #{firstLikeRunIndex + 1}</b> (cum. views: {runs[firstLikeRunIndex]?.cumulativeViews.toLocaleString()}).
-                    {totalLikes > 0 && (
-                      <span>
+                    <b>{likedRunsCount}</b> runs will carry likes.{" "}
+                    <b>{totalLikes}</b> of <b>{manualTotalLikes}</b> likes placed.
+                    {droppedLikes > 0 && (
+                      <span className="text-amber-400/80">
                         {" "}
-                        Total <b>{totalLikes.toLocaleString()}</b> likes distributed across{" "}
-                        <b>{runs.filter((r) => (r.likes || 0) > 0).length}</b> runs.
+                        <b>{droppedLikes}</b> likes dropped (views didn’t reach the last milestones).
                       </span>
                     )}
                   </p>
                 )}
 
-                {firstLikeRunIndex < 0 && totalLikes > 0 && (
+                {likedRunsCount === 0 && manualTotalLikes > 0 && (
                   <p className="text-[10px] text-red-400">
-                    ❌ No runs cross the threshold. All likes will be 0. Lower the threshold or increase total views.
+                    ❌ No runs can reach the first milestone. Lower “1 Like Every” or increase total views.
                   </p>
                 )}
               </div>
@@ -843,7 +867,7 @@ export function ApprovalPage({
             {runCount} runs · {plan.estimatedDurationHours}h · avg{" "}
             {avgViews.toLocaleString()}/run
             {includeLikes && (
-              <span className="text-pink-400/80"> · avg {avgLikes.toLocaleString()} likes/run</span>
+              <span className="text-pink-400/80"> · {likedRunsCount} liked runs</span>
             )}
           </span>
         </div>
@@ -933,7 +957,7 @@ export function ApprovalPage({
             {runCount} runs · {plan.estimatedDurationHours}h · ~
             {avgViews.toLocaleString()} views/run
             {includeLikes && (
-              <span className="text-pink-400"> · ~{avgLikes.toLocaleString()} likes/run</span>
+              <span className="text-pink-400"> · {likedRunsCount} liked runs</span>
             )}
             {priceInfo && (
               <span className="text-emerald-400">
