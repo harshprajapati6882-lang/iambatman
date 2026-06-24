@@ -11,6 +11,7 @@ import type {
   OrderConfig,
   PatternPlan,
   QuickPatternPreset,
+  RunStep,
 } from "../types/order";
 import { createSmmOrder } from "../utils/api";
 import { createPatternPlan } from "../utils/patterns";
@@ -35,6 +36,42 @@ function isValidUrl(value: string) {
   } catch {
     return false;
   }
+}
+
+/** Distribute a manual total across runs proportionally by views, respecting a per-run minimum. */
+function distributeManualLikes(
+  runs: RunStep[],
+  manualTotal: number,
+  minPerRun: number
+): RunStep[] {
+  const n = runs.length;
+  if (n === 0) return runs;
+
+  const totalViews = runs.reduce((s, r) => s + (r.views || 0), 0);
+  const proportions = runs.map((r) =>
+    totalViews > 0 ? (r.views || 0) / totalViews : 1 / n
+  );
+
+  // Initial allocation, clamped to minimum
+  let allocations = proportions.map((p) =>
+    Math.max(minPerRun, Math.round(manualTotal * p))
+  );
+  const currentSum = allocations.reduce((s, v) => s + v, 0);
+  const diff = manualTotal - currentSum;
+
+  // Fix rounding drift by adjusting the largest run so the final total matches exactly
+  if (diff !== 0 && n > 0) {
+    const maxIdx = allocations.indexOf(Math.max(...allocations));
+    allocations[maxIdx] = Math.max(minPerRun, allocations[maxIdx] + diff);
+  }
+
+  // Recompute cumulative likes
+  let cum = 0;
+  return runs.map((r, i) => {
+    const likes = allocations[i];
+    cum += likes;
+    return { ...r, likes, cumulativeLikes: cum };
+  });
 }
 
 export function ApprovalPage({
@@ -65,6 +102,8 @@ export function ApprovalPage({
 
   // --- likes ---
   const [includeLikes, setIncludeLikes] = useState(true);
+  const [likesMode, setLikesMode] = useState<"auto" | "manual">("auto");
+  const [manualTotalLikes, setManualTotalLikes] = useState(500);
   const [likesDistribution, setLikesDistribution] = useState<
     "bracket" | "even-spread"
   >("even-spread");
@@ -131,14 +170,18 @@ export function ApprovalPage({
   const plan: PatternPlan = useMemo(() => {
     try {
       const p = createPatternPlan(config);
-      // enforce min 1 like per run for Approval
       if (includeLikes && p.runs?.length) {
-        let cum = 0;
-        const runs = p.runs.map((r) => {
-          const likes = Math.max(effectiveMinLikes, r.likes || 0);
-          cum += likes;
-          return { ...r, likes, cumulativeLikes: cum };
-        });
+        let runs: RunStep[];
+        if (likesMode === "manual") {
+          runs = distributeManualLikes(p.runs, manualTotalLikes, effectiveMinLikes);
+        } else {
+          let cum = 0;
+          runs = p.runs.map((r) => {
+            const likes = Math.max(effectiveMinLikes, r.likes || 0);
+            cum += likes;
+            return { ...r, likes, cumulativeLikes: cum };
+          });
+        }
         return { ...p, runs };
       }
       return p;
@@ -156,12 +199,13 @@ export function ApprovalPage({
         runs: [],
       };
     }
-  }, [config, includeLikes, effectiveMinLikes]);
+  }, [config, includeLikes, effectiveMinLikes, likesMode, manualTotalLikes]);
 
   const runs = plan.runs || [];
   const runCount = runs.length;
   const totalLikes = runs.reduce((s, r) => s + (r.likes || 0), 0);
   const avgViews = runCount ? Math.round(totalViews / runCount) : 0;
+  const avgLikes = runCount && includeLikes ? Math.round(totalLikes / runCount) : 0;
 
   // price
   const priceInfo = useMemo(() => {
@@ -403,7 +447,7 @@ export function ApprovalPage({
             {[
               ["Views", totalViews.toLocaleString(), "text-yellow-300"],
               ["Runs", String(runCount), "text-sky-300"],
-              ["Likes", totalLikes.toLocaleString(), "text-pink-300"],
+              ["Likes", includeLikes ? totalLikes.toLocaleString() : "0", "text-pink-300"],
               priceInfo
                 ? ["Cost", `₹${priceInfo.total.toFixed(0)}`, "text-emerald-300"]
                 : null,
@@ -626,52 +670,118 @@ export function ApprovalPage({
           {includeLikes && (
             <span className="text-[11px] text-pink-400">
               ≈ {totalLikes.toLocaleString()} total
+              {likesMode === "manual" && ` · ${avgLikes.toLocaleString()}/run`}
             </span>
           )}
         </div>
 
         {includeLikes && (
-          <div className="grid sm:grid-cols-2 gap-3 text-[11px]">
-            <div>
-              <div className="text-gray-400 mb-1">Distribution</div>
-              <div className="flex gap-1.5">
-                {(["even-spread", "bracket"] as const).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setLikesDistribution(m)}
-                    className={`rounded-md px-2.5 py-1 transition ${
-                      likesDistribution === m
-                        ? "bg-pink-500/15 text-pink-200 border border-pink-500/30"
-                        : "bg-black border border-gray-800 text-gray-500 hover:text-gray-300"
-                    }`}
-                  >
-                    {m === "even-spread" ? "🌊 Even Spread" : "📍 Bracket"}
-                  </button>
-                ))}
+          <>
+            {/* Mode Toggle */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-[11px] text-gray-400">Mode:</span>
+              <div className="flex rounded-lg border border-pink-500/20 overflow-hidden">
+                <button
+                  onClick={() => setLikesMode("auto")}
+                  className={`px-3 py-1 text-[11px] transition ${
+                    likesMode === "auto"
+                      ? "bg-pink-500/15 text-pink-200"
+                      : "text-gray-500 hover:text-gray-300"
+                  }`}
+                >
+                  🎲 Auto
+                </button>
+                <button
+                  onClick={() => setLikesMode("manual")}
+                  className={`px-3 py-1 text-[11px] transition border-l border-pink-500/20 ${
+                    likesMode === "manual"
+                      ? "bg-pink-500/15 text-pink-200"
+                      : "text-gray-500 hover:text-gray-300"
+                  }`}
+                >
+                  ✏️ Manual
+                </button>
               </div>
-            </div>
-            <label className="text-gray-400">
-              Boost:{" "}
-              <span className="text-pink-300 font-semibold">
-                {likesBoostPercent > 0 ? "+" : ""}
-                {likesBoostPercent}%
+              <span className="text-[10px] text-gray-600">
+                {likesMode === "auto"
+                  ? "Pattern decides the total"
+                  : "You decide the total"}
               </span>
-              <input
-                type="range"
-                min={-75}
-                max={300}
-                step={25}
-                value={likesBoostPercent}
-                onChange={(e) => setLikesBoostPercent(Number(e.target.value))}
-                className="w-full accent-pink-500 mt-1"
-              />
-              <div className="flex justify-between text-[9px] text-gray-600">
-                <span>-75%</span>
-                <span>Default</span>
-                <span>+300%</span>
+            </div>
+
+            {/* Manual Total Input */}
+            {likesMode === "manual" && (
+              <div className="mb-3">
+                <label className="block text-[11px] text-gray-400">
+                  Total Likes Target
+                  <input
+                    type="number"
+                    min={0}
+                    value={manualTotalLikes}
+                    onChange={(e) =>
+                      setManualTotalLikes(
+                        Math.max(0, parseInt(e.target.value || "0", 10) || 0)
+                      )
+                    }
+                    className="mt-1 w-full rounded-lg border border-pink-500/25 bg-black px-2.5 py-1.5 text-sm text-white focus:border-pink-500/50 focus:outline-none"
+                  />
+                </label>
+                <p className="mt-1 text-[10px] text-gray-500">
+                  Distributed proportionally by views. Minimum {effectiveMinLikes} per run may raise the actual total above your target.
+                </p>
+                {runCount > 0 && (
+                  <p className="mt-0.5 text-[10px] text-pink-400/80">
+                    Actual scheduled: <b>{totalLikes.toLocaleString()}</b> likes across <b>{runCount}</b> runs (~{avgLikes}/run)
+                  </p>
+                )}
               </div>
-            </label>
-          </div>
+            )}
+
+            {/* Auto controls */}
+            {likesMode === "auto" && (
+              <div className="grid sm:grid-cols-2 gap-3 text-[11px]">
+                <div>
+                  <div className="text-gray-400 mb-1">Distribution</div>
+                  <div className="flex gap-1.5">
+                    {(["even-spread", "bracket"] as const).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setLikesDistribution(m)}
+                        className={`rounded-md px-2.5 py-1 transition ${
+                          likesDistribution === m
+                            ? "bg-pink-500/15 text-pink-200 border border-pink-500/30"
+                            : "bg-black border border-gray-800 text-gray-500 hover:text-gray-300"
+                        }`}
+                      >
+                        {m === "even-spread" ? "🌊 Even Spread" : "📍 Bracket"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <label className="text-gray-400">
+                  Boost:{" "}
+                  <span className="text-pink-300 font-semibold">
+                    {likesBoostPercent > 0 ? "+" : ""}
+                    {likesBoostPercent}%
+                  </span>
+                  <input
+                    type="range"
+                    min={-75}
+                    max={300}
+                    step={25}
+                    value={likesBoostPercent}
+                    onChange={(e) => setLikesBoostPercent(Number(e.target.value))}
+                    className="w-full accent-pink-500 mt-1"
+                  />
+                  <div className="flex justify-between text-[9px] text-gray-600">
+                    <span>-75%</span>
+                    <span>Default</span>
+                    <span>+300%</span>
+                  </div>
+                </label>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -684,6 +794,9 @@ export function ApprovalPage({
           <span className="text-[11px] text-gray-500">
             {runCount} runs · {plan.estimatedDurationHours}h · avg{" "}
             {avgViews.toLocaleString()}/run
+            {includeLikes && (
+              <span className="text-pink-400/80"> · avg {avgLikes.toLocaleString()} likes/run</span>
+            )}
           </span>
         </div>
         <div className="h-[180px] rounded-xl bg-black/60 border border-gray-800 px-1 py-2">
@@ -771,6 +884,9 @@ export function ApprovalPage({
           <div className="text-[11px] text-gray-400">
             {runCount} runs · {plan.estimatedDurationHours}h · ~
             {avgViews.toLocaleString()} views/run
+            {includeLikes && (
+              <span className="text-pink-400"> · ~{avgLikes.toLocaleString()} likes/run</span>
+            )}
             {priceInfo && (
               <span className="text-emerald-400">
                 {" "}
