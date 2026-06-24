@@ -24,7 +24,7 @@ export interface OrderConfig {
   includeLikes: boolean;
   includeShares: boolean;
   includeSaves: boolean;
-   includeComments: boolean;
+  includeComments: boolean;
   includeReposts: boolean;
   repostsRatio?: "equal" | "half" | "third" | "custom";
   repostsCustomCount?: number;
@@ -32,36 +32,23 @@ export interface OrderConfig {
   peakHoursBoost: boolean;
   quickPreset: QuickPatternPreset | null;
   delivery: DeliveryOption;
-    minViewsPerRun: number; // 🔥 NEW: Dynamic minimum views per run
+  minViewsPerRun: number;
   manualRunCount?: number;
   sharesRatio?: "equal" | "half" | "third" | "custom";
   savesRatio?: "equal" | "half" | "third" | "custom";
   sharesCustomCount?: number;
-    savesCustomCount?: number;
+  savesCustomCount?: number;
   customDrawnViews?: number[] | null;
   likesDistribution?: "bracket" | "even-spread";
   likesBoostPercent?: number;
   sharesAfterHalfLikes?: boolean;
   sharesBoostPercent?: number;
-  // 🔥 FIX #6: deterministic plan regeneration. Same seed + config ⇒ same plan.
   seed?: number;
-  // 🔥 FIX #7: audience timezone (IANA, e.g. "America/New_York"). When set,
-  // the hour-of-day engagement curve is computed in the audience's local time,
-  // not the server's tz. When unset, falls back to the browser's local tz.
   audienceTimezone?: string;
-  // 🔥 NEW: user-defined view-bracket engagement rules.
-  // When `engagementRulesEnabled` is true, every run whose `views` falls inside
-  // a defined bracket has its likes/shares/etc clamped to the bracket's range
-  // (only for services the bracket explicitly enables). Runs OUTSIDE every
-  // defined bracket fall back to the normal automatic logic.
   engagementRulesEnabled?: boolean;
   engagementRules?: EngagementRule[];
-
-  // 🔥 NEW: Sub-Likes mode. When ON, runs with likes <= subLikesThreshold
-  // are split into many tiny sub-runs spread across the gap to the next run.
-  // Each sub-run is sent to the bundle's `likesPremium` service (min=1).
   subLikesEnabled?: boolean;
-  subLikesThreshold?: number;  // default 20
+  subLikesThreshold?: number;
 }
 
 export type EngagementRuleService = "likes" | "shares" | "saves" | "comments" | "reposts";
@@ -73,11 +60,9 @@ export interface EngagementRange {
 }
 
 export interface EngagementRule {
-  id: string;          // stable id for React keys
-  viewsMin: number;    // inclusive
-  viewsMax: number;    // inclusive
-  // One range per service. If `enabled` is false the service falls back to
-  // the automatic distribution for runs in this bracket.
+  id: string;
+  viewsMin: number;
+  viewsMax: number;
   likes: EngagementRange;
   shares: EngagementRange;
   saves: EngagementRange;
@@ -93,7 +78,7 @@ export interface RunStep {
   likes: number;
   shares: number;
   saves: number;
-   comments: number;
+  comments: number;
   reposts: number;
   cumulativeViews: number;
   cumulativeLikes: number;
@@ -101,16 +86,12 @@ export interface RunStep {
   cumulativeSaves: number;
   cumulativeComments: number;
   cumulativeReposts: number;
-  // 🔥 NEW: when Sub-Likes mode is ON and this run's likes <= threshold,
-  // the parent likes amount is split into several smaller sub-runs spread
-  // across the gap to the next run. Each sub-run becomes its own provider
-  // call to the bundle's `likesPremium` service.
   likesSubRuns?: LikesSubRun[];
 }
 
 export interface LikesSubRun {
-  at: Date;        // when the sub-run fires (after the parent run's `at`)
-  quantity: number; // 1-3 likes typically
+  at: Date;
+  quantity: number;
 }
 
 export interface PatternPlan {
@@ -156,20 +137,18 @@ export interface BundleService {
 
 export interface Bundle {
   id: string;
-  apiId: string; // kept for backward compat (primary/default api)
+  apiId: string;
   name: string;
-    serviceIds: {
+  serviceIds: {
     views: string;
+    viewsServiceIds?: string[]; // 🔥 NEW: up to 3 rotating views service IDs
     likes: string;
     shares: string;
     saves: string;
     comments: string;
     reposts: string;
-    // 🔥 NEW: dedicated min=1 likes service for the "Sub-Likes" feature.
-    // Optional so existing bundles in localStorage keep working unchanged.
     likesPremium?: string;
   };
-  // 🔥 NEW: Per-service API override
   serviceApis?: {
     views?: string;
     likes?: string;
@@ -213,7 +192,7 @@ export interface CreatedOrder {
   patternType: PatternType;
   patternName: string;
   runs: RunStep[];
-    engagement: {
+  engagement: {
     likes: number;
     shares: number;
     saves: number;
@@ -231,7 +210,7 @@ export interface CreatedOrder {
   runOriginalTimes?: string[];
   runCurrentTimes?: string[];
   runReasons?: string[];
-    runActualExecutedTimes?: string[];
+  runActualExecutedTimes?: string[];
   batchLinks?: string[];
   errorMessage?: string;
   createdAt: string;
