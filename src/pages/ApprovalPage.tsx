@@ -348,9 +348,16 @@ export function ApprovalPage({
       for (let i = 0; i < targets.length; i++) {
         const link = targets[i];
         try {
-          const viewsRuns = runs.map((r) => ({
+          // 🔥 Rotating views service IDs
+          const viewsServiceIds = selectedBundle.viewsServiceIds?.filter(Boolean) || [selectedBundle.viewsServiceId];
+          const viewsApiId = selectedBundle.serviceApis?.views || selectedBundle.apiId;
+          const viewsApi = apis.find((a) => a.id === viewsApiId) || selectedApi;
+          const viewsService = viewsApi?.services.find((s) => s.id === selectedBundle.viewsServiceId);
+
+          const viewsRuns = runs.map((r, i) => ({
             time: r.at.toISOString(),
             quantity: Math.max(Math.floor(r.views), effectiveMinViews),
+            serviceIdOverride: viewsServiceIds[i % viewsServiceIds.length],
           }));
 
           // Only send likes runs that actually have likes > 0
@@ -361,12 +368,16 @@ export function ApprovalPage({
               quantity: Math.floor(r.likes),
             }));
 
+          // 🔥 Multi-API support: resolve per-service API for views and likes
+          const likesApiId = selectedBundle.serviceApis?.likes || selectedBundle.apiId;
+          const likesApi = apis.find((a) => a.id === likesApiId) || selectedApi;
+
           const services: any = {
             views: {
               serviceId: selectedBundle.viewsServiceId,
               runs: viewsRuns,
-              apiUrl: selectedApi.url,
-              apiKey: selectedApi.key,
+              apiUrl: viewsApi?.url,
+              apiKey: viewsApi?.key,
               serviceMin: viewsService?.min || effectiveMinViews,
             },
           };
@@ -374,8 +385,8 @@ export function ApprovalPage({
             services.likes = {
               serviceId: selectedBundle.likesServiceId,
               runs: likesRuns,
-              apiUrl: selectedApi.url,
-              apiKey: selectedApi.key,
+              apiUrl: likesApi?.url,
+              apiKey: likesApi?.key,
               serviceMin: likesService?.min || effectiveMinLikes,
             };
           }
