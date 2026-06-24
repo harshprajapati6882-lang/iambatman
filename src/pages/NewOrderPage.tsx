@@ -2050,7 +2050,13 @@ const effectiveMinViews = Math.max(
                   if (includeSaves && totalSaves < 10) { setCreateError("Saves must be at least 10."); return; }
                   if (includeComments && totalCommentsQty <= 0) { setCreateError("Comments must be greater than 0."); return; }
                   if (quantity > 100000) { const proceed = window.confirm("Large mission. Continue?"); if (!proceed) return; }
-                  const viewRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(Math.floor(run.views), effectiveMinViews) }));
+                  // 🔥 Rotating views service IDs
+                  const viewsServiceIds = selectedBundle.serviceIds.viewsServiceIds?.filter(Boolean) || [selectedBundle.serviceIds.views];
+                  const viewRuns = (safePlan?.runs || []).map((run, i) => ({
+                    time: run.at.toISOString(),
+                    quantity: Math.max(Math.floor(run.views), effectiveMinViews),
+                    serviceIdOverride: viewsServiceIds[i % viewsServiceIds.length],
+                  }));
                   if (!viewRuns.length || viewRuns.some((run) => !run.time || !Number.isFinite(run.quantity) || run.quantity <= 0)) { setCreateError("Invalid run schedule. Regenerate."); return; }
                   // 🔥 NEW: build likes payload — for runs with `likesSubRuns`,
                   // emit ONE entry PER sub-run (each with the premium service override).
