@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -38,6 +38,27 @@ function isValidUrl(value: string) {
   }
 }
 
+/** Persisted variance key for Approval page */
+const VARIANCE_LS_KEY = "dev-smm-approval-variance-v1";
+const SAFE_DEFAULT_VARIANCE = 25;
+
+function loadPersistedVariance(): number {
+  try {
+    const raw = localStorage.getItem(VARIANCE_LS_KEY);
+    if (raw) {
+      const n = parseInt(raw, 10);
+      if (Number.isFinite(n) && n >= 0 && n <= 60) return n;
+    }
+  } catch {}
+  return SAFE_DEFAULT_VARIANCE;
+}
+
+function savePersistedVariance(v: number) {
+  try {
+    localStorage.setItem(VARIANCE_LS_KEY, String(v));
+  } catch {}
+}
+
 /**
  * Milestone-based like distribution.
  * Creates milestones at i * viewsPerLike (i=1,2,3... up to totalLikes).
@@ -55,17 +76,9 @@ function distributeMilestoneLikes(
 
   const likesArray = new Array(n).fill(0);
 
-  // Track which run was last used so we don't keep assigning to the same run
-  // if it has the highest cumulative views across many milestones.
-  // Actually, the natural behavior is: the first run that reaches a milestone
-  // gets the like. If one run jumps over multiple milestones, it gets multiple
-  // likes — which is correct because the milestone was crossed *during* that run.
-
   for (let i = 1; i <= totalLikes; i++) {
     const milestone = i * viewsPerLike;
 
-    // Find the first run whose cumulative views >= milestone
-    // and that hasn't already been assigned for this exact milestone.
     let assigned = false;
     for (let j = 0; j < n; j++) {
       const cumViews = runs[j].cumulativeViews || 0;
@@ -76,7 +89,6 @@ function distributeMilestoneLikes(
       }
     }
 
-    // If no run reaches this milestone, the like is dropped (user said that's OK)
     if (!assigned) {
       // nothing — like simply doesn't get placed
     }
@@ -100,12 +112,17 @@ export function ApprovalPage({
   const [orderName, setOrderName] = useState("");
   const [postUrl, setPostUrl] = useState("");
   const [bulkLinks, setBulkLinks] = useState("");
-  const [totalViews, setTotalViews] = useState(50000);
+  const [totalViews, setTotalViews] = useState(2000); // 🔥 default: 2000
   const [selectedBundleId, setSelectedBundleId] = useState("");
 
   // --- pattern controls ---
   const [startDelayHours, setStartDelayHours] = useState(0);
-  const [variancePercent, setVariancePercent] = useState(32);
+  // 🔥 variance persisted to localStorage so it survives refresh
+  const [variancePercent, setVariancePercentRaw] = useState(() => loadPersistedVariance());
+  const setVariancePercent = (v: number) => {
+    setVariancePercentRaw(v);
+    savePersistedVariance(v);
+  };
   const [quickPreset, setQuickPreset] =
     useState<QuickPatternPreset | null>(null);
   const [customHours, setCustomHours] = useState(72);
@@ -116,15 +133,10 @@ export function ApprovalPage({
   });
   const [seed, setSeed] = useState(0);
 
-  // --- likes ---
+  // --- likes (always manual now) ---
   const [includeLikes, setIncludeLikes] = useState(true);
-  const [likesMode, setLikesMode] = useState<"auto" | "manual">("auto");
   const [manualTotalLikes, setManualTotalLikes] = useState(8);
   const [viewsPerLike, setViewsPerLike] = useState(200);
-  const [likesDistribution, setLikesDistribution] = useState<
-    "bracket" | "even-spread"
-  >("even-spread");
-  const [likesBoostPercent, setLikesBoostPercent] = useState(0);
 
   // --- ui ---
   const [expandedRuns, setExpandedRuns] = useState(false);
@@ -163,9 +175,6 @@ export function ApprovalPage({
           ? { ...delivery, hours: customHours, label: "Custom" }
           : delivery,
       minViewsPerRun: effectiveMinViews,
-      likesDistribution,
-      likesBoostPercent:
-        likesBoostPercent !== 0 ? likesBoostPercent : undefined,
       seed,
     }),
     [
@@ -178,8 +187,6 @@ export function ApprovalPage({
       delivery,
       customHours,
       effectiveMinViews,
-      likesDistribution,
-      likesBoostPercent,
       seed,
     ]
   );
@@ -188,18 +195,8 @@ export function ApprovalPage({
     try {
       const p = createPatternPlan(config);
       if (includeLikes && p.runs?.length) {
-        let runs: RunStep[];
-        if (likesMode === "manual") {
-          // Milestone-based: 1 like every ~viewsPerLike cumulative views
-          runs = distributeMilestoneLikes(p.runs, manualTotalLikes, viewsPerLike);
-        } else {
-          let cum = 0;
-          runs = p.runs.map((r) => {
-            const likes = Math.max(effectiveMinLikes, r.likes || 0);
-            cum += likes;
-            return { ...r, likes, cumulativeLikes: cum };
-          });
-        }
+        // 🔥 always manual milestone-based likes
+        const runs = distributeMilestoneLikes(p.runs, manualTotalLikes, viewsPerLike);
         return { ...p, runs };
       }
       return p;
@@ -217,7 +214,7 @@ export function ApprovalPage({
         runs: [],
       };
     }
-  }, [config, includeLikes, effectiveMinLikes, likesMode, manualTotalLikes, viewsPerLike]);
+  }, [config, includeLikes, manualTotalLikes, viewsPerLike]);
 
   const runs = plan.runs || [];
   const runCount = runs.length;
@@ -657,6 +654,17 @@ export function ApprovalPage({
             <span className="text-yellow-300 font-semibold">
               {variancePercent}%
             </span>
+            <span className="block text-[9px] text-gray-500 mt-0.5">
+              {variancePercent <= 15
+                ? "Very safe — barely noticeable fluctuation"
+                : variancePercent <= 25
+                ? "Safe — natural organic look"
+                : variancePercent <= 35
+                ? "Medium — slight spikes for realism"
+                : variancePercent <= 45
+                ? "Aggressive — visible spikes"
+                : "High risk — very irregular pattern"}
+            </span>
             <input
               type="range"
               min={0}
@@ -665,6 +673,11 @@ export function ApprovalPage({
               onChange={(e) => setVariancePercent(Number(e.target.value))}
               className="w-full accent-yellow-500 mt-1"
             />
+            <div className="flex justify-between text-[9px] text-gray-600 mt-0.5">
+              <span>0%</span>
+              <span className="text-yellow-500/70">Safe: 15–25%</span>
+              <span>60%</span>
+            </div>
           </label>
           <label className="text-gray-400">
             Start Delay (hours)
@@ -709,151 +722,69 @@ export function ApprovalPage({
         </div>
 
         {includeLikes && (
-          <>
-            {/* Mode Toggle */}
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-[11px] text-gray-400">Mode:</span>
-              <div className="flex rounded-lg border border-pink-500/20 overflow-hidden">
-                <button
-                  onClick={() => setLikesMode("auto")}
-                  className={`px-3 py-1 text-[11px] transition ${
-                    likesMode === "auto"
-                      ? "bg-pink-500/15 text-pink-200"
-                      : "text-gray-500 hover:text-gray-300"
-                  }`}
-                >
-                  🎲 Auto
-                </button>
-                <button
-                  onClick={() => setLikesMode("manual")}
-                  className={`px-3 py-1 text-[11px] transition border-l border-pink-500/20 ${
-                    likesMode === "manual"
-                      ? "bg-pink-500/15 text-pink-200"
-                      : "text-gray-500 hover:text-gray-300"
-                  }`}
-                >
-                  ✏️ Manual
-                </button>
-              </div>
-              <span className="text-[10px] text-gray-600">
-                {likesMode === "auto"
-                  ? "Pattern decides the total"
-                  : "1 like per milestone"}
-              </span>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-[11px] text-gray-400">
+                Total Likes
+                <input
+                  type="number"
+                  min={0}
+                  value={manualTotalLikes}
+                  onChange={(e) =>
+                    setManualTotalLikes(
+                      Math.max(0, parseInt(e.target.value || "0", 10) || 0)
+                    )
+                  }
+                  className="mt-1 w-full rounded-lg border border-pink-500/25 bg-black px-2.5 py-1.5 text-sm text-white focus:border-pink-500/50 focus:outline-none"
+                />
+              </label>
+              <label className="block text-[11px] text-gray-400">
+                1 Like Every ~ Views
+                <input
+                  type="number"
+                  min={1}
+                  step={50}
+                  value={viewsPerLike}
+                  onChange={(e) =>
+                    setViewsPerLike(
+                      Math.max(1, parseInt(e.target.value || "1", 10) || 1)
+                    )
+                  }
+                  className="mt-1 w-full rounded-lg border border-pink-500/25 bg-black px-2.5 py-1.5 text-sm text-white focus:border-pink-500/50 focus:outline-none"
+                />
+              </label>
             </div>
 
-            {/* Manual Controls */}
-            {likesMode === "manual" && (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="block text-[11px] text-gray-400">
-                    Total Likes
-                    <input
-                      type="number"
-                      min={0}
-                      value={manualTotalLikes}
-                      onChange={(e) =>
-                        setManualTotalLikes(
-                          Math.max(0, parseInt(e.target.value || "0", 10) || 0)
-                        )
-                      }
-                      className="mt-1 w-full rounded-lg border border-pink-500/25 bg-black px-2.5 py-1.5 text-sm text-white focus:border-pink-500/50 focus:outline-none"
-                    />
-                  </label>
-                  <label className="block text-[11px] text-gray-400">
-                    1 Like Every ~ Views
-                    <input
-                      type="number"
-                      min={1}
-                      step={50}
-                      value={viewsPerLike}
-                      onChange={(e) =>
-                        setViewsPerLike(
-                          Math.max(1, parseInt(e.target.value || "1", 10) || 1)
-                        )
-                      }
-                      className="mt-1 w-full rounded-lg border border-pink-500/25 bg-black px-2.5 py-1.5 text-sm text-white focus:border-pink-500/50 focus:outline-none"
-                    />
-                  </label>
-                </div>
+            <p className="text-[10px] text-gray-500">
+              Milestones:{" "}
+              <b className="text-pink-400">
+                {Array.from({ length: Math.min(manualTotalLikes, 10) }, (_, i) =>
+                  ((i + 1) * viewsPerLike).toLocaleString()
+                ).join(", ")}
+                {manualTotalLikes > 10 ? `, …` : ""}
+              </b>
+              . The first run crossing each milestone gets 1 like. Other runs get 0.
+            </p>
 
-                <p className="text-[10px] text-gray-500">
-                  Milestones:{" "}
-                  <b className="text-pink-400">
-                    {Array.from({ length: Math.min(manualTotalLikes, 10) }, (_, i) =>
-                      ((i + 1) * viewsPerLike).toLocaleString()
-                    ).join(", ")}
-                    {manualTotalLikes > 10 ? `, …` : ""}
-                  </b>
-                  . The first run crossing each milestone gets 1 like. Other runs get 0.
-                </p>
-
-                {likedRunsCount > 0 && (
-                  <p className="text-[10px] text-pink-400/80">
-                    <b>{likedRunsCount}</b> runs will carry likes.{" "}
-                    <b>{totalLikes}</b> of <b>{manualTotalLikes}</b> likes placed.
-                    {droppedLikes > 0 && (
-                      <span className="text-amber-400/80">
-                        {" "}
-                        <b>{droppedLikes}</b> likes dropped (views didn’t reach the last milestones).
-                      </span>
-                    )}
-                  </p>
-                )}
-
-                {likedRunsCount === 0 && manualTotalLikes > 0 && (
-                  <p className="text-[10px] text-red-400">
-                    ❌ No runs can reach the first milestone. Lower “1 Like Every” or increase total views.
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Auto controls */}
-            {likesMode === "auto" && (
-              <div className="grid sm:grid-cols-2 gap-3 text-[11px]">
-                <div>
-                  <div className="text-gray-400 mb-1">Distribution</div>
-                  <div className="flex gap-1.5">
-                    {(["even-spread", "bracket"] as const).map((m) => (
-                      <button
-                        key={m}
-                        onClick={() => setLikesDistribution(m)}
-                        className={`rounded-md px-2.5 py-1 transition ${
-                          likesDistribution === m
-                            ? "bg-pink-500/15 text-pink-200 border border-pink-500/30"
-                            : "bg-black border border-gray-800 text-gray-500 hover:text-gray-300"
-                        }`}
-                      >
-                        {m === "even-spread" ? "🌊 Even Spread" : "📍 Bracket"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <label className="text-gray-400">
-                  Boost:{" "}
-                  <span className="text-pink-300 font-semibold">
-                    {likesBoostPercent > 0 ? "+" : ""}
-                    {likesBoostPercent}%
+            {likedRunsCount > 0 && (
+              <p className="text-[10px] text-pink-400/80">
+                <b>{likedRunsCount}</b> runs will carry likes.{" "}
+                <b>{totalLikes}</b> of <b>{manualTotalLikes}</b> likes placed.
+                {droppedLikes > 0 && (
+                  <span className="text-amber-400/80">
+                    {" "}
+                    <b>{droppedLikes}</b> likes dropped (views didn’t reach the last milestones).
                   </span>
-                  <input
-                    type="range"
-                    min={-75}
-                    max={300}
-                    step={25}
-                    value={likesBoostPercent}
-                    onChange={(e) => setLikesBoostPercent(Number(e.target.value))}
-                    className="w-full accent-pink-500 mt-1"
-                  />
-                  <div className="flex justify-between text-[9px] text-gray-600">
-                    <span>-75%</span>
-                    <span>Default</span>
-                    <span>+300%</span>
-                  </div>
-                </label>
-              </div>
+                )}
+              </p>
             )}
-          </>
+
+            {likedRunsCount === 0 && manualTotalLikes > 0 && (
+              <p className="text-[10px] text-red-400">
+                ❌ No runs can reach the first milestone. Lower “1 Like Every” or increase total views.
+              </p>
+            )}
+          </div>
         )}
       </div>
 
