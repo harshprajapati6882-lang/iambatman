@@ -79,6 +79,27 @@ function recomputeCumulativeLikes(runs: any[]): any[] {
   });
 }
 
+/**
+ * Redistribute likes evenly across all runs so they don't cluster.
+ * Each run gets base = floor(total / n), and the first (remainder) runs get +1.
+ */
+function evenlyDistributeLikes(runs: any[]): any[] {
+  const n = runs.length;
+  if (n === 0) return runs;
+  const totalLikes = runs.reduce((s, r) => s + (r.likes || 0), 0);
+  if (totalLikes === 0) return runs;
+
+  const base = Math.floor(totalLikes / n);
+  const remainder = totalLikes % n;
+
+  let cum = 0;
+  return runs.map((r, i) => {
+    const likes = base + (i < remainder ? 1 : 0);
+    cum += likes;
+    return { ...r, likes, cumulativeLikes: cum };
+  });
+}
+
 function formatPrice(value: number) {
   if (!Number.isFinite(value)) return "0";
   if (value === 0) return "0";
@@ -443,6 +464,12 @@ const effectiveMinViews = Math.max(
       if (includeLikes && minLikesOne && likesMode === "auto" && runs.length > 0) {
         runs = runs.map((r) => ({ ...r, likes: Math.max(1, r.likes || 0) }));
         runs = recomputeCumulativeLikes(runs);
+      }
+
+      // 🔥 FIX: Auto + even-spread — redistribute likes evenly across all runs
+      // so they don't cluster in the middle or early runs.
+      if (includeLikes && likesMode === "auto" && likesDistribution === "even-spread" && runs.length > 0) {
+        runs = evenlyDistributeLikes(runs);
       }
 
       return { ...nextPlan, runs };
@@ -1298,6 +1325,7 @@ const effectiveMinViews = Math.max(
                               }}
                               className="rounded-lg border border-pink-500/30 bg-black px-2 py-1 text-[10px] font-semibold text-pink-200 focus:border-pink-500/60 focus:outline-none"
                             >
+                              <option value={-90}>-90%</option>
                               <option value={-75}>-75%</option>
                               <option value={-50}>-50%</option>
                               <option value={-25}>-25%</option>
