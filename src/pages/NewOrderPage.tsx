@@ -281,6 +281,12 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
 
     // 🔥 NEW: Likes boost percentage (0 = default, 50 = +50%, 100 = +100% = double)
   const [likesBoostPercent, setLikesBoostPercent] = useState<number>(0);
+  // 🔥 Likes mode: auto (pattern-generated) vs manual (milestone-based, same as ApprovalPage)
+  const [likesMode, setLikesMode] = useState<"auto" | "manual">("auto");
+  const [manualTotalLikes, setManualTotalLikes] = useState<number>(500);
+  const [viewsPerLike, setViewsPerLike] = useState<number>(200);
+  // 🔥 Toggle: when ON, minimum likes per run becomes 1 (instead of default 10)
+  const [minLikesOne, setMinLikesOne] = useState<boolean>(false);
 
   // 🔥 NEW: Reposts
   const [includeReposts, setIncludeReposts] = useState(false);
