@@ -32,6 +32,53 @@ function createOrderId() {
   return `ORD-${Date.now().toString().slice(-6)}`;
 }
 
+/**
+ * Distribute likes at cumulative-view milestones.
+ * Each milestone = i * viewsPerLike. The first run whose cumulative views >= milestone
+ * gets 1 like. If no run reaches a milestone, that like is simply dropped.
+ */
+function distributeMilestoneLikes(
+  runs: any[],
+  totalLikes: number,
+  viewsPerLike: number
+): any[] {
+  const n = runs.length;
+  if (n === 0) return runs;
+
+  const likesArray = new Array(n).fill(0);
+
+  for (let i = 1; i <= totalLikes; i++) {
+    const milestone = i * viewsPerLike;
+    let assigned = false;
+    for (let j = 0; j < n; j++) {
+      const cumViews = runs[j].cumulativeViews || 0;
+      if (cumViews >= milestone) {
+        likesArray[j]++;
+        assigned = true;
+        break;
+      }
+    }
+    if (!assigned) {
+      // like dropped — milestone beyond final run
+    }
+  }
+
+  let cum = 0;
+  return runs.map((r, i) => {
+    const likes = likesArray[i];
+    cum += likes;
+    return { ...r, likes, cumulativeLikes: cum };
+  });
+}
+
+function recomputeCumulativeLikes(runs: any[]): any[] {
+  let cum = 0;
+  return runs.map((r) => {
+    cum += r.likes || 0;
+    return { ...r, cumulativeLikes: cum };
+  });
+}
+
 function formatPrice(value: number) {
   if (!Number.isFinite(value)) return "0";
   if (value === 0) return "0";
@@ -317,6 +364,11 @@ const effectiveMinViews = Math.max(
             customDrawnViews: isViewsLocked ? lockedViews : (useCustomDrawnViews ? customDrawnViews : undefined),
       likesDistribution,
       likesBoostPercent: likesBoostPercent !== 0 ? likesBoostPercent : undefined,
+      // 🔥 likes mode settings
+      likesMode,
+      manualTotalLikes,
+      viewsPerLike,
+      minLikesOne,
       // 🔥 FIX #6: pass the regen seed so the previewed plan == submitted plan
       seed,
       // 🔥 FIX #7: audience tz for the hour-of-day engagement curve
@@ -358,6 +410,10 @@ const effectiveMinViews = Math.max(
       isViewsLocked,
       likesDistribution,
       likesBoostPercent,
+      likesMode,
+      manualTotalLikes,
+      viewsPerLike,
+      minLikesOne,
       seed,
       audienceTimezone,
       engagementRulesEnabled,
@@ -370,7 +426,20 @@ const effectiveMinViews = Math.max(
   const generatedPlan = useMemo(() => {
     try {
       const nextPlan = createPatternPlan(config);
-      return { ...nextPlan, runs: nextPlan?.runs || [] };
+      let runs = nextPlan?.runs || [];
+
+      // 🔥 Apply manual likes mode (milestone-based, same as ApprovalPage)
+      if (includeLikes && likesMode === "manual" && runs.length > 0) {
+        runs = distributeMilestoneLikes(runs, manualTotalLikes, viewsPerLike);
+      }
+
+      // 🔥 Apply min-likes-per-run clamp: when ON, every run gets at least 1 like
+      if (includeLikes && minLikesOne && likesMode === "auto" && runs.length > 0) {
+        runs = runs.map((r) => ({ ...r, likes: Math.max(1, r.likes || 0) }));
+        runs = recomputeCumulativeLikes(runs);
+      }
+
+      return { ...nextPlan, runs };
     } catch (error) {
       console.error("Pattern plan generation failed", error);
       const now = new Date();
@@ -386,7 +455,7 @@ const effectiveMinViews = Math.max(
         runs: [],
       };
     }
-  }, [config, seed]);
+  }, [config, seed, includeLikes, likesMode, manualTotalLikes, viewsPerLike, minLikesOne]);
 
     const plan = useMemo(() => {
     const basePlan = useClonedPlan && clonedPlan
@@ -1145,13 +1214,13 @@ const effectiveMinViews = Math.max(
                 </div>
               </div>
 
-              <div className="grid gap-2 md:grid-cols-2">
+              <div className="grid gap-1.5 md:grid-cols-2">
                 {/* Likes */}
-                <div className={`rounded-xl border p-3 transition ${includeLikes ? "border-pink-500/40 bg-pink-500/10" : "border-gray-800 bg-gray-950/80"}`}>
+                <div className={`rounded-xl border p-2.5 transition ${includeLikes ? "border-pink-500/40 bg-pink-500/10" : "border-gray-800 bg-gray-950/80"}`}>
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <button
                       type="button"
-                      onClick={() => { setIncludeLikes(!includeLikes); }}
+                      onClick={() => setIncludeLikes(!includeLikes)}
                       className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${
                         includeLikes
                           ? "border-pink-400/70 bg-pink-500/20 text-pink-200"
@@ -1166,54 +1235,152 @@ const effectiveMinViews = Math.max(
                   </div>
 
                   {includeLikes && (
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLikesDistribution(prev => prev === "bracket" ? "even-spread" : "bracket");
-                          setSeed(prev => prev + 1);
-                        }}
-                        className={`rounded-lg border px-2 py-1.5 text-[10px] font-semibold transition ${
-                          likesDistribution === "even-spread"
-                            ? "border-pink-400/70 bg-pink-500/20 text-pink-200"
-                            : "border-pink-500/30 bg-black text-pink-400/70"
-                        }`}
-                        title={likesDistribution === "bracket" ? "Likes at view milestones (1500, 2500...)" : "Likes spread across all runs proportionally"}
-                      >
-                        {likesDistribution === "bracket" ? "📍 Milestone" : "🌊 Spread"}
-                      </button>
+                    <div className="space-y-2">
+                      {/* Mode toggle */}
+                      <div className="flex rounded-lg border border-pink-500/20 overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => { setLikesMode("auto"); setSeed(prev => prev + 1); }}
+                          className={`flex-1 px-2 py-1 text-[11px] font-semibold transition ${
+                            likesMode === "auto"
+                              ? "bg-pink-500/20 text-pink-200"
+                              : "text-gray-500 hover:text-gray-300"
+                          }`}
+                        >
+                          🎲 Auto
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setLikesMode("manual"); setSeed(prev => prev + 1); }}
+                          className={`flex-1 border-l border-pink-500/20 px-2 py-1 text-[11px] font-semibold transition ${
+                            likesMode === "manual"
+                              ? "bg-pink-500/20 text-pink-200"
+                              : "text-gray-500 hover:text-gray-300"
+                          }`}
+                        >
+                          ✏️ Manual
+                        </button>
+                      </div>
 
-                      <select
-                        value={likesBoostPercent}
-                        onChange={(e) => {
-                          const currentViews = safePlan.runs.map(r => r.views);
-                          if (currentViews.length > 0 && currentViews.some(v => v > 0)) {
-                            setLockedViews(currentViews);
-                            setIsViewsLocked(true);
-                          }
-                          setLikesBoostPercent(Number(e.target.value));
-                        }}
-                        className="rounded-lg border border-pink-500/30 bg-black px-2 py-1.5 text-[10px] font-semibold text-pink-200 focus:border-pink-500/60 focus:outline-none"
-                      >
-                        <option value={-75}>Very Low -75%</option>
-                        <option value={-50}>Low -50%</option>
-                        <option value={-25}>Soft -25%</option>
-                        <option value={0}>Default</option>
-                        <option value={25}>+25%</option>
-                        <option value={50}>+50%</option>
-                        <option value={75}>+75%</option>
-                        <option value={100}>+100%</option>
-                        <option value={150}>+150%</option>
-                        <option value={200}>+200%</option>
-                        <option value={300}>+300%</option>
-                        <option value={500}>+500%</option>
-                      </select>
+                      {likesMode === "auto" ? (
+                        <>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLikesDistribution(prev => prev === "bracket" ? "even-spread" : "bracket");
+                                setSeed(prev => prev + 1);
+                              }}
+                              className={`rounded-lg border px-2 py-1 text-[10px] font-semibold transition ${
+                                likesDistribution === "even-spread"
+                                  ? "border-pink-400/70 bg-pink-500/20 text-pink-200"
+                                  : "border-pink-500/30 bg-black text-pink-400/70"
+                              }`}
+                              title={likesDistribution === "bracket" ? "Likes at view milestones" : "Likes spread proportionally"}
+                            >
+                              {likesDistribution === "bracket" ? "📍 Milestone" : "🌊 Spread"}
+                            </button>
+                            <select
+                              value={likesBoostPercent}
+                              onChange={(e) => {
+                                const currentViews = safePlan.runs.map(r => r.views);
+                                if (currentViews.length > 0 && currentViews.some(v => v > 0)) {
+                                  setLockedViews(currentViews);
+                                  setIsViewsLocked(true);
+                                }
+                                setLikesBoostPercent(Number(e.target.value));
+                              }}
+                              className="rounded-lg border border-pink-500/30 bg-black px-2 py-1 text-[10px] font-semibold text-pink-200 focus:border-pink-500/60 focus:outline-none"
+                            >
+                              <option value={-75}>-75%</option>
+                              <option value={-50}>-50%</option>
+                              <option value={-25}>-25%</option>
+                              <option value={0}>Default</option>
+                              <option value={25}>+25%</option>
+                              <option value={50}>+50%</option>
+                              <option value={75}>+75%</option>
+                              <option value={100}>+100%</option>
+                              <option value={150}>+150%</option>
+                              <option value={200}>+200%</option>
+                              <option value={300}>+300%</option>
+                              <option value={500}>+500%</option>
+                            </select>
+                          </div>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={minLikesOne}
+                              onChange={(e) => { setMinLikesOne(e.target.checked); setSeed(prev => prev + 1); }}
+                              className="accent-pink-500 h-3.5 w-3.5"
+                            />
+                            <span className="text-[11px] text-pink-300">Min 1 like per run (default min is 10)</span>
+                          </label>
+                        </>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-2 gap-2">
+                            <label className="text-[10px] text-gray-400">
+                              Total Likes
+                              <input
+                                type="number"
+                                min={0}
+                                value={manualTotalLikes}
+                                onChange={(e) => {
+                                  setManualTotalLikes(Math.max(0, parseInt(e.target.value || "0", 10) || 0));
+                                  setSeed(prev => prev + 1);
+                                }}
+                                className="mt-1 w-full rounded-lg border border-pink-500/30 bg-black px-2 py-1 text-[11px] text-white focus:border-pink-500/60 focus:outline-none"
+                              />
+                            </label>
+                            <label className="text-[10px] text-gray-400">
+                              1 Like Every ~ Views
+                              <input
+                                type="number"
+                                min={1}
+                                step={50}
+                                value={viewsPerLike}
+                                onChange={(e) => {
+                                  setViewsPerLike(Math.max(1, parseInt(e.target.value || "1", 10) || 1));
+                                  setSeed(prev => prev + 1);
+                                }}
+                                className="mt-1 w-full rounded-lg border border-pink-500/30 bg-black px-2 py-1 text-[11px] text-white focus:border-pink-500/60 focus:outline-none"
+                              />
+                            </label>
+                          </div>
+                          <p className="text-[10px] text-gray-500">
+                            Likes fire at milestones:{" "}
+                            <b className="text-pink-400">
+                              {Array.from({ length: Math.min(manualTotalLikes, 8) }, (_, i) =>
+                                ((i + 1) * viewsPerLike).toLocaleString()
+                              ).join(", ")}
+                              {manualTotalLikes > 8 ? `, …` : ""}
+                            </b>
+                            . The first run crossing each gets 1 like. Other runs get 0.
+                          </p>
+                          <p className="text-[10px] text-pink-400/80">
+                            {(() => {
+                              const placed = safePlan.runs.reduce((s, r) => s + (r.likes || 0), 0);
+                              const runCount = safePlan.runs.filter((r) => (r.likes || 0) > 0).length;
+                              const dropped = manualTotalLikes - placed;
+                              return (
+                                <>
+                                  <b>{runCount}</b> runs will carry likes.{" "}
+                                  <b>{placed}</b> of <b>{manualTotalLikes}</b> placed.
+                                  {dropped > 0 && (
+                                    <span className="text-amber-400/80">{" "}<b>{dropped}</b> dropped (views didn’t reach).</span>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </p>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
 
                 {/* Shares */}
-                <div className={`rounded-xl border p-3 transition ${includeShares ? "border-blue-500/40 bg-blue-500/10" : "border-gray-800 bg-gray-950/80"}`}>
+                <div className={`rounded-xl border p-2.5 transition ${includeShares ? "border-blue-500/40 bg-blue-500/10" : "border-gray-800 bg-gray-950/80"}`}>
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <button
                       type="button"
@@ -1309,7 +1476,7 @@ const effectiveMinViews = Math.max(
                 </div>
 
                 {/* Saves */}
-                <div className={`rounded-xl border p-3 transition ${includeSaves ? "border-purple-500/40 bg-purple-500/10" : "border-gray-800 bg-gray-950/80"}`}>
+                <div className={`rounded-xl border p-2.5 transition ${includeSaves ? "border-purple-500/40 bg-purple-500/10" : "border-gray-800 bg-gray-950/80"}`}>
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <button
                       type="button"
@@ -1364,7 +1531,7 @@ const effectiveMinViews = Math.max(
                 </div>
 
                 {/* Comments */}
-                <div className={`rounded-xl border p-3 transition ${includeComments ? "border-pink-500/40 bg-pink-500/10" : "border-gray-800 bg-gray-950/80"}`}>
+                <div className={`rounded-xl border p-2.5 transition ${includeComments ? "border-pink-500/40 bg-pink-500/10" : "border-gray-800 bg-gray-950/80"}`}>
                   <div className="flex items-center justify-between gap-2">
                     <button
                       type="button"
@@ -1385,7 +1552,7 @@ const effectiveMinViews = Math.max(
                 </div>
 
                 {/* Reposts */}
-                <div className={`rounded-xl border p-3 transition md:col-span-2 ${includeReposts ? "border-cyan-500/40 bg-cyan-500/10" : "border-gray-800 bg-gray-950/80"}`}>
+                <div className={`rounded-xl border p-2.5 transition md:col-span-2 ${includeReposts ? "border-cyan-500/40 bg-cyan-500/10" : "border-gray-800 bg-gray-950/80"}`}>
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <button
                       type="button"
@@ -2045,7 +2212,8 @@ const effectiveMinViews = Math.max(
                   const totalSaves = (safePlan?.runs || []).reduce((acc, run) => acc + run.saves, 0);
                                    const totalCommentsQty = (safePlan?.runs || []).reduce((acc, run) => acc + (run.comments || 0), 0);
                   const totalRepostsQty = (safePlan?.runs || []).reduce((acc, run) => acc + (run.reposts || 0), 0);
-                  if (includeLikes && totalLikes < 10) { setCreateError("Likes must be at least 10."); return; }
+                  const minTotalLikes = minLikesOne ? 1 : 10;
+                  if (includeLikes && likesMode === "auto" && totalLikes < minTotalLikes) { setCreateError(`Likes must be at least ${minTotalLikes}.`); return; }
                   if (includeShares && totalShares < 10) { setCreateError("Shares must be at least 10."); return; }
                   if (includeSaves && totalSaves < 10) { setCreateError("Saves must be at least 10."); return; }
                   if (includeComments && totalCommentsQty <= 0) { setCreateError("Comments must be greater than 0."); return; }
