@@ -2121,102 +2121,148 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
   })();
   
    // =========================================================
-  // 🔥 SHARES DISTRIBUTION
-  // Rule: After every 2 like-runs, place 1 share-run
-  // Then if more shares remain, add extra share-runs evenly spaced
-  // Distribute shares proportional to views (not flat)
+  // 🔥 SHARES DISTRIBUTION — organic cumulative-view milestones
+  // Shares should look like real people sharing after the post has traction:
+  //   • no very-early shares
+  //   • start after likes/view momentum exists
+  //   • place share runs at cumulative-view milestones with slight jitter
+  //   • each API run stays provider-friendly, usually 10–18 shares
+  //   • quantities are uneven but controlled (not flat / robotic)
   // =========================================================
   const sharesRuns = (() => {
     const result = Array.from({ length: provisionalRuns.length }, () => 0);
     if (!config.includeShares || sharesTotal <= 0 || provisionalRuns.length <= 1) return result;
 
     const minPerRun = 10;
+    const organicMaxPerRun = 18;
+    const hardMaxPerRun = 22;
+    if (sharesTotal < minPerRun) return result;
+
     const likeRunIndexes = likesRuns
       .map((val, idx) => (val > 0 ? idx : -1))
       .filter(idx => idx !== -1);
 
-    // Shares should NOT appear before likes have real traction.
-    // Start shares after roughly half of the like-runs / like volume has happened.
-    let halfLikesIndex = Math.max(minEngagementIndex, Math.floor(provisionalRuns.length * 0.55));
-    if (likeRunIndexes.length > 0) {
-      const halfByRun = likeRunIndexes[Math.floor(likeRunIndexes.length * 0.5)] ?? likeRunIndexes[0];
-      let cumulativeLikeSeen = 0;
-      const halfLikeTotal = likesTotal * 0.5;
-      let halfByVolume = halfByRun;
-      for (let i = 0; i < likesRuns.length; i += 1) {
-        cumulativeLikeSeen += likesRuns[i] || 0;
-        if (cumulativeLikeSeen >= halfLikeTotal) {
-          halfByVolume = i;
-          break;
-        }
+    // Find the point where likes have real traction. If the toggle is ON,
+    // wait until about half the likes. If OFF, still avoid starting before
+    // the early warmup / first meaningful like activity.
+    let cumulativeLikeSeen = 0;
+    const halfLikeTotal = Math.max(1, likesTotal * 0.5);
+    let halfByVolume = Math.max(minEngagementIndex, Math.floor(provisionalRuns.length * 0.45));
+    for (let i = 0; i < likesRuns.length; i += 1) {
+      cumulativeLikeSeen += likesRuns[i] || 0;
+      if (cumulativeLikeSeen >= halfLikeTotal) {
+        halfByVolume = i;
+        break;
       }
-      halfLikesIndex = Math.max(minEngagementIndex, halfByRun, halfByVolume);
     }
 
-    const normalShareStartIndex = Math.max(
-      minEngagementIndex,
-      (likeRunIndexes[1] ?? likeRunIndexes[0] ?? minEngagementIndex) + 1
-    );
-    const shareStartIndex = config.sharesAfterHalfLikes ? halfLikesIndex : normalShareStartIndex;
+    const firstLikeTraction = likeRunIndexes.length > 1
+      ? likeRunIndexes[Math.min(1, likeRunIndexes.length - 1)] + 1
+      : (likeRunIndexes[0] ?? minEngagementIndex) + 1;
 
-    const maxShareRuns = Math.max(1, Math.floor(sharesTotal / minPerRun));
+    const shareStartIndex = config.sharesAfterHalfLikes
+      ? Math.max(minEngagementIndex, halfByVolume)
+      : Math.max(minEngagementIndex, firstLikeTraction, Math.floor(provisionalRuns.length * 0.25));
+
     const candidates = Array.from({ length: provisionalRuns.length }, (_, i) => i)
       .filter(i => i >= shareStartIndex && i < provisionalRuns.length - 1 && afterEngagementWarmup(i));
 
-    if (candidates.length === 0 || sharesTotal < minPerRun) return result;
+    if (candidates.length === 0) return result;
 
-    const selectedCount = Math.min(maxShareRuns, candidates.length);
+    // Choose organic number of share runs. For example 37 shares tends to be
+    // 3 runs, while larger totals spread into more runs instead of one spike.
+    const minRunsNeeded = Math.ceil(sharesTotal / hardMaxPerRun);
+    const maxRunsAllowed = Math.floor(sharesTotal / minPerRun);
+    const targetRuns = Math.round(sharesTotal / 14);
+    const selectedCount = Math.max(
+      1,
+      Math.min(candidates.length, maxRunsAllowed, Math.max(minRunsNeeded, targetRuns))
+    );
+
+    if (selectedCount <= 0) return result;
+
+    // Select run indexes by cumulative views inside the candidate window.
+    // This makes shares follow actual delivery progress, not just array index.
+    const candidateViewTotal = candidates.reduce((sum, idx) => sum + Math.max(1, provisionalRuns[idx].views || 0), 0);
+    const cumulativeCandidateViews: Array<{ idx: number; cumulative: number }> = [];
+    let cv = 0;
+    for (const idx of candidates) {
+      cv += Math.max(1, provisionalRuns[idx].views || 0);
+      cumulativeCandidateViews.push({ idx, cumulative: cv });
+    }
+
     const selectedIndexes: number[] = [];
+    const minGap = Math.max(1, Math.floor(candidates.length / Math.max(2, selectedCount * 1.7)));
 
-    // Evenly distribute share runs over the second half of the campaign.
-    // This prevents two share runs from sitting close together and makes the orange line smoother.
-    if (selectedCount === 1) {
-      const target = Math.round(candidates.length * 0.58);
-      selectedIndexes.push(candidates[Math.min(candidates.length - 1, Math.max(0, target))]);
-    } else {
-      const minGap = Math.max(1, Math.floor(candidates.length / (selectedCount + 1)));
-      for (let i = 0; i < selectedCount; i += 1) {
-        const pos = Math.round(((i + 1) / (selectedCount + 1)) * (candidates.length - 1));
-        let picked = candidates[pos];
-        // Nudge forward if too close to previous selected share run.
-        while (
-          selectedIndexes.length > 0 &&
-          picked - selectedIndexes[selectedIndexes.length - 1] < minGap &&
-          candidates.includes(picked + 1)
-        ) {
-          picked += 1;
+    for (let slot = 0; slot < selectedCount; slot += 1) {
+      // Equal milestones plus small jitter: e.g. 3 share runs land around
+      // 1/4, 2/4, 3/4 of the eligible view window, not perfectly exact.
+      const baseFraction = (slot + 1) / (selectedCount + 1);
+      const jitter = random(-0.06, 0.06);
+      const targetViews = candidateViewTotal * clamp(baseFraction + jitter, 0.08, 0.94);
+      let picked = cumulativeCandidateViews.find((row) => row.cumulative >= targetViews)?.idx ?? candidates[candidates.length - 1];
+
+      // Avoid crowding around the same run.
+      if (selectedIndexes.length > 0) {
+        const prev = selectedIndexes[selectedIndexes.length - 1];
+        if (picked - prev < minGap) {
+          const minAllowed = prev + minGap;
+          picked = candidates.find((idx) => idx >= minAllowed) ?? picked;
         }
-        if (!selectedIndexes.includes(picked)) selectedIndexes.push(picked);
       }
+
+      if (!selectedIndexes.includes(picked)) selectedIndexes.push(picked);
+    }
+
+    // Fill missing slots if jitter caused duplicates.
+    for (const idx of candidates) {
+      if (selectedIndexes.length >= selectedCount) break;
+      if (!selectedIndexes.includes(idx)) selectedIndexes.push(idx);
     }
 
     selectedIndexes.sort((a, b) => a - b);
 
-    const selectedViews = selectedIndexes.map(idx => provisionalRuns[idx].views);
-    const viewsSum = selectedViews.reduce((a, b) => a + b, 0);
-    const rawShares = selectedIndexes.map((idx) => {
-      const proportion = viewsSum > 0 ? (provisionalRuns[idx].views / viewsSum) : (1 / selectedIndexes.length);
-      return Math.max(minPerRun, Math.round(proportion * sharesTotal));
+    // Organic uneven quantities. Start around equal, apply a soft wave +
+    // randomness, then rebalance to exact sharesTotal while respecting bounds.
+    const deliverable = Math.min(sharesTotal, selectedIndexes.length * hardMaxPerRun);
+    const base = Math.floor(deliverable / selectedIndexes.length);
+    const quantities = selectedIndexes.map((_, i) => {
+      const progress = selectedIndexes.length === 1 ? 0.5 : i / (selectedIndexes.length - 1);
+      const wave = 1 + Math.sin(progress * Math.PI) * 0.14; // middle a bit stronger
+      const jitter = random(0.88, 1.16);
+      return clamp(Math.round(base * wave * jitter), minPerRun, organicMaxPerRun);
     });
 
-    const rawSum = rawShares.reduce((a, b) => a + b, 0);
-    const scaled = rawShares.map(v => Math.max(minPerRun, Math.round((v / Math.max(1, rawSum)) * sharesTotal)));
-
-    let diff = sharesTotal - scaled.reduce((a, b) => a + b, 0);
-    let corrIdx = 0;
-    while (diff !== 0 && corrIdx < scaled.length * 20) {
-      const target = corrIdx % scaled.length;
-      if (diff > 0) { scaled[target]++; diff--; }
-      else if (scaled[target] > minPerRun) { scaled[target]--; diff++; }
-      corrIdx++;
+    let diff = deliverable - quantities.reduce((a, b) => a + b, 0);
+    let guard = quantities.length * 40;
+    while (diff !== 0 && guard > 0) {
+      const order = diff > 0
+        ? [...quantities.keys()].sort((a, b) => quantities[a] - quantities[b])
+        : [...quantities.keys()].sort((a, b) => quantities[b] - quantities[a]);
+      let changed = false;
+      for (const qi of order) {
+        if (diff === 0) break;
+        if (diff > 0 && quantities[qi] < hardMaxPerRun) {
+          quantities[qi] += 1;
+          diff -= 1;
+          changed = true;
+        } else if (diff < 0 && quantities[qi] > minPerRun) {
+          quantities[qi] -= 1;
+          diff += 1;
+          changed = true;
+        }
+      }
+      if (!changed) break;
+      guard -= 1;
     }
 
     selectedIndexes.forEach((runIdx, i) => {
-      result[runIdx] = scaled[i];
+      result[runIdx] = quantities[i];
     });
 
     return result;
   })();
+
     // =========================================================
   // 🔥 SAVES DISTRIBUTION
   // Step 1: Place 1 save 1-3 runs AFTER each share-run
