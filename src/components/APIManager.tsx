@@ -8,10 +8,12 @@ interface APIManagerProps {
   onDeleteApi: (id: string) => void;
   onToggleStatus: (id: string) => void;
   onFetchServices: (id: string) => void;
+  onCheckBalance: (id: string) => void;
   fetchingApiId: string | null;
+  checkingBalanceApiId: string | null;
 }
 
-export function APIManager({ apis, onAddApi, onEditApi, onDeleteApi, onToggleStatus, onFetchServices, fetchingApiId }: APIManagerProps) {
+export function APIManager({ apis, onAddApi, onEditApi, onDeleteApi, onToggleStatus, onFetchServices, onCheckBalance, fetchingApiId, checkingBalanceApiId }: APIManagerProps) {
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
@@ -122,21 +124,33 @@ export function APIManager({ apis, onAddApi, onEditApi, onDeleteApi, onToggleSta
                   <h3 className="text-base font-semibold text-yellow-400">{api.name}</h3>
                   <p className="text-sm text-gray-500">{api.url}</p>
                   <p className="mt-1 text-xs text-gray-600">{api.services.length} services linked</p>
+                  {api.lastBalance && <p className="mt-1 text-xs text-emerald-400">Balance: {api.lastBalance}</p>}
                   {api.lastFetchError && <p className="mt-1 text-xs text-red-400">{api.lastFetchError}</p>}
+                  {api.lastBalanceError && <p className="mt-1 text-xs text-red-400">Balance error: {api.lastBalanceError}</p>}
                 </div>
                 <div className="text-right">
                   <p className={`text-sm font-semibold ${api.status === "Active" ? "text-emerald-400" : "text-gray-500"}`}>{api.status}</p>
                   <button type="button" onClick={() => onToggleStatus(api.id)} className="mt-1 block text-xs text-yellow-500 hover:text-yellow-400">
                     Toggle Status
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => onFetchServices(api.id)}
-                    disabled={fetchingApiId === api.id}
-                    className="mt-2 rounded-md border border-yellow-500/50 bg-yellow-500/10 px-2.5 py-1 text-xs text-yellow-300 transition hover:bg-yellow-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {fetchingApiId === api.id ? "Syncing..." : "Sync Services"}
-                  </button>
+                  <div className="mt-2 flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onFetchServices(api.id)}
+                      disabled={fetchingApiId === api.id}
+                      className="rounded-md border border-yellow-500/50 bg-yellow-500/10 px-2.5 py-1 text-xs text-yellow-300 transition hover:bg-yellow-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {fetchingApiId === api.id ? "Syncing..." : "Sync Services"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onCheckBalance(api.id)}
+                      disabled={checkingBalanceApiId === api.id}
+                      className="rounded-md border border-emerald-500/50 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-300 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {checkingBalanceApiId === api.id ? "Checking..." : "Check Balance"}
+                    </button>
+                  </div>
                   <div className="mt-2 flex justify-end gap-2">
                     <button type="button" onClick={() => startEdit(api)} className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-1 text-xs text-yellow-300 transition hover:bg-yellow-500/20">
                       ✏️ Edit
