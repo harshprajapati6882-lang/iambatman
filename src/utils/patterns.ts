@@ -1859,30 +1859,21 @@ export function createPatternPlan(config: OrderConfig): PatternPlan {
 
   let commentsTotal = 0;
   if (config.includeComments) {
-    // 🔥 FIX: Comments were frozen because the old clamp(..., 30, 1200) was
-    // hard-capping the result at 1200 (so anything above ~10 M views looked
-    // identical) and lifting tiny orders up to 30 (so anything below ~300 k
-    // views also looked identical). The result: changing the views slider
-    // produced no visible change in the comments column.
-    //
-    // New formula:
-    //   • Use deterministic ratios that scale by view tier (no random — so
-    //     the same views always gives a predictable, growing comment count).
-    //   • Floor only at the provider's true minimum (10).
-    //   • Cap is much higher (50 000) and is just a safety rail — for
-    //     anything realistic, the value scales linearly with views.
-    const commentRatio =
-      totalViews >= 10000000 ? 0.00018 :   // 10 M+    → ~1 800 per 10 M
-      totalViews >= 1000000  ? 0.00022 :   // 1 M-10 M → ~220 per 1 M
-      totalViews >= 100000   ? 0.00028 :   // 100 k-1M → ~28 per 100 k
-      totalViews >= 10000    ? 0.00035 :   // 10 k-100k → ~3-35
-                               0.00050;    // < 10 k   → small but visible
-    const rawCommentsTotal = Math.floor(totalViews * commentRatio);
-    // Provider minimum is 10 comments/run, so keep total aligned to 10s.
-    // Use 50 000 as a soft safety cap — far above anything users will hit
-    // in practice but prevents a typo'd 10 B-view order from exploding.
-    const aligned = Math.ceil(Math.max(10, rawCommentsTotal) / 10) * 10;
-    commentsTotal = Math.min(50000, aligned);
+    if (config.commentsCustomCount !== undefined && config.commentsCustomCount !== null) {
+      // User-controlled comments total from NewOrderPage.
+      // Keep provider-safe bounds; distribution later splits into 10-15/run.
+      commentsTotal = Math.min(50000, Math.max(10, Math.floor(config.commentsCustomCount)));
+    } else {
+      const commentRatio =
+        totalViews >= 10000000 ? 0.00018 :
+        totalViews >= 1000000  ? 0.00022 :
+        totalViews >= 100000   ? 0.00028 :
+        totalViews >= 10000    ? 0.00035 :
+                                 0.00050;
+      const rawCommentsTotal = Math.floor(totalViews * commentRatio);
+      const aligned = Math.ceil(Math.max(10, rawCommentsTotal) / 10) * 10;
+      commentsTotal = Math.min(50000, aligned);
+    }
   }
 
        // =========================================================
