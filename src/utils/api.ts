@@ -20,6 +20,8 @@ interface CreateOrderPayload {
           apiUrlOverride?: string;
           apiKeyOverride?: string;
           serviceMinOverride?: number;
+          preserveExactTime?: boolean;
+          noStagger?: boolean;
         }>;
       }
     >
