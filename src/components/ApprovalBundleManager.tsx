@@ -39,10 +39,6 @@ export function saveApprovalBundles(bundles: ApprovalBundle[]) {
   } catch {}
 }
 
-function getApiServices(apis: ApiPanel[], apiId: string): ApiService[] {
-  return apis.find((api) => api.id === apiId)?.services ?? [];
-}
-
 export function ApprovalBundleManager({ apis, bundles, onChange }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -51,12 +47,26 @@ export function ApprovalBundleManager({ apis, bundles, onChange }: Props) {
   const [likesApiId, setLikesApiId] = useState("");
   const [viewsServiceIds, setViewsServiceIds] = useState<string[]>(["", "", ""]);
   const [likesServiceId, setLikesServiceId] = useState("");
+  const [viewsSearch, setViewsSearch] = useState("");
+  const [likesSearch, setLikesSearch] = useState("");
 
   const selectedApi = apis.find((a) => a.id === apiId);
   const selectedViewsApi = apis.find((a) => a.id === (viewsApiId || apiId));
   const selectedLikesApi = apis.find((a) => a.id === (likesApiId || apiId));
   const viewsServices = selectedViewsApi?.services ?? [];
   const likesServices = selectedLikesApi?.services ?? [];
+  const filterServices = (services: ApiService[], query: string) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return services;
+    return services.filter((service) =>
+      service.id.toLowerCase().includes(q) ||
+      service.name.toLowerCase().includes(q) ||
+      String(service.min ?? "").includes(q) ||
+      String(service.max ?? "").includes(q)
+    );
+  };
+  const filteredViewsServices = filterServices(viewsServices, viewsSearch);
+  const filteredLikesServices = filterServices(likesServices, likesSearch);
 
   const resetForm = () => {
     setEditingId(null);
@@ -66,6 +76,8 @@ export function ApprovalBundleManager({ apis, bundles, onChange }: Props) {
     setLikesApiId("");
     setViewsServiceIds(["", "", ""]);
     setLikesServiceId("");
+    setViewsSearch("");
+    setLikesSearch("");
   };
 
   const startEdit = (bundle: ApprovalBundle) => {
@@ -80,6 +92,8 @@ export function ApprovalBundleManager({ apis, bundles, onChange }: Props) {
       bundle.viewsServiceIds?.[2] ?? "",
     ]);
     setLikesServiceId(bundle.likesServiceId);
+    setViewsSearch("");
+    setLikesSearch("");
   };
 
   const handleSave = () => {
@@ -187,6 +201,13 @@ export function ApprovalBundleManager({ apis, bundles, onChange }: Props) {
                 </select>
               </div>
             </div>
+            <input
+              value={viewsSearch}
+              onChange={(e) => setViewsSearch(e.target.value)}
+              placeholder="Search views service by ID, name, min or max..."
+              disabled={!apiId}
+              className="mb-2 w-full rounded-lg border border-yellow-500/20 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-yellow-500/50 focus:outline-none disabled:opacity-40"
+            />
             <div className="space-y-2">
               {[0, 1, 2].map((i) => (
                 <div key={i} className="flex items-center gap-2">
@@ -202,9 +223,9 @@ export function ApprovalBundleManager({ apis, bundles, onChange }: Props) {
                     className="flex-1 rounded-lg border border-yellow-500/20 bg-gray-950 px-2 py-1.5 text-xs text-white focus:border-yellow-500/50 focus:outline-none disabled:opacity-40"
                   >
                     <option value="">{i === 0 ? "Select primary service…" : "Add rotating service (optional)…"}</option>
-                    {viewsServices.map((s) => (
+                    {filteredViewsServices.map((s) => (
                       <option key={s.id} value={s.id}>
-                        {s.id} — {s.name}
+                        {s.id} — {s.name} {s.min ? `(min ${s.min})` : ""}
                       </option>
                     ))}
                   </select>
@@ -244,6 +265,13 @@ export function ApprovalBundleManager({ apis, bundles, onChange }: Props) {
               </div>
               <div>
                 <label className="mb-1 block text-[10px] text-gray-600">Likes Service</label>
+                <input
+                  value={likesSearch}
+                  onChange={(e) => setLikesSearch(e.target.value)}
+                  placeholder="Search service ID..."
+                  disabled={!apiId}
+                  className="mb-1 w-full rounded-lg border border-pink-500/20 bg-gray-950 px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-pink-500/50 focus:outline-none disabled:opacity-40"
+                />
                 <select
                   value={likesServiceId}
                   onChange={(e) => setLikesServiceId(e.target.value)}
@@ -251,9 +279,9 @@ export function ApprovalBundleManager({ apis, bundles, onChange }: Props) {
                   className="w-full rounded-lg border border-pink-500/20 bg-gray-950 px-2 py-1.5 text-xs text-white focus:border-pink-500/50 focus:outline-none disabled:opacity-40"
                 >
                   <option value="">Select service...</option>
-                  {likesServices.map((s) => (
+                  {filteredLikesServices.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.id} — {s.name}
+                      {s.id} — {s.name} {s.min ? `(min ${s.min})` : ""}
                     </option>
                   ))}
                 </select>
