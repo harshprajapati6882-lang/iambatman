@@ -67,7 +67,7 @@ function distributeMilestoneLikes(
   return runs.map((r, i) => {
     const likes = likesArray[i];
     cum += likes;
-    return { ...r, likes, cumulativeLikes: cum };
+    return { ...r, likes, cumulativeLikes: cum, likesSubRuns: undefined };
   });
 }
 
@@ -80,23 +80,76 @@ function recomputeCumulativeLikes(runs: any[]): any[] {
 }
 
 /**
- * Redistribute likes evenly across all runs so they don't cluster.
- * Each run gets base = floor(total / n), and the first (remainder) runs get +1.
+ * Manual Likes (min 10) mode.
+ * Distributes the requested likes across the whole order timeline while keeping
+ * every likes run between 10 and 15. If there are not enough likes to put 10 on
+ * every run, it uses fewer evenly spaced runs. If there are too many likes, it
+ * caps delivery at 15 per run and the extra likes are intentionally not placed.
  */
-function evenlyDistributeLikes(runs: any[]): any[] {
+function distributeEvenManualLikesMinMax(
+  runs: any[],
+  totalLikes: number,
+  minPerRun = 10,
+  maxPerRun = 15
+): any[] {
   const n = runs.length;
+  const requested = Math.max(0, Math.floor(totalLikes || 0));
   if (n === 0) return runs;
-  const totalLikes = runs.reduce((s, r) => s + (r.likes || 0), 0);
-  if (totalLikes === 0) return runs;
+  if (requested < minPerRun) {
+    return recomputeCumulativeLikes(runs.map((r) => ({ ...r, likes: 0, likesSubRuns: undefined })));
+  }
 
-  const base = Math.floor(totalLikes / n);
-  const remainder = totalLikes % n;
+  const deliverable = Math.min(requested, n * maxPerRun);
+  let activeCount = deliverable >= n * minPerRun ? n : Math.floor(deliverable / minPerRun);
+  activeCount = Math.max(1, Math.min(n, activeCount));
+
+  // If needed, add more slots so no slot exceeds maxPerRun.
+  activeCount = Math.max(activeCount, Math.ceil(deliverable / maxPerRun));
+  activeCount = Math.min(n, activeCount);
+
+  const activeIndexes = new Set<number>();
+  if (activeCount === 1) {
+    activeIndexes.add(Math.floor((n - 1) / 2));
+  } else {
+    for (let i = 0; i < activeCount; i++) {
+      activeIndexes.add(Math.round((i * (n - 1)) / (activeCount - 1)));
+    }
+  }
+
+  // Rare rounding collision safety: fill missing slots from left to right.
+  for (let i = 0; activeIndexes.size < activeCount && i < n; i++) {
+    activeIndexes.add(i);
+  }
+
+  const indexes = Array.from(activeIndexes).sort((a, b) => a - b);
+  const likesArray = new Array(n).fill(0);
+  let remaining = deliverable;
+
+  indexes.forEach((idx, i) => {
+    const slotsLeft = indexes.length - i;
+    const qty = Math.min(maxPerRun, Math.max(minPerRun, Math.floor(remaining / slotsLeft)));
+    likesArray[idx] = qty;
+    remaining -= qty;
+  });
+
+  // Spread any remainder without exceeding maxPerRun.
+  let guard = indexes.length * maxPerRun;
+  while (remaining > 0 && guard > 0) {
+    for (const idx of indexes) {
+      if (remaining <= 0) break;
+      if (likesArray[idx] < maxPerRun) {
+        likesArray[idx] += 1;
+        remaining -= 1;
+      }
+    }
+    guard -= 1;
+  }
 
   let cum = 0;
   return runs.map((r, i) => {
-    const likes = base + (i < remainder ? 1 : 0);
+    const likes = likesArray[i];
     cum += likes;
-    return { ...r, likes, cumulativeLikes: cum };
+    return { ...r, likes, cumulativeLikes: cum, likesSubRuns: undefined };
   });
 }
 
@@ -298,16 +351,14 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
   const [savesCustomCount, setSavesCustomCount] = useState<number>(50);
 
     // 🔥 NEW: Likes distribution mode
-  const [likesDistribution, setLikesDistribution] = useState<"bracket" | "even-spread">("even-spread");
+  const [likesDistribution] = useState<"bracket" | "even-spread">("even-spread");
 
     // 🔥 NEW: Likes boost percentage (0 = default, 50 = +50%, 100 = +100% = double)
-  const [likesBoostPercent, setLikesBoostPercent] = useState<number>(0);
+  const [likesBoostPercent] = useState<number>(0);
   // 🔥 Likes mode: auto (pattern-generated) vs manual (milestone-based, same as ApprovalPage)
-  const [likesMode, setLikesMode] = useState<"auto" | "manual">("auto");
+  const [likesMode, setLikesMode] = useState<"manual-min1" | "manual-min10">("manual-min1");
   const [manualTotalLikes, setManualTotalLikes] = useState<number>(500);
   const [viewsPerLike, setViewsPerLike] = useState<number>(200);
-  // 🔥 Toggle: when ON, minimum likes per run becomes 1 (instead of default 10)
-  const [minLikesOne, setMinLikesOne] = useState<boolean>(false);
 
   // 🔥 NEW: Reposts
   const [includeReposts, setIncludeReposts] = useState(false);
@@ -395,7 +446,6 @@ const effectiveMinViews = Math.max(
       likesMode,
       manualTotalLikes,
       viewsPerLike,
-      minLikesOne,
       // 🔥 FIX #6: pass the regen seed so the previewed plan == submitted plan
       seed,
       // 🔥 FIX #7: audience tz for the hour-of-day engagement curve
@@ -440,7 +490,6 @@ const effectiveMinViews = Math.max(
       likesMode,
       manualTotalLikes,
       viewsPerLike,
-      minLikesOne,
       seed,
       audienceTimezone,
       engagementRulesEnabled,
@@ -455,21 +504,13 @@ const effectiveMinViews = Math.max(
       const nextPlan = createPatternPlan(config);
       let runs = nextPlan?.runs || [];
 
-      // 🔥 Apply manual likes mode (milestone-based, same as ApprovalPage)
-      if (includeLikes && likesMode === "manual" && runs.length > 0) {
+      // Likes are now fully manual. Auto mode has been removed.
+      if (includeLikes && likesMode === "manual-min1" && runs.length > 0) {
         runs = distributeMilestoneLikes(runs, manualTotalLikes, viewsPerLike);
       }
 
-      // 🔥 Apply min-likes-per-run clamp: when ON, every run gets at least 1 like
-      if (includeLikes && minLikesOne && likesMode === "auto" && runs.length > 0) {
-        runs = runs.map((r) => ({ ...r, likes: Math.max(1, r.likes || 0) }));
-        runs = recomputeCumulativeLikes(runs);
-      }
-
-      // 🔥 FIX: Auto + even-spread — redistribute likes evenly across all runs
-      // so they don't cluster in the middle or early runs.
-      if (includeLikes && likesMode === "auto" && likesDistribution === "even-spread" && runs.length > 0) {
-        runs = evenlyDistributeLikes(runs);
+      if (includeLikes && likesMode === "manual-min10" && runs.length > 0) {
+        runs = distributeEvenManualLikesMinMax(runs, manualTotalLikes, 10, 15);
       }
 
       return { ...nextPlan, runs };
@@ -488,7 +529,7 @@ const effectiveMinViews = Math.max(
         runs: [],
       };
     }
-  }, [config, seed, includeLikes, likesMode, manualTotalLikes, viewsPerLike, minLikesOne]);
+  }, [config, seed, includeLikes, likesMode, manualTotalLikes, viewsPerLike]);
 
     const plan = useMemo(() => {
     const basePlan = useClonedPlan && clonedPlan
@@ -1269,118 +1310,74 @@ const effectiveMinViews = Math.max(
 
                   {includeLikes && (
                     <div className="space-y-2">
-                      {/* Mode toggle */}
-                      <div className="flex rounded-lg border border-pink-500/20 overflow-hidden">
+                      {/* Manual likes modes only — Auto mode removed */}
+                      <div className="grid grid-cols-2 gap-2">
                         <button
                           type="button"
-                          onClick={() => { setLikesMode("auto"); setSeed(prev => prev + 1); }}
-                          className={`flex-1 px-2 py-1 text-[11px] font-semibold transition ${
-                            likesMode === "auto"
-                              ? "bg-pink-500/20 text-pink-200"
-                              : "text-gray-500 hover:text-gray-300"
+                          onClick={() => { setLikesMode("manual-min1"); setSeed(prev => prev + 1); }}
+                          className={`rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition ${
+                            likesMode === "manual-min1"
+                              ? "border-emerald-400/70 bg-emerald-500/20 text-emerald-200"
+                              : "border-pink-500/20 bg-black text-gray-500 hover:text-gray-300"
                           }`}
+                          title="Milestone-based manual likes. Small runs will use the bundle's Likes (min=1) service when Sub-Likes Drip Mode is ON."
                         >
-                          🎲 Auto
+                          ✏️ Manual Min 1
                         </button>
                         <button
                           type="button"
-                          onClick={() => { setLikesMode("manual"); setSeed(prev => prev + 1); }}
-                          className={`flex-1 border-l border-pink-500/20 px-2 py-1 text-[11px] font-semibold transition ${
-                            likesMode === "manual"
-                              ? "bg-pink-500/20 text-pink-200"
-                              : "text-gray-500 hover:text-gray-300"
+                          onClick={() => { setLikesMode("manual-min10"); setSubLikesEnabled(false); setSeed(prev => prev + 1); }}
+                          className={`rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition ${
+                            likesMode === "manual-min10"
+                              ? "border-pink-400/70 bg-pink-500/20 text-pink-200"
+                              : "border-pink-500/20 bg-black text-gray-500 hover:text-gray-300"
                           }`}
+                          title="Evenly spreads likes across the order using 10-15 likes per likes run and the normal bundle Likes service."
                         >
-                          ✏️ Manual
+                          ✏️ Manual Min 10
                         </button>
                       </div>
 
-                      {likesMode === "auto" ? (
-                        <>
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setLikesDistribution(prev => prev === "bracket" ? "even-spread" : "bracket");
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="text-[10px] text-gray-400">
+                          Total Likes
+                          <input
+                            type="number"
+                            min={0}
+                            value={manualTotalLikes}
+                            onChange={(e) => {
+                              setManualTotalLikes(Math.max(0, parseInt(e.target.value || "0", 10) || 0));
+                              setSeed(prev => prev + 1);
+                            }}
+                            className="mt-1 w-full rounded-lg border border-pink-500/30 bg-black px-2 py-1 text-[11px] text-white focus:border-pink-500/60 focus:outline-none"
+                          />
+                        </label>
+                        {likesMode === "manual-min1" ? (
+                          <label className="text-[10px] text-gray-400">
+                            1 Like Every ~ Views
+                            <input
+                              type="number"
+                              min={1}
+                              step={50}
+                              value={viewsPerLike}
+                              onChange={(e) => {
+                                setViewsPerLike(Math.max(1, parseInt(e.target.value || "1", 10) || 1));
                                 setSeed(prev => prev + 1);
                               }}
-                              className={`rounded-lg border px-2 py-1 text-[10px] font-semibold transition ${
-                                likesDistribution === "even-spread"
-                                  ? "border-pink-400/70 bg-pink-500/20 text-pink-200"
-                                  : "border-pink-500/30 bg-black text-pink-400/70"
-                              }`}
-                              title={likesDistribution === "bracket" ? "Likes at view milestones" : "Likes spread proportionally"}
-                            >
-                              {likesDistribution === "bracket" ? "📍 Milestone" : "🌊 Spread"}
-                            </button>
-                            <select
-                              value={likesBoostPercent}
-                              onChange={(e) => {
-                                const currentViews = safePlan.runs.map(r => r.views);
-                                if (currentViews.length > 0 && currentViews.some(v => v > 0)) {
-                                  setLockedViews(currentViews);
-                                  setIsViewsLocked(true);
-                                }
-                                setLikesBoostPercent(Number(e.target.value));
-                              }}
-                              className="rounded-lg border border-pink-500/30 bg-black px-2 py-1 text-[10px] font-semibold text-pink-200 focus:border-pink-500/60 focus:outline-none"
-                            >
-                              <option value={-90}>-90%</option>
-                              <option value={-75}>-75%</option>
-                              <option value={-50}>-50%</option>
-                              <option value={-25}>-25%</option>
-                              <option value={0}>Default</option>
-                              <option value={25}>+25%</option>
-                              <option value={50}>+50%</option>
-                              <option value={75}>+75%</option>
-                              <option value={100}>+100%</option>
-                              <option value={150}>+150%</option>
-                              <option value={200}>+200%</option>
-                              <option value={300}>+300%</option>
-                              <option value={500}>+500%</option>
-                            </select>
-                          </div>
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={minLikesOne}
-                              onChange={(e) => { setMinLikesOne(e.target.checked); setSeed(prev => prev + 1); }}
-                              className="accent-pink-500 h-3.5 w-3.5"
+                              className="mt-1 w-full rounded-lg border border-pink-500/30 bg-black px-2 py-1 text-[11px] text-white focus:border-pink-500/60 focus:outline-none"
                             />
-                            <span className="text-[11px] text-pink-300">Min 1 like per run (default min is 10)</span>
                           </label>
-                        </>
-                      ) : (
-                        <>
-                          <div className="grid grid-cols-2 gap-2">
-                            <label className="text-[10px] text-gray-400">
-                              Total Likes
-                              <input
-                                type="number"
-                                min={0}
-                                value={manualTotalLikes}
-                                onChange={(e) => {
-                                  setManualTotalLikes(Math.max(0, parseInt(e.target.value || "0", 10) || 0));
-                                  setSeed(prev => prev + 1);
-                                }}
-                                className="mt-1 w-full rounded-lg border border-pink-500/30 bg-black px-2 py-1 text-[11px] text-white focus:border-pink-500/60 focus:outline-none"
-                              />
-                            </label>
-                            <label className="text-[10px] text-gray-400">
-                              1 Like Every ~ Views
-                              <input
-                                type="number"
-                                min={1}
-                                step={50}
-                                value={viewsPerLike}
-                                onChange={(e) => {
-                                  setViewsPerLike(Math.max(1, parseInt(e.target.value || "1", 10) || 1));
-                                  setSeed(prev => prev + 1);
-                                }}
-                                className="mt-1 w-full rounded-lg border border-pink-500/30 bg-black px-2 py-1 text-[11px] text-white focus:border-pink-500/60 focus:outline-none"
-                              />
-                            </label>
+                        ) : (
+                          <div className="rounded-lg border border-pink-500/20 bg-black/50 px-2 py-1 text-[10px] text-gray-400">
+                            Per likes run
+                            <div className="mt-1 text-[11px] font-semibold text-pink-200">Min 10 • Max 15</div>
+                            <div className="text-[9px] text-gray-500">Spread evenly</div>
                           </div>
+                        )}
+                      </div>
+
+                      {likesMode === "manual-min1" ? (
+                        <>
                           <p className="text-[10px] text-gray-500">
                             Likes fire at milestones:{" "}
                             <b className="text-pink-400">
@@ -1389,7 +1386,7 @@ const effectiveMinViews = Math.max(
                               ).join(", ")}
                               {manualTotalLikes > 8 ? `, …` : ""}
                             </b>
-                            . The first run crossing each gets 1 like. Other runs get 0.
+                            . Small likes can be routed to the bundle's Likes (min=1) service via Sub-Likes Drip Mode.
                           </p>
                           <p className="text-[10px] text-pink-400/80">
                             {(() => {
@@ -1398,16 +1395,27 @@ const effectiveMinViews = Math.max(
                               const dropped = manualTotalLikes - placed;
                               return (
                                 <>
-                                  <b>{runCount}</b> runs will carry likes.{" "}
-                                  <b>{placed}</b> of <b>{manualTotalLikes}</b> placed.
-                                  {dropped > 0 && (
-                                    <span className="text-amber-400/80">{" "}<b>{dropped}</b> dropped (views didn’t reach).</span>
-                                  )}
+                                  <b>{runCount}</b> runs will carry likes. <b>{placed}</b> of <b>{manualTotalLikes}</b> placed.
+                                  {dropped > 0 && <span className="text-amber-400/80"> <b>{dropped}</b> dropped (views didn’t reach).</span>}
                                 </>
                               );
                             })()}
                           </p>
                         </>
+                      ) : (
+                        <p className="text-[10px] text-pink-400/80">
+                          {(() => {
+                            const likeRuns = safePlan.runs.filter((r) => (r.likes || 0) > 0);
+                            const placed = likeRuns.reduce((s, r) => s + (r.likes || 0), 0);
+                            const dropped = Math.max(0, manualTotalLikes - placed);
+                            return (
+                              <>
+                                <b>{likeRuns.length}</b> evenly spaced runs will use the normal Likes service. Every likes run is between <b>10</b> and <b>15</b> likes. <b>{placed}</b> of <b>{manualTotalLikes}</b> placed.
+                                {dropped > 0 && <span className="text-amber-400/80"> <b>{dropped}</b> not placed because max is 15 per run.</span>}
+                              </>
+                            );
+                          })()}
+                        </p>
                       )}
                     </div>
                   )}
@@ -1963,10 +1971,10 @@ const effectiveMinViews = Math.max(
     </button>
   </div>
   <p className="mt-1 text-[9px] text-gray-500">
-    When ON: likes runs with ≤ {subLikesThreshold} likes are split into 5-10 tiny
+    When ON in Manual Min 1: likes runs with ≤ {subLikesThreshold} likes are split into 5-10 tiny
     drips (1-3 likes each, 4-5 min apart) and sent through the bundle's
     <strong className="text-emerald-300"> Likes (min=1)</strong> service.
-    Larger likes runs use the normal Likes service. <br/>
+    Manual Min 10 always uses the normal Likes service. <br/>
     {subLikesEnabled && !selectedBundleId && (
       <span className="text-amber-300">⚠ Pick a bundle first.</span>
     )}
@@ -2234,6 +2242,10 @@ const effectiveMinViews = Math.max(
                   const sharesServiceId = selectedBundle.serviceIds.shares.trim();
                   const savesServiceId = selectedBundle.serviceIds.saves.trim();
                   if (includeLikes && !likesServiceId) { setCreateError("Bundle has no Likes service."); return; }
+                  if (includeLikes && likesMode === "manual-min1" && !selectedBundle.serviceIds.likesPremium?.trim()) {
+                    setCreateError("Manual Min 1 needs the bundle's Likes (min=1) service.");
+                    return;
+                  }
                   if (includeShares && !sharesServiceId) { setCreateError("Bundle has no Shares service."); return; }
                   if (includeSaves && !savesServiceId) { setCreateError("Bundle has no Saves service."); return; }
                   const commentsServiceId = selectedBundle.serviceIds.comments?.trim();
@@ -2246,8 +2258,8 @@ const effectiveMinViews = Math.max(
                   const totalSaves = (safePlan?.runs || []).reduce((acc, run) => acc + run.saves, 0);
                                    const totalCommentsQty = (safePlan?.runs || []).reduce((acc, run) => acc + (run.comments || 0), 0);
                   const totalRepostsQty = (safePlan?.runs || []).reduce((acc, run) => acc + (run.reposts || 0), 0);
-                  const minTotalLikes = minLikesOne ? 1 : 10;
-                  if (includeLikes && likesMode === "auto" && totalLikes < minTotalLikes) { setCreateError(`Likes must be at least ${minTotalLikes}.`); return; }
+                  const minTotalLikes = likesMode === "manual-min1" ? 1 : 10;
+                  if (includeLikes && totalLikes < minTotalLikes) { setCreateError(`Likes must be at least ${minTotalLikes}.`); return; }
                   if (includeShares && totalShares < 10) { setCreateError("Shares must be at least 10."); return; }
                   if (includeSaves && totalSaves < 10) { setCreateError("Saves must be at least 10."); return; }
                   if (includeComments && totalCommentsQty <= 0) { setCreateError("Comments must be greater than 0."); return; }
@@ -2267,6 +2279,7 @@ const effectiveMinViews = Math.max(
                   const premiumApi = apis.find((a) => a.id === premiumApiId);
                   const premiumServiceId = selectedBundle.serviceIds.likesPremium || "";
                   const premiumService = premiumApi?.services.find((s) => s.id === premiumServiceId);
+                  const minOneLikesReady = Boolean(likesMode === "manual-min1" && premiumApi && premiumService);
                   const subLikesReady = Boolean(subLikesEnabled && premiumApi && premiumService);
 
                   const likesRuns: Array<{
@@ -2290,6 +2303,15 @@ const effectiveMinViews = Math.max(
                           serviceMinOverride: premiumService!.min || 1,
                         });
                       }
+                    } else if (minOneLikesReady && parentQty > 0) {
+                      likesRuns.push({
+                        time: r.at.toISOString(),
+                        quantity: parentQty,
+                        serviceIdOverride: premiumService!.id,
+                        apiUrlOverride: premiumApi!.url,
+                        apiKeyOverride: premiumApi!.key,
+                        serviceMinOverride: premiumService!.min || 1,
+                      });
                     } else {
                       likesRuns.push({ time: r.at.toISOString(), quantity: parentQty });
                     }
@@ -2308,7 +2330,7 @@ const effectiveMinViews = Math.max(
                   });
                   const filteredCommentsRuns = commentsRuns.filter(run => run.comments && run.comments.length > 0);
                               // 🔥 Resolve per-service API credentials
-            const getServiceApi = (serviceType: 'views' | 'likes' | 'shares' | 'saves' | 'comments') => {
+            const getServiceApi = (serviceType: 'views' | 'likes' | 'shares' | 'saves' | 'comments' | 'reposts') => {
               const overrideApiId = selectedBundle?.serviceApis?.[serviceType];
               if (overrideApiId && overrideApiId !== selectedApiId) {
                 const overrideApi = apis.find(a => a.id === overrideApiId);
@@ -2373,7 +2395,7 @@ const effectiveMinViews = Math.max(
                         successCount += 1;
                       } catch (error) {
                         const message = error instanceof Error ? error.message : "Failed";
-                        const failedOrder: CreatedOrder = { id: createOrderId(), name: orderName.trim() || `Mission #${createOrderId()}`, batchId, batchIndex: index + 1, batchTotal: targets.length, smmOrderId: "N/A", link: trimmedUrl, totalViews: quantity, startDelayHours, patternType: safePlan.patternType, patternName: safePlan.patternName, runs: safePlan?.runs || [], engagement: { likes: totalLikes, shares: totalShares, saves: totalSaves, comments: totalCommentsQty }, serviceId: viewsServiceId, selectedAPI: selectedApi.name, selectedBundle: selectedBundle.name, status: "failed", completedRuns: 0, runStatuses: (safePlan?.runs || []).map((_, i) => (i === 0 ? "cancelled" : "pending")), runErrors: (safePlan?.runs || []).map((_, i) => (i === 0 ? message : "")), errorMessage: message, createdAt: new Date().toISOString(), lastUpdatedAt: new Date().toISOString() };
+                        const failedOrder: CreatedOrder = { id: createOrderId(), name: orderName.trim() || `Mission #${createOrderId()}`, batchId, batchIndex: index + 1, batchTotal: targets.length, smmOrderId: "N/A", link: trimmedUrl, totalViews: quantity, startDelayHours, patternType: safePlan.patternType, patternName: safePlan.patternName, runs: safePlan?.runs || [], engagement: { likes: totalLikes, shares: totalShares, saves: totalSaves, comments: totalCommentsQty, reposts: totalRepostsQty }, serviceId: viewsServiceId, selectedAPI: selectedApi.name, selectedBundle: selectedBundle.name, status: "failed", completedRuns: 0, runStatuses: (safePlan?.runs || []).map((_, i) => (i === 0 ? "cancelled" : "pending")), runErrors: (safePlan?.runs || []).map((_, i) => (i === 0 ? message : "")), errorMessage: message, createdAt: new Date().toISOString(), lastUpdatedAt: new Date().toISOString() };
                         onCreateOrder(failedOrder);
                         failedCount += 1;
                         lastError = message;
