@@ -7,7 +7,7 @@ import type {
   ApiPanel,
   Bundle,
   CreatedOrder,
-  DeliveryOption, 
+  DeliveryOption,
   OrderConfig,
   PatternPlan,
   QuickPatternPreset,
@@ -2435,6 +2435,7 @@ const effectiveMinViews = Math.max(
                     apiUrlOverride?: string;
                     apiKeyOverride?: string;
                     serviceMinOverride?: number;
+                    preserveExactTime?: boolean;
                   }> = [];
                   for (const r of (safePlan?.runs || [])) {
                     const parentQty = Math.max(0, Math.floor(r.likes));
@@ -2447,6 +2448,7 @@ const effectiveMinViews = Math.max(
                           apiUrlOverride: premiumApi!.url,
                           apiKeyOverride: premiumApi!.key,
                           serviceMinOverride: premiumService!.min || 1,
+                          preserveExactTime: true,
                         });
                       }
                     } else if (minOneLikesReady && parentQty > 0) {
@@ -2457,6 +2459,7 @@ const effectiveMinViews = Math.max(
                         apiUrlOverride: premiumApi!.url,
                         apiKeyOverride: premiumApi!.key,
                         serviceMinOverride: premiumService!.min || 1,
+                        preserveExactTime: true,
                       });
                     } else {
                       likesRuns.push({ time: r.at.toISOString(), quantity: parentQty });
