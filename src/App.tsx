@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { APIsPage } from "./pages/APIsPage";
 import { BundlesPage } from "./pages/BundlesPage";
 import { DashboardPage } from "./pages/DashboardPage";
-import { NewOrderPage } from "./pages/NewOrderPage";
+import { NewOrderPage } from "./pages/NewOrderPage"; 
 import { OrdersPage } from "./pages/OrdersPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { EngagementComparisonPage } from "./pages/EngagementComparisonPage";
