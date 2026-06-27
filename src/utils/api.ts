@@ -613,3 +613,27 @@ export async function checkDuplicates(): Promise<{
   if (!response.ok) throw new Error(`Failed to check duplicates (HTTP ${response.status})`);
   return await response.json();
 }
+
+export async function checkApiBalance(apiUrl: string, apiKey: string): Promise<{ balanceText: string; raw: unknown }> {
+  const endpoint = `${BACKEND_BASE_URL.replace(/\/$/, "")}/api/balance`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apiUrl, apiKey }),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || data?.success === false) {
+    throw new Error(String(data?.error || `Failed to check balance (HTTP ${response.status})`));
+  }
+  const raw = data?.balance;
+  let balanceText = "Unknown";
+  if (raw && typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    const balance = obj.balance ?? obj.amount ?? obj.funds;
+    const currency = obj.currency ?? obj.currency_code ?? "";
+    balanceText = `${balance ?? JSON.stringify(raw)}${currency ? ` ${currency}` : ""}`;
+  } else if (raw !== undefined && raw !== null) {
+    balanceText = String(raw);
+  }
+  return { balanceText, raw };
+}
