@@ -8,10 +8,12 @@ interface APIsPageProps {
   onDeleteApi: (id: string) => void;
   onToggleStatus: (id: string) => void;
   onFetchServices: (id: string) => void;
+  onCheckBalance: (id: string) => void;
   fetchingApiId: string | null;
+  checkingBalanceApiId: string | null;
 }
 
-export function APIsPage({ apis, onAddApi, onEditApi, onDeleteApi, onToggleStatus, onFetchServices, fetchingApiId }: APIsPageProps) {
+export function APIsPage({ apis, onAddApi, onEditApi, onDeleteApi, onToggleStatus, onFetchServices, onCheckBalance, fetchingApiId, checkingBalanceApiId }: APIsPageProps) {
   return (
     <div className="mx-auto max-w-7xl px-6 py-7">
       <APIManager
@@ -21,7 +23,9 @@ export function APIsPage({ apis, onAddApi, onEditApi, onDeleteApi, onToggleStatu
         onDeleteApi={onDeleteApi}
         onToggleStatus={onToggleStatus}
         onFetchServices={onFetchServices}
+        onCheckBalance={onCheckBalance}
         fetchingApiId={fetchingApiId}
+        checkingBalanceApiId={checkingBalanceApiId}
       />
     </div>
   );
