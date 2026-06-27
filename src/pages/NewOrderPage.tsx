@@ -95,54 +95,85 @@ function distributeEvenManualLikesMinMax(
   const n = runs.length;
   const requested = Math.max(0, Math.floor(totalLikes || 0));
   if (n === 0) return runs;
-  if (requested < minPerRun) {
-    return recomputeCumulativeLikes(runs.map((r) => ({ ...r, likes: 0, likesSubRuns: undefined })));
-  }
 
-  const deliverable = Math.min(requested, n * maxPerRun);
-  let activeCount = deliverable >= n * minPerRun ? n : Math.floor(deliverable / minPerRun);
+  const clearLikes = () => recomputeCumulativeLikes(
+    runs.map((r) => ({ ...r, likes: 0, likesSubRuns: undefined }))
+  );
+
+  if (requested < minPerRun) return clearLikes();
+
+  // Choose how many likes-runs to create.
+  // Examples requested by user:
+  //   25 likes -> 2 runs: 12 + 13, placed after 1/3 and 2/3 total views.
+  //   37 likes -> 3 runs: roughly 12 + 11 + 14, placed after 1/4, 2/4, 3/4 total views.
+  // For 20+ likes, floor(total / 10) gives maximum spread while keeping every
+  // likes run >= 10. ceil(total / 15) is the safety floor so no run exceeds 15.
+  let activeCount = requested < minPerRun * 2
+    ? 1
+    : Math.floor(requested / minPerRun);
+  activeCount = Math.max(activeCount, Math.ceil(requested / maxPerRun));
   activeCount = Math.max(1, Math.min(n, activeCount));
 
-  // If needed, add more slots so no slot exceeds maxPerRun.
-  activeCount = Math.max(activeCount, Math.ceil(deliverable / maxPerRun));
-  activeCount = Math.min(n, activeCount);
+  // If the order has too few view-runs to carry all likes at max 15 each, cap
+  // the placed likes. The UI already shows the unplaced amount.
+  const deliverable = Math.min(requested, activeCount * maxPerRun);
 
-  const activeIndexes = new Set<number>();
-  if (activeCount === 1) {
-    activeIndexes.add(Math.floor((n - 1) / 2));
-  } else {
-    for (let i = 0; i < activeCount; i++) {
-      activeIndexes.add(Math.round((i * (n - 1)) / (activeCount - 1)));
+  // Build per-run quantities, all between minPerRun and maxPerRun whenever
+  // mathematically possible. Put small remainder toward the later run so the
+  // sequence feels natural: 25 -> [12, 13]. For 3+ runs, move one like from the
+  // middle to the last when possible: 37 -> [12, 11, 14].
+  const quantities = new Array(activeCount).fill(Math.floor(deliverable / activeCount));
+  let remainder = deliverable % activeCount;
+  for (let i = activeCount - 1; i >= 0 && remainder > 0; i--) {
+    if (quantities[i] < maxPerRun) {
+      quantities[i] += 1;
+      remainder -= 1;
+    }
+  }
+  if (activeCount >= 3) {
+    const middle = Math.floor(activeCount / 2);
+    if (quantities[middle] > minPerRun && quantities[activeCount - 1] < maxPerRun) {
+      quantities[middle] -= 1;
+      quantities[activeCount - 1] += 1;
     }
   }
 
-  // Rare rounding collision safety: fill missing slots from left to right.
-  for (let i = 0; activeIndexes.size < activeCount && i < n; i++) {
-    activeIndexes.add(i);
-  }
+  // Place likes by cumulative VIEW progress, not by run index.
+  // activeCount=2 -> milestones 1/3 and 2/3 of total views.
+  // activeCount=3 -> milestones 1/4, 2/4, 3/4 of total views.
+  const totalViews = runs.reduce((sum, r) => sum + Math.max(0, Math.floor(r.views || 0)), 0);
+  if (totalViews <= 0) return clearLikes();
 
-  const indexes = Array.from(activeIndexes).sort((a, b) => a - b);
   const likesArray = new Array(n).fill(0);
-  let remaining = deliverable;
+  const usedIndexes = new Set<number>();
+  const cumulativeViews: number[] = [];
+  runs.reduce((sum, r, i) => {
+    const next = sum + Math.max(0, Math.floor(r.views || 0));
+    cumulativeViews[i] = next;
+    return next;
+  }, 0);
 
-  indexes.forEach((idx, i) => {
-    const slotsLeft = indexes.length - i;
-    const qty = Math.min(maxPerRun, Math.max(minPerRun, Math.floor(remaining / slotsLeft)));
-    likesArray[idx] = qty;
-    remaining -= qty;
-  });
+  for (let slot = 0; slot < activeCount; slot++) {
+    const targetViews = (totalViews * (slot + 1)) / (activeCount + 1);
+    let idx = cumulativeViews.findIndex((v) => v >= targetViews);
+    if (idx < 0) idx = n - 1;
 
-  // Spread any remainder without exceeding maxPerRun.
-  let guard = indexes.length * maxPerRun;
-  while (remaining > 0 && guard > 0) {
-    for (const idx of indexes) {
-      if (remaining <= 0) break;
-      if (likesArray[idx] < maxPerRun) {
-        likesArray[idx] += 1;
-        remaining -= 1;
+    // Avoid stacking two like chunks on the same view-run when possible.
+    if (usedIndexes.has(idx)) {
+      let replacement = -1;
+      for (let j = idx + 1; j < n; j++) {
+        if (!usedIndexes.has(j)) { replacement = j; break; }
       }
+      if (replacement < 0) {
+        for (let j = idx - 1; j >= 0; j--) {
+          if (!usedIndexes.has(j)) { replacement = j; break; }
+        }
+      }
+      if (replacement >= 0) idx = replacement;
     }
-    guard -= 1;
+
+    usedIndexes.add(idx);
+    likesArray[idx] = quantities[slot];
   }
 
   let cum = 0;
