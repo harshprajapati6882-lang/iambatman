@@ -45,22 +45,66 @@ function distributeMilestoneLikes(
   const n = runs.length;
   if (n === 0) return runs;
 
+  const requested = Math.max(0, Math.floor(totalLikes || 0));
+  const step = Math.max(1, Math.floor(viewsPerLike || 1));
   const likesArray = new Array(n).fill(0);
+  const totalViews = runs.reduce((sum, r) => sum + Math.max(0, Math.floor(r.views || 0)), 0);
+  if (requested <= 0 || totalViews <= 0) {
+    return recomputeCumulativeLikes(runs.map((r) => ({ ...r, likes: 0, likesSubRuns: undefined })));
+  }
 
-  for (let i = 1; i <= totalLikes; i++) {
-    const milestone = i * viewsPerLike;
-    let assigned = false;
-    for (let j = 0; j < n; j++) {
-      const cumViews = runs[j].cumulativeViews || 0;
-      if (cumViews >= milestone) {
-        likesArray[j]++;
-        assigned = true;
-        break;
+  const cumulativeViews = runs.map((r) => r.cumulativeViews || 0);
+  let placed = 0;
+  const usedIndexes: number[] = [];
+
+  // First pass: original milestone behaviour — 1 like at each view milestone.
+  for (let i = 1; i <= requested; i++) {
+    const milestone = i * step;
+    if (milestone > totalViews) break;
+    const idx = cumulativeViews.findIndex((v) => v >= milestone);
+    if (idx >= 0) {
+      likesArray[idx] += 1;
+      placed += 1;
+      if (!usedIndexes.includes(idx)) usedIndexes.push(idx);
+    }
+  }
+
+  // Second pass: if requested likes are higher than the available milestones,
+  // do NOT drop them. Add extra likes to the already selected runs, preferring
+  // 2-3 likes per run before creating bigger chunks.
+  let remaining = requested - placed;
+  const orderedIndexes = usedIndexes.length > 0
+    ? usedIndexes
+    : runs.map((_, i) => i);
+
+  const addUpTo = (limit: number) => {
+    let safety = orderedIndexes.length * Math.max(1, limit + 1);
+    while (remaining > 0 && safety > 0) {
+      let changed = false;
+      for (const idx of orderedIndexes) {
+        if (remaining <= 0) break;
+        if (likesArray[idx] < limit) {
+          likesArray[idx] += 1;
+          remaining -= 1;
+          changed = true;
+        }
       }
+      if (!changed) break;
+      safety -= 1;
     }
-    if (!assigned) {
-      // like dropped — milestone beyond final run
-    }
+  };
+
+  addUpTo(2);
+  addUpTo(3);
+
+  // If still remaining, add to evenly spaced runs across the whole order.
+  // This avoids losing user-entered likes even for very high totals.
+  let cursor = 0;
+  while (remaining > 0 && n > 0) {
+    const idx = Math.round((cursor * (n - 1)) / Math.max(1, n - 1));
+    likesArray[idx] += 1;
+    remaining -= 1;
+    cursor = (cursor + 1) % n;
   }
 
   let cum = 0;
@@ -255,12 +299,8 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
   const [customHours, setCustomHours] = useState(72);
   const [delivery, setDelivery] = useState<DeliveryOption>({ mode: "auto", hours: 72, label: "Auto" });
   const [seed, setSeed] = useState(0);
-  // 🔥 FIX #7: audience timezone for the hour-of-day engagement curve.
-  // Defaults to the browser's current zone so existing behaviour is preserved.
-  const [audienceTimezone, setAudienceTimezone] = useState<string>(() => {
-    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; }
-    catch { return ""; }
-  });
+  // Audience timezone is fixed to New York for all new-order timing curves.
+  const audienceTimezone = "America/New_York";
 
   // 🔥 NEW: view-bracket engagement rules. Persisted to localStorage so the
   // user doesn't have to re-enter them on every order. Toggled by a single
@@ -522,7 +562,6 @@ const effectiveMinViews = Math.max(
       manualTotalLikes,
       viewsPerLike,
       seed,
-      audienceTimezone,
       engagementRulesEnabled,
       engagementRules,
       subLikesEnabled,
@@ -1282,29 +1321,6 @@ const effectiveMinViews = Math.max(
                   <p className="text-[9px] text-gray-500">Toggle services and tune ratios without hunting through one long row.</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  {/* 🔥 FIX #7: audience-timezone picker */}
-                  <select
-                    value={audienceTimezone}
-                    onChange={(e) => { setAudienceTimezone(e.target.value); setSeed((s) => s + 1); }}
-                    className="rounded-lg border border-gray-700 bg-gray-950 px-2 py-1.5 text-[10px] text-gray-300 focus:border-orange-500/40 focus:outline-none"
-                    title="Audience timezone — controls the hour-of-day engagement curve."
-                  >
-                    <option value="">🌐 Browser TZ</option>
-                    <option value="America/New_York">🇺🇸 New York</option>
-                    <option value="America/Los_Angeles">🇺🇸 Los Angeles</option>
-                    <option value="America/Chicago">🇺🇸 Chicago</option>
-                    <option value="Europe/London">🇬🇧 London</option>
-                    <option value="Europe/Berlin">🇩🇪 Berlin</option>
-                    <option value="Europe/Paris">🇫🇷 Paris</option>
-                    <option value="Asia/Kolkata">🇮🇳 India</option>
-                    <option value="Asia/Dubai">🇦🇪 Dubai</option>
-                    <option value="Asia/Singapore">🇸🇬 Singapore</option>
-                    <option value="Asia/Tokyo">🇯🇵 Tokyo</option>
-                    <option value="Asia/Shanghai">🇨🇳 Shanghai</option>
-                    <option value="Australia/Sydney">🇦🇺 Sydney</option>
-                    <option value="America/Sao_Paulo">🇧🇷 São Paulo</option>
-                    <option value="UTC">🕒 UTC</option>
-                  </select>
                   <button
                     type="button"
                     onClick={() => { setPeakHoursBoost(!peakHoursBoost); }}
