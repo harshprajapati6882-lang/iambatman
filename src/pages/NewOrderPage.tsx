@@ -7,7 +7,7 @@ import type {
   ApiPanel,
   Bundle,
   CreatedOrder,
-  DeliveryOption,
+  DeliveryOption, 
   OrderConfig,
   PatternPlan,
   QuickPatternPreset,
