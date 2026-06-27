@@ -9,7 +9,7 @@ export type PatternType =
   | "fibonacci-spiral"
   | "manual";
 
-export type QuickPatternPreset = "viral-boost" | "fast-start" | "trending-push" | "slow-burn";
+export type QuickPatternPreset = "viral-boost" | "fast-start" | "trending-push" | "slow-burn"; 
 
 export interface DeliveryOption {
   mode: "auto" | "preset" | "custom";
