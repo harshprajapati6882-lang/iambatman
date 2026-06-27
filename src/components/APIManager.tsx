@@ -4,7 +4,7 @@ import type { ApiPanel } from "../types/order";
 interface APIManagerProps {
   apis: ApiPanel[];
   onAddApi: (api: { name: string; url: string; key: string }) => void;
-  onEditApi: (id: string, api: { name: string; url: string; key: string }) => void;
+  onEditApi: (id: string, api: { name: string; url: string; key: string }) => void; 
   onDeleteApi: (id: string) => void;
   onToggleStatus: (id: string) => void;
   onFetchServices: (id: string) => void;
