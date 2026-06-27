@@ -2,7 +2,7 @@ import { APIManager } from "../components/APIManager";
 import type { ApiPanel } from "../types/order";
 
 interface APIsPageProps {
-  apis: ApiPanel[];
+  apis: ApiPanel[]; 
   onAddApi: (api: { name: string; url: string; key: string }) => void;
   onEditApi: (id: string, api: { name: string; url: string; key: string }) => void;
   onDeleteApi: (id: string) => void;
