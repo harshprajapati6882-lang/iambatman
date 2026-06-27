@@ -25,6 +25,7 @@ export interface OrderConfig {
   includeShares: boolean;
   includeSaves: boolean;
   includeComments: boolean;
+  commentsCustomCount?: number;
   includeReposts: boolean;
   repostsRatio?: "equal" | "half" | "third" | "custom";
   repostsCustomCount?: number;
