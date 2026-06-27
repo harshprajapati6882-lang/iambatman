@@ -41,6 +41,9 @@ export interface OrderConfig {
   customDrawnViews?: number[] | null;
   likesDistribution?: "bracket" | "even-spread";
   likesBoostPercent?: number;
+  likesMode?: "manual-min1" | "manual-min10";
+  manualTotalLikes?: number;
+  viewsPerLike?: number;
   sharesAfterHalfLikes?: boolean;
   sharesBoostPercent?: number;
   seed?: number;
