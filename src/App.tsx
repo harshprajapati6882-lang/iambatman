@@ -11,7 +11,7 @@ import { ApprovalPage } from "./pages/ApprovalPage";
 import { loadApprovalBundles } from "./components/ApprovalBundleManager";
 import { fetchNotifications } from "./utils/api";
 import type { ApiPanel, Bundle, CreatedOrder, RunStatus } from "./types/order";
-import { fetchServices, updateOrderControl, fetchOrderRuns } from "./utils/api";
+import { fetchServices, updateOrderControl, fetchOrderRuns, checkApiBalance } from "./utils/api";
 import { cn } from "./utils/cn";
 
 type NavKey = "dashboard" | "new-order" | "orders" | "notifications" | "apis" | "bundles" | "comparison" | "approval";
@@ -168,6 +168,7 @@ export default function App() {
   const [approvalBundles, setApprovalBundles] = useState(() => loadApprovalBundles());
   const [cloneSourceOrder, setCloneSourceOrder] = useState<CreatedOrder | null>(null);
   const [fetchingApiId, setFetchingApiId] = useState<string | null>(null);
+  const [checkingBalanceApiId, setCheckingBalanceApiId] = useState<string | null>(null);
   const [controllingOrderId, setControllingOrderId] = useState<string | null>(null);
 
   const [batmanQuote] = useState(() => getRandomQuote());
@@ -698,7 +699,22 @@ export default function App() {
               setFetchingApiId(null);
             }
           }}
+          onCheckBalance={async (id) => {
+            const targetApi = apis.find((api) => api.id === id);
+            if (!targetApi) return;
+            setCheckingBalanceApiId(id);
+            try {
+              const balance = await checkApiBalance(targetApi.url, targetApi.key);
+              persistApis(apis.map((api) => api.id === id ? { ...api, lastBalance: balance.balanceText, lastBalanceAt: new Date().toISOString(), lastBalanceError: undefined } : api));
+            } catch (error) {
+              const message = error instanceof Error ? error.message : "Failed to check balance";
+              persistApis(apis.map((api) => api.id === id ? { ...api, lastBalanceError: message } : api));
+            } finally {
+              setCheckingBalanceApiId(null);
+            }
+          }}
           fetchingApiId={fetchingApiId}
+          checkingBalanceApiId={checkingBalanceApiId}
         />
       );
     }
@@ -767,7 +783,7 @@ export default function App() {
         onApprovalBundlesChange={setApprovalBundles}
       />
     );
-  }, [activePage, apis, bundles, approvalBundles, orders, fetchingApiId, controllingOrderId, ordersNotice, cloneSourceOrder, navigateToPage, persistOrders, persistApis, persistBundles, syncOrdersWithBackend]);
+  }, [activePage, apis, bundles, approvalBundles, orders, fetchingApiId, checkingBalanceApiId, controllingOrderId, ordersNotice, cloneSourceOrder, navigateToPage, persistOrders, persistApis, persistBundles, syncOrdersWithBackend]);
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
