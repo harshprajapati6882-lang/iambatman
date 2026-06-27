@@ -132,6 +132,9 @@ export interface ApiPanel {
   services: ApiService[];
   lastFetchAt?: string;
   lastFetchError?: string;
+  lastBalance?: string;
+  lastBalanceAt?: string;
+  lastBalanceError?: string;
 }
 
 export interface BundleService {
