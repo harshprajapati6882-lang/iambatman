@@ -819,6 +819,83 @@ const effectiveMinViews = Math.max(
     };
   }, [apis, bundles, selectedBundleId, selectedApiId, safePlan.runs, effectiveMinViews, includeLikes, includeShares, includeSaves, includeComments, includeReposts, likesMode]);
 
+
+  const serviceHealthWarnings = useMemo(() => {
+    const warnings: string[] = [];
+    const selectedBundle = bundles.find((b) => b.id === selectedBundleId);
+    if (!selectedBundle || safePlan.runs.length === 0) return warnings;
+
+    type ServiceType = "views" | "likes" | "shares" | "saves" | "comments" | "reposts" | "likesPremium";
+    const getInfo = (type: ServiceType, serviceIdOverride?: string) => {
+      const overrideApiId = selectedBundle.serviceApis?.[type];
+      const apiId = overrideApiId || selectedBundle.apiId || selectedApiId;
+      const api = apis.find((a) => a.id === apiId);
+      const serviceId = serviceIdOverride || selectedBundle.serviceIds[type as keyof typeof selectedBundle.serviceIds] || "";
+      const service = api?.services.find((svc) => svc.id === serviceId) || null;
+      return { api, service, serviceId, type };
+    };
+
+    const checkQty = (label: string, qty: number, info: ReturnType<typeof getInfo>) => {
+      if (qty <= 0) return;
+      if (!info.api) {
+        warnings.push(`${label}: API panel not found.`);
+        return;
+      }
+      if (!info.api.url?.trim() || !info.api.key?.trim()) warnings.push(`${label}: API URL/key is missing.`);
+      if (!info.service) {
+        warnings.push(`${label}: service ID ${info.serviceId || "(empty)"} was not found in ${info.api.name}. Fetch services again or update bundle.`);
+        return;
+      }
+      if (info.service.min && qty < info.service.min) warnings.push(`${label}: run quantity ${qty} is below service minimum ${info.service.min} for service ${info.service.id}.`);
+      if (info.service.max && qty > info.service.max) warnings.push(`${label}: run quantity ${qty} is above service maximum ${info.service.max} for service ${info.service.id}.`);
+    };
+
+    const viewServiceIds = (selectedBundle.serviceIds.viewsServiceIds?.filter(Boolean) || [selectedBundle.serviceIds.views]).filter(Boolean);
+    safePlan.runs.forEach((run, i) => {
+      const sid = viewServiceIds[i % Math.max(1, viewServiceIds.length)] || selectedBundle.serviceIds.views;
+      checkQty(`Views run ${i + 1}`, Math.max(Math.floor(run.views || 0), effectiveMinViews), getInfo("views", sid));
+    });
+
+    if (includeLikes) {
+      const type: ServiceType = likesMode === "manual-min1" ? "likesPremium" : "likes";
+      safePlan.runs.forEach((run, i) => checkQty(`Likes run ${i + 1}`, Math.floor(run.likes || 0), getInfo(type)));
+    }
+    if (includeShares) safePlan.runs.forEach((run, i) => checkQty(`Shares run ${i + 1}`, Math.floor(run.shares || 0), getInfo("shares")));
+    if (includeSaves) safePlan.runs.forEach((run, i) => checkQty(`Saves run ${i + 1}`, Math.floor(run.saves || 0), getInfo("saves")));
+    if (includeComments) safePlan.runs.forEach((run, i) => checkQty(`Comments run ${i + 1}`, Math.floor(run.comments || 0), getInfo("comments")));
+    if (includeReposts) safePlan.runs.forEach((run, i) => checkQty(`Reposts run ${i + 1}`, Math.floor(run.reposts || 0), getInfo("reposts")));
+
+    return Array.from(new Set(warnings)).slice(0, 8);
+  }, [apis, bundles, selectedBundleId, selectedApiId, safePlan.runs, effectiveMinViews, includeLikes, includeShares, includeSaves, includeComments, includeReposts, likesMode]);
+
+  const riskWarnings = useMemo(() => {
+    const warnings: string[] = [];
+    if (safePlan.runs.length === 0) return warnings;
+
+    const viewsQty = safePlan.runs.reduce((sum, run) => sum + Math.max(0, run.views || 0), 0);
+    const likesQty = safePlan.runs.reduce((sum, run) => sum + Math.max(0, run.likes || 0), 0);
+    const sharesQty = safePlan.runs.reduce((sum, run) => sum + Math.max(0, run.shares || 0), 0);
+    const commentsQty = safePlan.runs.reduce((sum, run) => sum + Math.max(0, run.comments || 0), 0);
+    const savesQty = safePlan.runs.reduce((sum, run) => sum + Math.max(0, run.saves || 0), 0);
+    const totalDurationMin = safePlan.runs.length > 1
+      ? Math.max(1, Math.round((safePlan.runs[safePlan.runs.length - 1].at.getTime() - safePlan.runs[0].at.getTime()) / 60000))
+      : 0;
+    const avgGapMin = safePlan.runs.length > 1 ? totalDurationMin / (safePlan.runs.length - 1) : totalDurationMin;
+
+    if (includeShares && viewsQty < 1000) warnings.push("Shares are enabled, but total views are below 1000, so shares will not start.");
+    if (includeLikes && viewsQty > 0 && likesQty / viewsQty > 0.22) warnings.push("Likes are above 22% of views. This can look aggressive.");
+    if (includeShares && likesQty > 0 && sharesQty / likesQty > 0.35) warnings.push("Shares are high compared with likes. Consider lowering share ratio/boost.");
+    if (includeComments) {
+      const uniqueComments = customComments.split(/\r?\n/).map((c) => c.trim()).filter(Boolean).length;
+      if (uniqueComments > 0 && commentsQty > uniqueComments) warnings.push(`Comments need ${commentsQty}, but only ${uniqueComments} unique comments are pasted. Some comments will repeat.`);
+      if (viewsQty > 0 && commentsQty / viewsQty > 0.04) warnings.push("Comments are above 4% of views. This may look unnatural.");
+    }
+    if (includeSaves && likesQty > 0 && savesQty / likesQty > 0.5) warnings.push("Saves are very high compared with likes.");
+    if (avgGapMin > 0 && avgGapMin < 3 && viewsQty > 10000) warnings.push("Runs are very close together for this quantity. Consider longer delivery.");
+
+    return warnings.slice(0, 6);
+  }, [safePlan.runs, includeLikes, includeShares, includeSaves, includeComments, customComments]);
+
   return (
     <div className="mx-auto max-w-7xl space-y-2 px-3 py-3">
       {/* Compact Header */}
@@ -2181,6 +2258,20 @@ const effectiveMinViews = Math.max(
                     ₹{formatPrice(costSummary.total)}
                   </span>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {(serviceHealthWarnings.length > 0 || riskWarnings.length > 0) && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2 text-[10px] text-amber-200">
+              <div className="mb-1 font-bold uppercase tracking-wider text-amber-300">⚠ Pre-deploy checks</div>
+              <div className="grid gap-1 md:grid-cols-2">
+                {serviceHealthWarnings.map((warning) => (
+                  <div key={`svc-${warning}`} className="rounded border border-red-500/20 bg-red-500/5 px-2 py-1 text-red-200">Service: {warning}</div>
+                ))}
+                {riskWarnings.map((warning) => (
+                  <div key={`risk-${warning}`} className="rounded border border-amber-500/20 bg-black/30 px-2 py-1">Risk: {warning}</div>
+                ))}
               </div>
             </div>
           )}
