@@ -707,8 +707,9 @@ export default function App() {
         apis={apis}
         bundles={bundles}
         onAddBundle={(bundle) => {
-          const rotIds = [bundle.viewsServiceId, ...(bundle.viewsServiceIds || [])]
-            .map((s) => s.trim())
+          const rawViewIds = [bundle.views, ...(bundle.viewsServiceIds || [])];
+          const rotIds = rawViewIds
+            .map((s) => String(s || "").trim())
             .filter(Boolean);
           const next: Bundle[] = [
             ...bundles,
@@ -732,8 +733,9 @@ export default function App() {
           persistBundles(next);
         }}
         onUpdateBundle={(id, bundle) => {
-          const rotIds = [bundle.viewsServiceId, ...(bundle.viewsServiceIds || [])]
-            .map((s) => s.trim())
+          const rawViewIds = [bundle.views, ...(bundle.viewsServiceIds || [])];
+          const rotIds = rawViewIds
+            .map((s) => String(s || "").trim())
             .filter(Boolean);
           const next: Bundle[] = bundles.map((item) =>
             item.id === id
