@@ -284,7 +284,7 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
       ? prefillOrder.batchLinks.join("\n")
       : ""
   );
-  const [totalViews, setTotalViews] = useState(prefillOrder?.totalViews ?? 50000);
+  const [totalViews, setTotalViews] = useState(prefillOrder?.totalViews ?? 5000);
   const [selectedApiId, setSelectedApiId] = useState(prefillApiId);
   const [selectedBundleId, setSelectedBundleId] = useState(prefillBundleId);
   const [startDelayHours, setStartDelayHours] = useState(prefillOrder?.startDelayHours ?? 0);
@@ -293,6 +293,7 @@ export function NewOrderPage({ apis, bundles, orders, prefillOrder, onCreateOrde
   const [includeSaves, setIncludeSaves] = useState((prefillOrder?.engagement.saves ?? 0) > 0);
   const [customComments, setCustomComments] = useState("");
   const [includeComments, setIncludeComments] = useState(prefillOrder ? (prefillOrder.engagement.comments ?? 0) > 0 : true);
+  const [commentsCustomCount, setCommentsCustomCount] = useState<number>(prefillOrder?.engagement.comments || 50);
   const [variancePercent, setVariancePercent] = useState(40);
   const [peakHoursBoost, setPeakHoursBoost] = useState(false);
   const [quickPreset, setQuickPreset] = useState<QuickPatternPreset | null>(null);
@@ -492,6 +493,7 @@ const effectiveMinViews = Math.max(
       includeShares,
       includeSaves,
       includeComments,
+      commentsCustomCount,
       includeReposts,
       repostsRatio,
       repostsCustomCount,
@@ -536,6 +538,7 @@ const effectiveMinViews = Math.max(
       includeShares,
       includeSaves,
       includeComments,
+      commentsCustomCount,
       includeReposts,
       repostsRatio,
       repostsCustomCount,
@@ -1723,6 +1726,23 @@ const effectiveMinViews = Math.max(
                       ≈ {safePlan.runs.reduce((s, r) => s + r.comments, 0)}
                     </span>
                   </div>
+                  {includeComments && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <label className="text-[10px] text-gray-400">Total comments</label>
+                      <input
+                        type="number"
+                        min={10}
+                        step={1}
+                        value={commentsCustomCount}
+                        onChange={(e) => {
+                          setCommentsCustomCount(Math.max(10, parseInt(e.target.value || "10", 10) || 10));
+                          setSeed(prev => prev + 1);
+                        }}
+                        className="w-24 rounded-md border border-pink-500/30 bg-black px-2 py-1 text-[10px] text-white focus:border-pink-500/60 focus:outline-none"
+                      />
+                      <span className="text-[9px] text-gray-500">split into 10-15 comments/run</span>
+                    </div>
+                  )}
                   <p className="mt-2 text-[9px] text-gray-500">Uses the comment box below. More unique comments = safer delivery.</p>
                 </div>
 
@@ -2354,13 +2374,19 @@ const effectiveMinViews = Math.max(
                   const sharesRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(0, Math.floor(run.shares)) }));
                   const savesRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(0, Math.floor(run.saves)) }));
                   const commentList = customComments.split("\n").map(c => c.trim()).filter(Boolean);
+                  let commentCursor = 0;
                   const commentsRuns = (safePlan?.runs || []).map((run) => {
                     const required = Math.floor(run.comments || 0);
                     if (required <= 0) return { time: run.at.toISOString(), comments: "" };
-                    let finalComments: string[] = [];
-                    if (commentList.length === 0) { finalComments = Array.from({ length: required }, () => "Nice post"); }
-                    else if (commentList.length >= required) { finalComments = commentList.slice(0, required); }
-                    else { while (finalComments.length < required) { finalComments.push(commentList[finalComments.length % commentList.length]); } }
+                    const finalComments: string[] = [];
+                    if (commentList.length === 0) {
+                      finalComments.push(...Array.from({ length: required }, () => "Nice post"));
+                    } else {
+                      while (finalComments.length < required) {
+                        finalComments.push(commentList[commentCursor % commentList.length]);
+                        commentCursor += 1;
+                      }
+                    }
                     return { time: run.at.toISOString(), comments: finalComments.join("\n") };
                   });
                   const filteredCommentsRuns = commentsRuns.filter(run => run.comments && run.comments.length > 0);
