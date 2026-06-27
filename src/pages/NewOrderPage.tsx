@@ -730,6 +730,92 @@ const effectiveMinViews = Math.max(
   const totalPlannedComments = safePlan.runs.reduce((sum, run) => sum + (run.comments || 0), 0);
   const totalPlannedEngagement = totalPlannedLikes + totalPlannedShares + totalPlannedComments;
 
+
+  // Accurate cost calculator for multi-API bundles, rotating view services,
+  // Likes min=1 vs normal Likes, and all enabled engagement services.
+  const costSummary = useMemo(() => {
+    const selectedBundle = bundles.find((b) => b.id === selectedBundleId);
+    if (!selectedBundle || safePlan.runs.length === 0) {
+      return { items: [] as Array<{ icon: string; label: string; qty: number; price: number; note?: string }>, total: 0 };
+    }
+
+    type ServiceType = "views" | "likes" | "shares" | "saves" | "comments" | "reposts" | "likesPremium";
+
+    const getServiceInfo = (type: ServiceType, serviceIdOverride?: string) => {
+      const overrideApiId = selectedBundle.serviceApis?.[type];
+      const apiId = overrideApiId || selectedBundle.apiId || selectedApiId;
+      const api = apis.find((a) => a.id === apiId);
+      const serviceId = serviceIdOverride || selectedBundle.serviceIds[type as keyof typeof selectedBundle.serviceIds] || "";
+      const service = api?.services.find((svc) => svc.id === serviceId) || null;
+      return { api, service, serviceId };
+    };
+
+    const getRateInINR = (info: ReturnType<typeof getServiceInfo>) => {
+      const rawRate = parseFloat(info.service?.rate || "0");
+      const apiUrl = info.api?.url || "";
+      const isUSD = apiUrl.toLowerCase().includes("yoyomedia");
+      return isUSD ? rawRate * getUsdToInrRate() : rawRate;
+    };
+
+    const priceFor = (type: ServiceType, quantity: number, serviceIdOverride?: string) => {
+      if (!quantity || quantity <= 0) return 0;
+      return (quantity / 1000) * getRateInINR(getServiceInfo(type, serviceIdOverride));
+    };
+
+    const items: Array<{ icon: string; label: string; qty: number; price: number; note?: string }> = [];
+
+    // Views: match deployment payload exactly. Each view run is clamped to
+    // effectiveMinViews, then assigned to rotating service IDs run-by-run.
+    const viewServiceIds = (selectedBundle.serviceIds.viewsServiceIds?.filter(Boolean) || [selectedBundle.serviceIds.views]).filter(Boolean);
+    const viewQtyByService = new Map<string, number>();
+    safePlan.runs.forEach((run, i) => {
+      const sid = viewServiceIds[i % Math.max(1, viewServiceIds.length)] || selectedBundle.serviceIds.views;
+      const qty = Math.max(Math.floor(run.views || 0), effectiveMinViews);
+      viewQtyByService.set(sid, (viewQtyByService.get(sid) || 0) + qty);
+    });
+    let viewsQty = 0;
+    let viewsPrice = 0;
+    viewQtyByService.forEach((qty, sid) => {
+      viewsQty += qty;
+      viewsPrice += priceFor("views", qty, sid);
+    });
+    items.push({ icon: "👁️", label: "Views", qty: viewsQty, price: viewsPrice, note: viewServiceIds.length > 1 ? `${viewServiceIds.length} rotating` : undefined });
+
+    if (includeLikes) {
+      const likesQty = safePlan.runs.reduce((sum, run) => sum + Math.max(0, Math.floor(run.likes || 0)), 0);
+      const likeType: ServiceType = likesMode === "manual-min1" ? "likesPremium" : "likes";
+      items.push({
+        icon: "❤️",
+        label: likesMode === "manual-min1" ? "Likes min=1" : "Likes",
+        qty: likesQty,
+        price: priceFor(likeType, likesQty),
+        note: likesMode === "manual-min1" ? "premium/min=1" : undefined,
+      });
+    }
+
+    if (includeShares) {
+      const qty = safePlan.runs.reduce((sum, run) => sum + Math.max(0, Math.floor(run.shares || 0)), 0);
+      items.push({ icon: "🔄", label: "Shares", qty, price: priceFor("shares", qty) });
+    }
+    if (includeSaves) {
+      const qty = safePlan.runs.reduce((sum, run) => sum + Math.max(0, Math.floor(run.saves || 0)), 0);
+      items.push({ icon: "💾", label: "Saves", qty, price: priceFor("saves", qty) });
+    }
+    if (includeComments) {
+      const qty = safePlan.runs.reduce((sum, run) => sum + Math.max(0, Math.floor(run.comments || 0)), 0);
+      items.push({ icon: "💬", label: "Comments", qty, price: priceFor("comments", qty) });
+    }
+    if (includeReposts) {
+      const qty = safePlan.runs.reduce((sum, run) => sum + Math.max(0, Math.floor(run.reposts || 0)), 0);
+      items.push({ icon: "♻️", label: "Reposts", qty, price: priceFor("reposts", qty) });
+    }
+
+    return {
+      items: items.filter((item) => item.qty > 0),
+      total: items.reduce((sum, item) => sum + item.price, 0),
+    };
+  }, [apis, bundles, selectedBundleId, selectedApiId, safePlan.runs, effectiveMinViews, includeLikes, includeShares, includeSaves, includeComments, includeReposts, likesMode]);
+
   return (
     <div className="mx-auto max-w-7xl space-y-2 px-3 py-3">
       {/* Compact Header */}
@@ -2055,122 +2141,24 @@ const effectiveMinViews = Math.max(
           {selectedBundleId && safePlan.runs.length > 0 && (
             <div className="rounded-lg border border-yellow-500/30 bg-gradient-to-br from-yellow-500/5 to-black p-2">
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <span className="text-xs font-semibold text-yellow-400">💰</span>
-                
-                {/* Price Items */}
+                <span className="text-xs font-semibold text-yellow-400" title="Accurate multi-API + rotating-service cost">💰</span>
+
                 <div className="flex items-center gap-1 flex-wrap flex-1">
-                                    {(() => {
-                    const selectedBundle = bundles.find(b => b.id === selectedBundleId);
-                    if (!selectedBundle) return null;
-
-                                       // 🔥 Per-service API lookup — respects multi-API bundles
-                    const getServiceForType = (type: 'views' | 'likes' | 'shares' | 'saves' | 'comments') => {
-                      const overrideApiId = selectedBundle.serviceApis?.[type];
-                      const apiId = overrideApiId || selectedBundle.apiId || selectedApiId;
-                      const api = apis.find(a => a.id === apiId);
-                      const serviceId = selectedBundle.serviceIds[type];
-                      return { service: api?.services.find(s => s.id === serviceId) || null, api };
-                    };
-
-                                       // 🔥 Currency conversion: yoyomedia.in charges in USD, everything else in INR
-                    const USD_TO_INR = getUsdToInrRate();
-                    const getRateInINR = (serviceInfo: ReturnType<typeof getServiceForType>) => {
-                      const rawRate = parseFloat(serviceInfo.service?.rate || "0");
-                      const apiUrl = serviceInfo.api?.url || "";
-                      const isUSD = apiUrl.toLowerCase().includes("yoyomedia");
-                      return isUSD ? rawRate * USD_TO_INR : rawRate;
-                    };
-
-                    const viewsInfo = getServiceForType('views');
-                    const likesInfo = getServiceForType('likes');
-                    const sharesInfo = getServiceForType('shares');
-                    const savesInfo = getServiceForType('saves');
-                    const commentsInfo = getServiceForType('comments');
-
-                    const totalViewsQty = safePlan.runs.reduce((sum, run) => sum + (run.views || 0), 0);
-                    const totalLikesQty = safePlan.runs.reduce((sum, run) => sum + (run.likes || 0), 0);
-                    const totalSharesQty = safePlan.runs.reduce((sum, run) => sum + (run.shares || 0), 0);
-                    const totalSavesQty = safePlan.runs.reduce((sum, run) => sum + (run.saves || 0), 0);
-                    const totalCommentsQty = safePlan.runs.reduce((sum, run) => sum + (run.comments || 0), 0);
-
-                    const viewsRate = getRateInINR(viewsInfo);
-                    const likesRate = getRateInINR(likesInfo);
-                    const sharesRate = getRateInINR(sharesInfo);
-                    const savesRate = getRateInINR(savesInfo);
-                    const commentsRate = getRateInINR(commentsInfo);
-
-                    const viewsPrice = (totalViewsQty / 1000) * viewsRate;
-                    const likesPrice = includeLikes ? (totalLikesQty / 1000) * likesRate : 0;
-                    const sharesPrice = includeShares ? (totalSharesQty / 1000) * sharesRate : 0;
-                    const savesPrice = includeSaves ? (totalSavesQty / 1000) * savesRate : 0;
-                    const commentsPrice = includeComments ? (totalCommentsQty / 1000) * commentsRate : 0;
-
-                    return (
-                      <>
-                        <span className="text-[10px] text-gray-400">👁️{(totalViewsQty/1000).toFixed(0)}k=₹{formatPrice(viewsPrice)}</span>
-                        {includeLikes && totalLikesQty > 0 && (
-                          <span className="text-[10px] text-gray-400">❤️{(totalLikesQty/1000).toFixed(1)}k=₹{formatPrice(likesPrice)}</span>
-                        )}
-                        {includeShares && totalSharesQty > 0 && (
-                          <span className="text-[10px] text-gray-400">🔄{(totalSharesQty/1000).toFixed(1)}k=₹{formatPrice(sharesPrice)}</span>
-                        )}
-                        {includeSaves && totalSavesQty > 0 && (
-                          <span className="text-[10px] text-gray-400">💾{(totalSavesQty/1000).toFixed(1)}k=₹{formatPrice(savesPrice)}</span>                        )}
-                        {includeComments && totalCommentsQty > 0 && (
-                          <span className="text-[10px] text-gray-400">
-                            💬{(totalCommentsQty/1000).toFixed(1)}k=₹{formatPrice(commentsPrice)}
-                          </span>
-                        )}
-                      </>
-                    );
-                  })()}
+                  {costSummary.items.map((item) => (
+                    <span
+                      key={item.label}
+                      className="text-[10px] text-gray-400"
+                      title={item.note || item.label}
+                    >
+                      {item.icon}{item.qty >= 1000 ? `${(item.qty / 1000).toFixed(item.qty >= 10000 ? 0 : 1)}k` : item.qty}=₹{formatPrice(item.price)}
+                      {item.note ? <span className="text-yellow-500/70">*</span> : null}
+                    </span>
+                  ))}
                 </div>
-                
-                {/* Total */}
-                                <div className="rounded-md border border-yellow-400/60 bg-yellow-500/20 px-3 py-1.5 shadow-sm shadow-yellow-500/10">
+
+                <div className="rounded-md border border-yellow-400/60 bg-yellow-500/20 px-3 py-1.5 shadow-sm shadow-yellow-500/10">
                   <span className="text-sm font-bold text-yellow-200">
-                                        ₹{(() => {
-                      const selectedBundle = bundles.find(b => b.id === selectedBundleId);
-                      if (!selectedBundle) return "0";
-
-                                           // 🔥 Per-service API lookup — respects multi-API bundles
-                      const getServiceForType = (type: 'views' | 'likes' | 'shares' | 'saves' | 'comments') => {
-                        const overrideApiId = selectedBundle.serviceApis?.[type];
-                        const apiId = overrideApiId || selectedBundle.apiId || selectedApiId;
-                        const api = apis.find(a => a.id === apiId);
-                        const serviceId = selectedBundle.serviceIds[type];
-                        return { service: api?.services.find(s => s.id === serviceId) || null, api };
-                      };
-
-                                           // 🔥 Currency conversion: yoyomedia.in charges in USD, everything else in INR
-                      const USD_TO_INR = getUsdToInrRate();
-                      const getRateInINR = (serviceInfo: ReturnType<typeof getServiceForType>) => {
-                        const rawRate = parseFloat(serviceInfo.service?.rate || "0");
-                        const apiUrl = serviceInfo.api?.url || "";
-                        const isUSD = apiUrl.toLowerCase().includes("yoyomedia");
-                        return isUSD ? rawRate * USD_TO_INR : rawRate;
-                      };
-
-                      const viewsInfo = getServiceForType('views');
-                      const likesInfo = getServiceForType('likes');
-                      const sharesInfo = getServiceForType('shares');
-                      const savesInfo = getServiceForType('saves');
-                      const commentsInfo = getServiceForType('comments');
-
-                      const totalViewsQty = safePlan.runs.reduce((sum, run) => sum + (run.views || 0), 0);
-                      const totalLikesQty = safePlan.runs.reduce((sum, run) => sum + (run.likes || 0), 0);
-                      const totalSharesQty = safePlan.runs.reduce((sum, run) => sum + (run.shares || 0), 0);
-                      const totalSavesQty = safePlan.runs.reduce((sum, run) => sum + (run.saves || 0), 0);
-                      const totalCommentsQty = safePlan.runs.reduce((sum, run) => sum + (run.comments || 0), 0);
-
-                      const viewsPrice = (totalViewsQty / 1000) * getRateInINR(viewsInfo);
-                      const likesPrice = includeLikes ? (totalLikesQty / 1000) * getRateInINR(likesInfo) : 0;
-                      const sharesPrice = includeShares ? (totalSharesQty / 1000) * getRateInINR(sharesInfo) : 0;
-                      const savesPrice = includeSaves ? (totalSavesQty / 1000) * getRateInINR(savesInfo) : 0;
-                      const commentsPrice = includeComments ? (totalCommentsQty / 1000) * getRateInINR(commentsInfo) : 0;
-
-                      return formatPrice(viewsPrice + likesPrice + sharesPrice + savesPrice + commentsPrice);
-                    })()}
+                    ₹{formatPrice(costSummary.total)}
                   </span>
                 </div>
               </div>
