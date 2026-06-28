@@ -2505,14 +2505,14 @@ const effectiveMinViews = Math.max(
             };
 
             const servicesPayload: {
-              views: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
+              views: { serviceId: string; serviceIds?: string[]; runs: Array<{ time: string; quantity: number; serviceIdOverride?: string }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
               likes?: { serviceId: string; runs: Array<{ time: string; quantity: number; serviceIdOverride?: string; apiUrlOverride?: string; apiKeyOverride?: string; serviceMinOverride?: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
               shares?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
               saves?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
               comments?: { serviceId: string; runs: Array<{ time: string; comments: string }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
               reposts?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
             } = {
-              views: { serviceId: viewsServiceId, runs: viewRuns, ...getServiceApi('views'), serviceMin: getServiceMin('views') },
+              views: { serviceId: viewsServiceId, serviceIds: viewsServiceIds, runs: viewRuns, ...getServiceApi('views'), serviceMin: getServiceMin('views') },
             };
                        const repostsServiceId = selectedBundle.serviceIds.reposts?.trim();
             const repostsRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(0, Math.floor(run.reposts || 0)) }));
