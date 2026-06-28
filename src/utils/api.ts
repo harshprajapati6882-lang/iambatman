@@ -13,6 +13,7 @@ interface CreateOrderPayload {
       "views" | "likes" | "shares" | "saves",
       {
         serviceId: string;
+        serviceIds?: string[];
         runs: Array<{
           time: string;
           quantity: number;
