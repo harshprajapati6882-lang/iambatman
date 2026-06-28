@@ -472,7 +472,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
           const viewsRotCount = bundle.serviceIds.viewsServiceIds?.length ?? 0;
 
           const serviceRows: Array<{ emoji: string; label: string; serviceId: string | undefined; apiId: string; isPremium?: boolean }> = [
-            { emoji: "👁️", label: viewsRotCount > 0 ? `Views (${viewsRotCount + 1} rotating)` : "Views", serviceId: bundle.serviceIds.views, apiId: bundle.serviceApis?.views || bundle.apiId },
+            { emoji: "👁️", label: viewsRotCount > 1 ? `Views (${viewsRotCount} rotating)` : "Views", serviceId: bundle.serviceIds.views, apiId: bundle.serviceApis?.views || bundle.apiId },
             { emoji: "❤️", label: "Likes", serviceId: bundle.serviceIds.likes, apiId: bundle.serviceApis?.likes || bundle.apiId },
             { emoji: "🔄", label: "Shares", serviceId: bundle.serviceIds.shares, apiId: bundle.serviceApis?.shares || bundle.apiId },
             { emoji: "💾", label: "Saves", serviceId: bundle.serviceIds.saves, apiId: bundle.serviceApis?.saves || bundle.apiId },
@@ -527,9 +527,10 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
                     setDefaultApiId(bundle.apiId);
                     setViewsApi(bundle.serviceApis?.views || bundle.apiId);
                     setViewsService(bundle.serviceIds.views);
+                    const savedViewRotation = bundle.serviceIds.viewsServiceIds || [];
                     setViewsRotServices([
-                      bundle.serviceIds.viewsServiceIds?.[0] || "",
-                      bundle.serviceIds.viewsServiceIds?.[1] || "",
+                      savedViewRotation[1] || "",
+                      savedViewRotation[2] || "",
                     ]);
                     setLikesApi(bundle.serviceApis?.likes || bundle.apiId);
                     setLikesService(bundle.serviceIds.likes);
