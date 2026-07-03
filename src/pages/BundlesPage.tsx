@@ -18,6 +18,7 @@ interface BundlesPageProps {
     comments: string;
     reposts: string;
     likesPremium: string;
+    likesPremiumServiceIds: string[];
     serviceApis: {
       views: string;
       viewsServiceApis: string[];
@@ -28,6 +29,7 @@ interface BundlesPageProps {
       comments: string;
       reposts: string;
       likesPremium: string;
+      likesPremiumServiceApis: string[];
     };
   }) => void;
   onUpdateBundle: (
@@ -44,6 +46,7 @@ interface BundlesPageProps {
       comments: string;
       reposts: string;
       likesPremium: string;
+      likesPremiumServiceIds: string[];
       serviceApis: {
         views: string;
         viewsServiceApis: string[];
@@ -54,6 +57,7 @@ interface BundlesPageProps {
         comments: string;
         reposts: string;
         likesPremium: string;
+        likesPremiumServiceApis: string[];
       };
     }
   ) => void;
