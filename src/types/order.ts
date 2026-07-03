@@ -156,6 +156,7 @@ export interface Bundle {
     comments: string;
     reposts: string;
     likesPremium?: string;
+    likesPremiumServiceIds?: string[]; // up to 3 rotating min=1 likes service IDs
   };
   serviceApis?: {
     views?: string;
@@ -167,6 +168,7 @@ export interface Bundle {
     comments?: string;
     reposts?: string;
     likesPremium?: string;
+    likesPremiumServiceApis?: string[];
   };
 }
 
