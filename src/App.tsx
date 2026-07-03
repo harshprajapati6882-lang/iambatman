@@ -731,6 +731,10 @@ export default function App() {
           const likeRotIds = rawLikeIds
             .map((s) => String(s || "").trim())
             .filter(Boolean);
+          const rawPremiumLikeIds = [bundle.likesPremium, ...(bundle.likesPremiumServiceIds || [])];
+          const premiumLikeRotIds = rawPremiumLikeIds
+            .map((s) => String(s || "").trim())
+            .filter(Boolean);
           const next: Bundle[] = [
             ...bundles,
             {
@@ -747,6 +751,7 @@ export default function App() {
                 comments: bundle.comments,
                 reposts: bundle.reposts,
                 likesPremium: bundle.likesPremium || undefined,
+                likesPremiumServiceIds: premiumLikeRotIds.length > 1 ? premiumLikeRotIds : undefined,
               },
               serviceApis: bundle.serviceApis,
             },
@@ -760,6 +765,10 @@ export default function App() {
             .filter(Boolean);
           const rawLikeIds = [bundle.likes, ...(bundle.likesServiceIds || [])];
           const likeRotIds = rawLikeIds
+            .map((s) => String(s || "").trim())
+            .filter(Boolean);
+          const rawPremiumLikeIds = [bundle.likesPremium, ...(bundle.likesPremiumServiceIds || [])];
+          const premiumLikeRotIds = rawPremiumLikeIds
             .map((s) => String(s || "").trim())
             .filter(Boolean);
           const next: Bundle[] = bundles.map((item) =>
@@ -778,6 +787,7 @@ export default function App() {
                     comments: bundle.comments,
                     reposts: bundle.reposts,
                     likesPremium: bundle.likesPremium || undefined,
+                    likesPremiumServiceIds: premiumLikeRotIds.length > 1 ? premiumLikeRotIds : undefined,
                   },
                   serviceApis: bundle.serviceApis,
                 }
