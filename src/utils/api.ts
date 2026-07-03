@@ -10,10 +10,14 @@ interface CreateOrderPayload {
   // feature (routes specific runs to a different service / API).
   services: Partial<
     Record<
-      "views" | "likes" | "shares" | "saves",
+      "views" | "likes" | "shares" | "saves" | "comments" | "reposts",
       {
         serviceId: string;
         serviceIds?: string[];
+        serviceAlternates?: Array<{ serviceId: string; apiUrl: string; apiKey: string; serviceMin?: number }>;
+        apiUrl?: string;
+        apiKey?: string;
+        serviceMin?: number | null;
         runs: Array<{
           time: string;
           quantity: number;
