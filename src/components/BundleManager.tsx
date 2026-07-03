@@ -10,6 +10,7 @@ interface BundleManagerProps {
     views: string;
     viewsServiceIds: string[];
     likes: string;
+    likesServiceIds: string[];
     shares: string;
     saves: string;
     comments: string;
@@ -17,7 +18,9 @@ interface BundleManagerProps {
     likesPremium: string;
     serviceApis: {
       views: string;
+      viewsServiceApis: string[];
       likes: string;
+      likesServiceApis: string[];
       shares: string;
       saves: string;
       comments: string;
@@ -33,6 +36,7 @@ interface BundleManagerProps {
       views: string;
       viewsServiceIds: string[];
       likes: string;
+      likesServiceIds: string[];
       shares: string;
       saves: string;
       comments: string;
@@ -40,7 +44,9 @@ interface BundleManagerProps {
       likesPremium: string;
       serviceApis: {
         views: string;
+        viewsServiceApis: string[];
         likes: string;
+        likesServiceApis: string[];
         shares: string;
         saves: string;
         comments: string;
@@ -213,9 +219,12 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
 
   const [viewsApi, setViewsApi] = useState("");
   const [viewsService, setViewsService] = useState("");
+  const [viewsRotApis, setViewsRotApis] = useState<string[]>(["", ""]);
   const [viewsRotServices, setViewsRotServices] = useState<string[]>(["", ""]);
   const [likesApi, setLikesApi] = useState("");
   const [likesService, setLikesService] = useState("");
+  const [likesRotApis, setLikesRotApis] = useState<string[]>(["", ""]);
+  const [likesRotServices, setLikesRotServices] = useState<string[]>(["", ""]);
   const [sharesApi, setSharesApi] = useState("");
   const [sharesService, setSharesService] = useState("");
   const [savesApi, setSavesApi] = useState("");
@@ -230,8 +239,8 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
   const resetForm = () => {
     setName("");
     setDefaultApiId("");
-    setViewsApi(""); setViewsService(""); setViewsRotServices(["", ""]);
-    setLikesApi(""); setLikesService("");
+    setViewsApi(""); setViewsService(""); setViewsRotApis(["", ""]); setViewsRotServices(["", ""]);
+    setLikesApi(""); setLikesService(""); setLikesRotApis(["", ""]); setLikesRotServices(["", ""]);
     setSharesApi(""); setSharesService("");
     setSavesApi(""); setSavesService("");
     setCommentsApi(""); setCommentsService("");
@@ -243,8 +252,8 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
 
   const handleDefaultApiChange = (newApiId: string) => {
     setDefaultApiId(newApiId);
-    setViewsService(""); setViewsRotServices(["", ""]);
-    setLikesService("");
+    setViewsService(""); setViewsRotApis(["", ""]); setViewsRotServices(["", ""]);
+    setLikesService(""); setLikesRotApis(["", ""]); setLikesRotServices(["", ""]);
     setSharesService("");
     setSavesService("");
     setCommentsService("");
@@ -258,12 +267,14 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
     if (!viewsService || !likesService || !sharesService || !savesService || !commentsService) return;
 
     const rotIds = viewsRotServices.map((s) => s.trim()).filter(Boolean);
+    const likesRotIds = likesRotServices.map((s) => s.trim()).filter(Boolean);
     const payload = {
       name: name.trim(),
       apiId: defaultApiId,
       views: viewsService,
       viewsServiceIds: rotIds.length > 0 ? rotIds : [],
       likes: likesService,
+      likesServiceIds: likesRotIds.length > 0 ? likesRotIds : [],
       shares: sharesService,
       saves: savesService,
       comments: commentsService,
@@ -271,7 +282,9 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
       likesPremium: likesPremiumService,
       serviceApis: {
         views: viewsApi || defaultApiId,
+        viewsServiceApis: [viewsApi || defaultApiId, ...viewsRotApis.map((apiId) => apiId || viewsApi || defaultApiId)],
         likes: likesApi || defaultApiId,
+        likesServiceApis: [likesApi || defaultApiId, ...likesRotApis.map((apiId) => apiId || likesApi || defaultApiId)],
         shares: sharesApi || defaultApiId,
         saves: savesApi || defaultApiId,
         comments: commentsApi || defaultApiId,
@@ -290,6 +303,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
 
   const viewsEffectiveApiId = viewsApi || defaultApiId;
   const viewsServices = getApiServices(apis, viewsEffectiveApiId);
+  const likesEffectiveApiId = likesApi || defaultApiId;
 
   return (
     <section className="space-y-5">
@@ -353,32 +367,99 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
                   🔄 Additional Views Services (Rotation)
                 </p>
                 <p className="text-[10px] text-gray-500 mb-2">
-                  Optional: add up to 2 more views services. All use the same API as primary views. Runs will rotate through all selected views services round-robin.
+                  Optional: add up to 2 more views services. Each row can use a different SMM panel/API. Runs rotate through all selected views services round-robin.
                 </p>
-                {[0, 1].map((i) => (
-                  <div key={i} className="mb-2">
-                    <SearchableSelect
-                      options={viewsServices}
-                      value={viewsRotServices[i]}
-                      onChange={(val) => {
-                        const next = [...viewsRotServices];
-                        next[i] = val;
-                        setViewsRotServices(next);
-                      }}
-                      placeholder={`Select views service #${i + 2}...`}
-                      label={`Service #${i + 2}`}
-                      disabled={!viewsEffectiveApiId}
-                    />
-                  </div>
-                ))}
+                {[0, 1].map((i) => {
+                  const rowApiId = viewsRotApis[i] || viewsEffectiveApiId;
+                  const rowServices = getApiServices(apis, rowApiId);
+                  return (
+                    <div key={i} className="mb-2 grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="mb-1 block text-xs text-gray-500">API for Service #{i + 2}</label>
+                        <select
+                          value={rowApiId}
+                          onChange={(e) => {
+                            const nextApis = [...viewsRotApis];
+                            nextApis[i] = e.target.value === viewsEffectiveApiId ? "" : e.target.value;
+                            setViewsRotApis(nextApis);
+                            const nextServices = [...viewsRotServices];
+                            nextServices[i] = "";
+                            setViewsRotServices(nextServices);
+                          }}
+                          className="w-full rounded-xl border border-yellow-500/30 bg-black px-3 py-2.5 text-sm text-gray-100"
+                        >
+                          {apis.map((api) => <option key={api.id} value={api.id}>{api.name}</option>)}
+                        </select>
+                      </div>
+                      <SearchableSelect
+                        options={rowServices}
+                        value={viewsRotServices[i]}
+                        onChange={(val) => {
+                          const next = [...viewsRotServices];
+                          next[i] = val;
+                          setViewsRotServices(next);
+                        }}
+                        placeholder={`Select views service #${i + 2}...`}
+                        label={`Service #${i + 2}`}
+                        disabled={!rowApiId}
+                      />
+                    </div>
+                  );
+                })}
               </div>
 
               <ServiceRow
-                emoji="❤️" label="Likes"
+                emoji="❤️" label="Likes (Primary)"
                 apis={apis} defaultApiId={defaultApiId}
                 selectedApiId={likesApi} selectedServiceId={likesService}
-                onApiChange={setLikesApi} onServiceChange={setLikesService}
+                onApiChange={(apiId) => { setLikesApi(apiId); setLikesRotApis(["", ""]); setLikesRotServices(["", ""]); }} onServiceChange={setLikesService}
               />
+
+              <div className="rounded-xl border border-pink-500/15 bg-black/40 p-3">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-pink-500/70">
+                  🔄 Additional Likes Services (Rotation)
+                </p>
+                <p className="mb-2 text-[10px] text-gray-500">
+                  Optional: add up to 2 more likes services. Each row can use a different SMM panel/API. Likes runs rotate through all selected likes services.
+                </p>
+                {[0, 1].map((i) => {
+                  const rowApiId = likesRotApis[i] || likesEffectiveApiId;
+                  const rowServices = getApiServices(apis, rowApiId);
+                  return (
+                    <div key={i} className="mb-2 grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="mb-1 block text-xs text-gray-500">API for Likes #{i + 2}</label>
+                        <select
+                          value={rowApiId}
+                          onChange={(e) => {
+                            const nextApis = [...likesRotApis];
+                            nextApis[i] = e.target.value === likesEffectiveApiId ? "" : e.target.value;
+                            setLikesRotApis(nextApis);
+                            const nextServices = [...likesRotServices];
+                            nextServices[i] = "";
+                            setLikesRotServices(nextServices);
+                          }}
+                          className="w-full rounded-xl border border-pink-500/30 bg-black px-3 py-2.5 text-sm text-gray-100"
+                        >
+                          {apis.map((api) => <option key={api.id} value={api.id}>{api.name}</option>)}
+                        </select>
+                      </div>
+                      <SearchableSelect
+                        options={rowServices}
+                        value={likesRotServices[i]}
+                        onChange={(val) => {
+                          const next = [...likesRotServices];
+                          next[i] = val;
+                          setLikesRotServices(next);
+                        }}
+                        placeholder={`Select likes service #${i + 2}...`}
+                        label={`Likes Service #${i + 2}`}
+                        disabled={!rowApiId}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
               <ServiceRow
                 emoji="🔄" label="Shares"
                 apis={apis} defaultApiId={defaultApiId}
@@ -470,10 +551,11 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
           const getApiName = (apiId: string) => apis.find(a => a.id === apiId)?.name ?? "Unknown";
           const defaultApiName = getApiName(bundle.apiId);
           const viewsRotCount = bundle.serviceIds.viewsServiceIds?.length ?? 0;
+          const likesRotCount = bundle.serviceIds.likesServiceIds?.length ?? 0;
 
           const serviceRows: Array<{ emoji: string; label: string; serviceId: string | undefined; apiId: string; isPremium?: boolean }> = [
             { emoji: "👁️", label: viewsRotCount > 1 ? `Views (${viewsRotCount} rotating)` : "Views", serviceId: bundle.serviceIds.views, apiId: bundle.serviceApis?.views || bundle.apiId },
-            { emoji: "❤️", label: "Likes", serviceId: bundle.serviceIds.likes, apiId: bundle.serviceApis?.likes || bundle.apiId },
+            { emoji: "❤️", label: likesRotCount > 1 ? `Likes (${likesRotCount} rotating)` : "Likes", serviceId: bundle.serviceIds.likes, apiId: bundle.serviceApis?.likes || bundle.apiId },
             { emoji: "🔄", label: "Shares", serviceId: bundle.serviceIds.shares, apiId: bundle.serviceApis?.shares || bundle.apiId },
             { emoji: "💾", label: "Saves", serviceId: bundle.serviceIds.saves, apiId: bundle.serviceApis?.saves || bundle.apiId },
             { emoji: "💬", label: "Comments", serviceId: bundle.serviceIds.comments, apiId: bundle.serviceApis?.comments || bundle.apiId },
@@ -528,12 +610,27 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
                     setViewsApi(bundle.serviceApis?.views || bundle.apiId);
                     setViewsService(bundle.serviceIds.views);
                     const savedViewRotation = bundle.serviceIds.viewsServiceIds || [];
+                    const savedViewApis = bundle.serviceApis?.viewsServiceApis || [];
+                    setViewsRotApis([
+                      savedViewApis[1] && savedViewApis[1] !== (bundle.serviceApis?.views || bundle.apiId) ? savedViewApis[1] : "",
+                      savedViewApis[2] && savedViewApis[2] !== (bundle.serviceApis?.views || bundle.apiId) ? savedViewApis[2] : "",
+                    ]);
                     setViewsRotServices([
                       savedViewRotation[1] || "",
                       savedViewRotation[2] || "",
                     ]);
                     setLikesApi(bundle.serviceApis?.likes || bundle.apiId);
                     setLikesService(bundle.serviceIds.likes);
+                    const savedLikesRotation = bundle.serviceIds.likesServiceIds || [];
+                    const savedLikesApis = bundle.serviceApis?.likesServiceApis || [];
+                    setLikesRotApis([
+                      savedLikesApis[1] && savedLikesApis[1] !== (bundle.serviceApis?.likes || bundle.apiId) ? savedLikesApis[1] : "",
+                      savedLikesApis[2] && savedLikesApis[2] !== (bundle.serviceApis?.likes || bundle.apiId) ? savedLikesApis[2] : "",
+                    ]);
+                    setLikesRotServices([
+                      savedLikesRotation[1] || "",
+                      savedLikesRotation[2] || "",
+                    ]);
                     setSharesApi(bundle.serviceApis?.shares || bundle.apiId);
                     setSharesService(bundle.serviceIds.shares);
                     setSavesApi(bundle.serviceApis?.saves || bundle.apiId);
