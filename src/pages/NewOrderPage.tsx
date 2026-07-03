@@ -744,9 +744,14 @@ const effectiveMinViews = Math.max(
 
     type ServiceType = "views" | "likes" | "shares" | "saves" | "comments" | "reposts" | "likesPremium";
 
-    const getServiceInfo = (type: ServiceType, serviceIdOverride?: string) => {
-      const overrideApiId = selectedBundle.serviceApis?.[type];
-      const apiId = overrideApiId || selectedBundle.apiId || selectedApiId;
+    const getServiceInfo = (type: ServiceType, serviceIdOverride?: string, rotationIndex?: number) => {
+      const apiList = type === "views"
+        ? selectedBundle.serviceApis?.viewsServiceApis
+        : type === "likes"
+          ? selectedBundle.serviceApis?.likesServiceApis
+          : undefined;
+      const overrideApiId = typeof rotationIndex === "number" ? apiList?.[rotationIndex] : undefined;
+      const apiId = overrideApiId || selectedBundle.serviceApis?.[type] || selectedBundle.apiId || selectedApiId;
       const api = apis.find((a) => a.id === apiId);
       const serviceId = serviceIdOverride || selectedBundle.serviceIds[type as keyof typeof selectedBundle.serviceIds] || "";
       const service = api?.services.find((svc) => svc.id === serviceId) || null;
@@ -760,9 +765,9 @@ const effectiveMinViews = Math.max(
       return isUSD ? rawRate * getUsdToInrRate() : rawRate;
     };
 
-    const priceFor = (type: ServiceType, quantity: number, serviceIdOverride?: string) => {
+    const priceFor = (type: ServiceType, quantity: number, serviceIdOverride?: string, rotationIndex?: number) => {
       if (!quantity || quantity <= 0) return 0;
-      return (quantity / 1000) * getRateInINR(getServiceInfo(type, serviceIdOverride));
+      return (quantity / 1000) * getRateInINR(getServiceInfo(type, serviceIdOverride, rotationIndex));
     };
 
     const items: Array<{ icon: string; label: string; qty: number; price: number; note?: string }> = [];
@@ -770,30 +775,55 @@ const effectiveMinViews = Math.max(
     // Views: match deployment payload exactly. Each view run is clamped to
     // effectiveMinViews, then assigned to rotating service IDs run-by-run.
     const viewServiceIds = (selectedBundle.serviceIds.viewsServiceIds?.filter(Boolean) || [selectedBundle.serviceIds.views]).filter(Boolean);
-    const viewQtyByService = new Map<string, number>();
+    const viewQtyByService = new Map<string, { qty: number; index: number }>();
     safePlan.runs.forEach((run, i) => {
-      const sid = viewServiceIds[i % Math.max(1, viewServiceIds.length)] || selectedBundle.serviceIds.views;
+      const index = i % Math.max(1, viewServiceIds.length);
+      const sid = viewServiceIds[index] || selectedBundle.serviceIds.views;
       const qty = Math.max(Math.floor(run.views || 0), effectiveMinViews);
-      viewQtyByService.set(sid, (viewQtyByService.get(sid) || 0) + qty);
+      const prev = viewQtyByService.get(sid) || { qty: 0, index };
+      viewQtyByService.set(sid, { qty: prev.qty + qty, index: prev.index });
     });
     let viewsQty = 0;
     let viewsPrice = 0;
-    viewQtyByService.forEach((qty, sid) => {
+    viewQtyByService.forEach(({ qty, index }, sid) => {
       viewsQty += qty;
-      viewsPrice += priceFor("views", qty, sid);
+      viewsPrice += priceFor("views", qty, sid, index);
     });
     items.push({ icon: "👁️", label: "Views", qty: viewsQty, price: viewsPrice, note: viewServiceIds.length > 1 ? `${viewServiceIds.length} rotating` : undefined });
 
     if (includeLikes) {
       const likesQty = safePlan.runs.reduce((sum, run) => sum + Math.max(0, Math.floor(run.likes || 0)), 0);
-      const likeType: ServiceType = likesMode === "manual-min1" ? "likesPremium" : "likes";
-      items.push({
-        icon: "❤️",
-        label: likesMode === "manual-min1" ? "Likes min=1" : "Likes",
-        qty: likesQty,
-        price: priceFor(likeType, likesQty),
-        note: likesMode === "manual-min1" ? "premium/min=1" : undefined,
-      });
+      if (likesMode === "manual-min1") {
+        items.push({
+          icon: "❤️",
+          label: "Likes min=1",
+          qty: likesQty,
+          price: priceFor("likesPremium", likesQty),
+          note: "premium/min=1",
+        });
+      } else {
+        const likeServiceIds = (selectedBundle.serviceIds.likesServiceIds?.filter(Boolean) || [selectedBundle.serviceIds.likes]).filter(Boolean);
+        const likeQtyByService = new Map<string, { qty: number; index: number }>();
+        safePlan.runs.forEach((run, i) => {
+          const qty = Math.max(0, Math.floor(run.likes || 0));
+          if (!qty) return;
+          const index = i % Math.max(1, likeServiceIds.length);
+          const sid = likeServiceIds[index] || selectedBundle.serviceIds.likes;
+          const prev = likeQtyByService.get(sid) || { qty: 0, index };
+          likeQtyByService.set(sid, { qty: prev.qty + qty, index: prev.index });
+        });
+        let likesPrice = 0;
+        likeQtyByService.forEach(({ qty, index }, sid) => {
+          likesPrice += priceFor("likes", qty, sid, index);
+        });
+        items.push({
+          icon: "❤️",
+          label: "Likes",
+          qty: likesQty,
+          price: likesPrice,
+          note: likeServiceIds.length > 1 ? `${likeServiceIds.length} rotating` : undefined,
+        });
+      }
     }
 
     if (includeShares) {
@@ -826,9 +856,14 @@ const effectiveMinViews = Math.max(
     if (!selectedBundle || safePlan.runs.length === 0) return warnings;
 
     type ServiceType = "views" | "likes" | "shares" | "saves" | "comments" | "reposts" | "likesPremium";
-    const getInfo = (type: ServiceType, serviceIdOverride?: string) => {
-      const overrideApiId = selectedBundle.serviceApis?.[type];
-      const apiId = overrideApiId || selectedBundle.apiId || selectedApiId;
+    const getInfo = (type: ServiceType, serviceIdOverride?: string, rotationIndex?: number) => {
+      const apiList = type === "views"
+        ? selectedBundle.serviceApis?.viewsServiceApis
+        : type === "likes"
+          ? selectedBundle.serviceApis?.likesServiceApis
+          : undefined;
+      const overrideApiId = typeof rotationIndex === "number" ? apiList?.[rotationIndex] : undefined;
+      const apiId = overrideApiId || selectedBundle.serviceApis?.[type] || selectedBundle.apiId || selectedApiId;
       const api = apis.find((a) => a.id === apiId);
       const serviceId = serviceIdOverride || selectedBundle.serviceIds[type as keyof typeof selectedBundle.serviceIds] || "";
       const service = api?.services.find((svc) => svc.id === serviceId) || null;
@@ -852,13 +887,23 @@ const effectiveMinViews = Math.max(
 
     const viewServiceIds = (selectedBundle.serviceIds.viewsServiceIds?.filter(Boolean) || [selectedBundle.serviceIds.views]).filter(Boolean);
     safePlan.runs.forEach((run, i) => {
-      const sid = viewServiceIds[i % Math.max(1, viewServiceIds.length)] || selectedBundle.serviceIds.views;
-      checkQty(`Views run ${i + 1}`, Math.max(Math.floor(run.views || 0), effectiveMinViews), getInfo("views", sid));
+      const index = i % Math.max(1, viewServiceIds.length);
+      const sid = viewServiceIds[index] || selectedBundle.serviceIds.views;
+      checkQty(`Views run ${i + 1}`, Math.max(Math.floor(run.views || 0), effectiveMinViews), getInfo("views", sid, index));
     });
 
     if (includeLikes) {
       const type: ServiceType = likesMode === "manual-min1" ? "likesPremium" : "likes";
-      safePlan.runs.forEach((run, i) => checkQty(`Likes run ${i + 1}`, Math.floor(run.likes || 0), getInfo(type)));
+      if (type === "likes") {
+        const likeServiceIds = (selectedBundle.serviceIds.likesServiceIds?.filter(Boolean) || [selectedBundle.serviceIds.likes]).filter(Boolean);
+        safePlan.runs.forEach((run, i) => {
+          const index = i % Math.max(1, likeServiceIds.length);
+          const sid = likeServiceIds[index] || selectedBundle.serviceIds.likes;
+          checkQty(`Likes run ${i + 1}`, Math.floor(run.likes || 0), getInfo("likes", sid, index));
+        });
+      } else {
+        safePlan.runs.forEach((run, i) => checkQty(`Likes run ${i + 1}`, Math.floor(run.likes || 0), getInfo(type)));
+      }
     }
     if (includeShares) safePlan.runs.forEach((run, i) => checkQty(`Shares run ${i + 1}`, Math.floor(run.shares || 0), getInfo("shares")));
     if (includeSaves) safePlan.runs.forEach((run, i) => checkQty(`Saves run ${i + 1}`, Math.floor(run.saves || 0), getInfo("saves")));
@@ -2410,8 +2455,33 @@ const effectiveMinViews = Math.max(
                   if (includeSaves && totalSaves < 10) { setCreateError("Saves must be at least 10."); return; }
                   if (includeComments && totalCommentsQty <= 0) { setCreateError("Comments must be greater than 0."); return; }
                   if (quantity > 100000) { const proceed = window.confirm("Large mission. Continue?"); if (!proceed) return; }
-                  // 🔥 Rotating views service IDs
+                  // 🔥 Rotating views service IDs + per-rotating-service API panels
                   const viewsServiceIds = selectedBundle.serviceIds.viewsServiceIds?.filter(Boolean) || [selectedBundle.serviceIds.views];
+                  const viewsServiceApis = selectedBundle.serviceApis?.viewsServiceApis || [];
+                  const viewServiceAlternates = viewsServiceIds.map((serviceId, idx) => {
+                    const apiId = viewsServiceApis[idx] || selectedBundle.serviceApis?.views || selectedBundle.apiId || selectedApiId;
+                    const api = apis.find((a) => a.id === apiId) || selectedApi;
+                    const service = api?.services.find((s) => s.id === serviceId);
+                    return {
+                      serviceId,
+                      apiUrl: api?.url || selectedApi.url,
+                      apiKey: api?.key || selectedApi.key,
+                      serviceMin: service?.min || effectiveMinViews,
+                    };
+                  });
+                  const likesServiceIds = (selectedBundle.serviceIds.likesServiceIds?.filter(Boolean) || [selectedBundle.serviceIds.likes]).filter(Boolean);
+                  const likesServiceApis = selectedBundle.serviceApis?.likesServiceApis || [];
+                  const likeServiceAlternates = likesServiceIds.map((serviceId, idx) => {
+                    const apiId = likesServiceApis[idx] || selectedBundle.serviceApis?.likes || selectedBundle.apiId || selectedApiId;
+                    const api = apis.find((a) => a.id === apiId) || selectedApi;
+                    const service = api?.services.find((s) => s.id === serviceId);
+                    return {
+                      serviceId,
+                      apiUrl: api?.url || selectedApi.url,
+                      apiKey: api?.key || selectedApi.key,
+                      serviceMin: service?.min || 10,
+                    };
+                  });
                   const viewRuns = (safePlan?.runs || []).map((run, i) => ({
                     time: run.at.toISOString(),
                     quantity: Math.max(Math.floor(run.views), effectiveMinViews),
@@ -2437,7 +2507,7 @@ const effectiveMinViews = Math.max(
                     serviceMinOverride?: number;
                     preserveExactTime?: boolean;
                   }> = [];
-                  for (const r of (safePlan?.runs || [])) {
+                  for (const [runIndex, r] of (safePlan?.runs || []).entries()) {
                     const parentQty = Math.max(0, Math.floor(r.likes));
                     if (subLikesReady && Array.isArray(r.likesSubRuns) && r.likesSubRuns.length >= 2) {
                       for (const sub of r.likesSubRuns) {
@@ -2462,7 +2532,15 @@ const effectiveMinViews = Math.max(
                         preserveExactTime: true,
                       });
                     } else {
-                      likesRuns.push({ time: r.at.toISOString(), quantity: parentQty });
+                      const alt = likeServiceAlternates[runIndex % Math.max(1, likeServiceAlternates.length)];
+                      likesRuns.push({
+                        time: r.at.toISOString(),
+                        quantity: parentQty,
+                        serviceIdOverride: alt?.serviceId,
+                        apiUrlOverride: alt?.apiUrl,
+                        apiKeyOverride: alt?.apiKey,
+                        serviceMinOverride: alt?.serviceMin,
+                      });
                     }
                   }
                   const sharesRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(0, Math.floor(run.shares)) }));
@@ -2486,7 +2564,12 @@ const effectiveMinViews = Math.max(
                   const filteredCommentsRuns = commentsRuns.filter(run => run.comments && run.comments.length > 0);
                               // 🔥 Resolve per-service API credentials
             const getServiceApi = (serviceType: 'views' | 'likes' | 'shares' | 'saves' | 'comments' | 'reposts') => {
-              const overrideApiId = selectedBundle?.serviceApis?.[serviceType];
+              const apiList = serviceType === 'views'
+                ? selectedBundle?.serviceApis?.viewsServiceApis
+                : serviceType === 'likes'
+                  ? selectedBundle?.serviceApis?.likesServiceApis
+                  : undefined;
+              const overrideApiId = apiList?.[0] || selectedBundle?.serviceApis?.[serviceType];
               if (overrideApiId && overrideApiId !== selectedApiId) {
                 const overrideApi = apis.find(a => a.id === overrideApiId);
                 if (overrideApi) return { apiUrl: overrideApi.url, apiKey: overrideApi.key };
@@ -2496,7 +2579,12 @@ const effectiveMinViews = Math.max(
 
                                    // 🔥 Extract service minimums from bundle services
             const getServiceMin = (type: 'views' | 'likes' | 'shares' | 'saves' | 'comments' | 'reposts') => {
-              const overrideApiId = selectedBundle?.serviceApis?.[type];
+              const apiList = type === 'views'
+                ? selectedBundle?.serviceApis?.viewsServiceApis
+                : type === 'likes'
+                  ? selectedBundle?.serviceApis?.likesServiceApis
+                  : undefined;
+              const overrideApiId = apiList?.[0] || selectedBundle?.serviceApis?.[type];
               const apiId = overrideApiId || selectedBundle?.apiId || selectedApiId;
               const api = apis.find(a => a.id === apiId);
               const serviceId = selectedBundle?.serviceIds[type];
@@ -2505,19 +2593,19 @@ const effectiveMinViews = Math.max(
             };
 
             const servicesPayload: {
-              views: { serviceId: string; serviceIds?: string[]; runs: Array<{ time: string; quantity: number; serviceIdOverride?: string }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
-              likes?: { serviceId: string; runs: Array<{ time: string; quantity: number; serviceIdOverride?: string; apiUrlOverride?: string; apiKeyOverride?: string; serviceMinOverride?: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
+              views: { serviceId: string; serviceIds?: string[]; serviceAlternates?: Array<{ serviceId: string; apiUrl: string; apiKey: string; serviceMin?: number }>; runs: Array<{ time: string; quantity: number; serviceIdOverride?: string }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
+              likes?: { serviceId: string; serviceIds?: string[]; serviceAlternates?: Array<{ serviceId: string; apiUrl: string; apiKey: string; serviceMin?: number }>; runs: Array<{ time: string; quantity: number; serviceIdOverride?: string; apiUrlOverride?: string; apiKeyOverride?: string; serviceMinOverride?: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
               shares?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
               saves?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
               comments?: { serviceId: string; runs: Array<{ time: string; comments: string }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
               reposts?: { serviceId: string; runs: Array<{ time: string; quantity: number }>; apiUrl?: string; apiKey?: string; serviceMin?: number };
             } = {
-              views: { serviceId: viewsServiceId, serviceIds: viewsServiceIds, runs: viewRuns, ...getServiceApi('views'), serviceMin: getServiceMin('views') },
+              views: { serviceId: viewsServiceId, serviceIds: viewsServiceIds, serviceAlternates: viewServiceAlternates, runs: viewRuns, ...getServiceApi('views'), serviceMin: getServiceMin('views') },
             };
                        const repostsServiceId = selectedBundle.serviceIds.reposts?.trim();
             const repostsRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(0, Math.floor(run.reposts || 0)) }));
 
-                        if (includeLikes) servicesPayload.likes = { serviceId: likesServiceId, runs: likesRuns, ...getServiceApi('likes'), serviceMin: getServiceMin('likes') };
+                        if (includeLikes) servicesPayload.likes = { serviceId: likesServiceId, serviceIds: likesServiceIds, serviceAlternates: likesMode === "manual-min10" ? likeServiceAlternates : undefined, runs: likesRuns, ...getServiceApi('likes'), serviceMin: getServiceMin('likes') };
             if (includeShares) servicesPayload.shares = { serviceId: sharesServiceId, runs: sharesRuns, ...getServiceApi('shares'), serviceMin: getServiceMin('shares') };
             if (includeSaves) servicesPayload.saves = { serviceId: savesServiceId, runs: savesRuns, ...getServiceApi('saves'), serviceMin: getServiceMin('saves') };
             if (includeReposts && repostsServiceId) servicesPayload.reposts = { serviceId: repostsServiceId, runs: repostsRuns, ...getServiceApi('reposts'), serviceMin: getServiceMin('reposts') };
