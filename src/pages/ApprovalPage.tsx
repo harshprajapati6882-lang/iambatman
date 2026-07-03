@@ -147,11 +147,23 @@ export function ApprovalPage({
   const selectedBundle = approvalBundles.find((b) => b.id === selectedBundleId);
   const selectedApi = apis.find((a) => a.id === selectedBundle?.apiId);
 
-  // service minimums – Approval enforces min 100 views/run
-  const viewsService = selectedApi?.services.find(
+  const getBundleApi = (type: "views" | "likes", index = 0) => {
+    if (!selectedBundle) return selectedApi;
+    const apiIds = type === "views"
+      ? selectedBundle.serviceApis?.viewsServiceApis
+      : selectedBundle.serviceApis?.likesServiceApis;
+    const fallbackApiId = selectedBundle.serviceApis?.[type] || selectedBundle.apiId;
+    return apis.find((a) => a.id === (apiIds?.[index] || fallbackApiId)) || selectedApi;
+  };
+
+  // service minimums – Approval enforces min 100 views/run. Primary services are
+  // looked up from their own selected API panel, not only the default panel.
+  const viewsApiForMin = getBundleApi("views", 0);
+  const likesApiForMin = getBundleApi("likes", 0);
+  const viewsService = viewsApiForMin?.services.find(
     (s) => s.id === selectedBundle?.viewsServiceId
   );
-  const likesService = selectedApi?.services.find(
+  const likesService = likesApiForMin?.services.find(
     (s) => s.id === selectedBundle?.likesServiceId
   );
   const effectiveMinViews = Math.max(100, viewsService?.min || 0);
@@ -231,20 +243,47 @@ export function ApprovalPage({
   // How many likes got placed vs dropped?
   const droppedLikes = manualTotalLikes - totalLikes;
 
-  // price
+  // price — respects rotating views/likes services and per-service API panels
   const priceInfo = useMemo(() => {
-    if (!selectedApi || !viewsService) return null;
+    if (!selectedBundle || !selectedApi) return null;
     const USD_TO_INR = getUsdToInrRate();
-    const isUsd = (selectedApi.url || "").toLowerCase().includes("yoyomedia");
-    const conv = isUsd ? USD_TO_INR : 1;
-    const viewsRate = parseFloat(viewsService.rate || "0") * conv;
-    const likesRate = likesService
-      ? parseFloat(likesService.rate || "0") * conv
-      : 0;
-    const viewsCost = (totalViews / 1000) * viewsRate;
-    const likesCost = includeLikes ? (totalLikes / 1000) * likesRate : 0;
+    const serviceRate = (type: "views" | "likes", serviceId: string, index: number) => {
+      const apiIds = type === "views"
+        ? selectedBundle.serviceApis?.viewsServiceApis
+        : selectedBundle.serviceApis?.likesServiceApis;
+      const fallbackApiId = selectedBundle.serviceApis?.[type] || selectedBundle.apiId;
+      const api = apis.find((a) => a.id === (apiIds?.[index] || fallbackApiId)) || selectedApi;
+      const service = api?.services.find((svc) => svc.id === serviceId);
+      const rate = parseFloat(service?.rate || "0");
+      const isUsd = (api?.url || "").toLowerCase().includes("yoyomedia");
+      return rate * (isUsd ? USD_TO_INR : 1);
+    };
+
+    const viewIds = (selectedBundle.viewsServiceIds?.filter(Boolean) || [selectedBundle.viewsServiceId]).filter(Boolean);
+    const likeIds = (selectedBundle.likesServiceIds?.filter(Boolean) || [selectedBundle.likesServiceId]).filter(Boolean);
+    const viewsQtyByIndex = new Map<number, number>();
+    const likesQtyByIndex = new Map<number, number>();
+
+    runs.forEach((r, idx) => {
+      const viewIndex = idx % Math.max(1, viewIds.length);
+      viewsQtyByIndex.set(viewIndex, (viewsQtyByIndex.get(viewIndex) || 0) + Math.max(Math.floor(r.views || 0), effectiveMinViews));
+      if (includeLikes && Math.floor(r.likes || 0) > 0) {
+        const likeIndex = idx % Math.max(1, likeIds.length);
+        likesQtyByIndex.set(likeIndex, (likesQtyByIndex.get(likeIndex) || 0) + Math.floor(r.likes || 0));
+      }
+    });
+
+    let viewsCost = 0;
+    viewsQtyByIndex.forEach((qty, idx) => {
+      viewsCost += (qty / 1000) * serviceRate("views", viewIds[idx] || selectedBundle.viewsServiceId, idx);
+    });
+    let likesCost = 0;
+    likesQtyByIndex.forEach((qty, idx) => {
+      likesCost += (qty / 1000) * serviceRate("likes", likeIds[idx] || selectedBundle.likesServiceId, idx);
+    });
+
     return { total: viewsCost + likesCost, viewsCost, likesCost };
-  }, [selectedApi, viewsService, likesService, totalViews, totalLikes, includeLikes]);
+  }, [apis, selectedApi, selectedBundle, runs, totalLikes, includeLikes, effectiveMinViews]);
 
   // graph data
   const graphData = useMemo(
@@ -348,11 +387,40 @@ export function ApprovalPage({
       for (let i = 0; i < targets.length; i++) {
         const link = targets[i];
         try {
-          // 🔥 Rotating views service IDs
-          const viewsServiceIds = selectedBundle.viewsServiceIds?.filter(Boolean) || [selectedBundle.viewsServiceId];
-          const viewsApiId = selectedBundle.serviceApis?.views || selectedBundle.apiId;
+          // Rotating views + likes service IDs with per-service API panels
+          const viewsServiceIds = (selectedBundle.viewsServiceIds?.filter(Boolean) || [selectedBundle.viewsServiceId]).filter(Boolean);
+          const viewsServiceApis = selectedBundle.serviceApis?.viewsServiceApis || [];
+          const viewsApiId = viewsServiceApis[0] || selectedBundle.serviceApis?.views || selectedBundle.apiId;
           const viewsApi = apis.find((a) => a.id === viewsApiId) || selectedApi;
           const viewsService = viewsApi?.services.find((s) => s.id === selectedBundle.viewsServiceId);
+          const viewServiceAlternates = viewsServiceIds.map((serviceId, idx) => {
+            const apiId = viewsServiceApis[idx] || selectedBundle.serviceApis?.views || selectedBundle.apiId;
+            const api = apis.find((a) => a.id === apiId) || selectedApi;
+            const service = api?.services.find((s) => s.id === serviceId);
+            return {
+              serviceId,
+              apiUrl: api?.url,
+              apiKey: api?.key,
+              serviceMin: service?.min || effectiveMinViews,
+            };
+          });
+
+          const likesServiceIds = (selectedBundle.likesServiceIds?.filter(Boolean) || [selectedBundle.likesServiceId]).filter(Boolean);
+          const likesServiceApis = selectedBundle.serviceApis?.likesServiceApis || [];
+          const likesApiId = likesServiceApis[0] || selectedBundle.serviceApis?.likes || selectedBundle.apiId;
+          const likesApi = apis.find((a) => a.id === likesApiId) || selectedApi;
+          const likesPrimaryService = likesApi?.services.find((s) => s.id === selectedBundle.likesServiceId);
+          const likeServiceAlternates = likesServiceIds.map((serviceId, idx) => {
+            const apiId = likesServiceApis[idx] || selectedBundle.serviceApis?.likes || selectedBundle.apiId;
+            const api = apis.find((a) => a.id === apiId) || selectedApi;
+            const service = api?.services.find((s) => s.id === serviceId);
+            return {
+              serviceId,
+              apiUrl: api?.url,
+              apiKey: api?.key,
+              serviceMin: service?.min || effectiveMinLikes,
+            };
+          });
 
           const viewsRuns = runs.map((r, i) => ({
             time: r.at.toISOString(),
@@ -360,21 +428,27 @@ export function ApprovalPage({
             serviceIdOverride: viewsServiceIds[i % viewsServiceIds.length],
           }));
 
-          // Only send likes runs that actually have likes > 0
+          // Only send likes runs that actually have likes > 0; rotate them by original run index
           const likesRuns = runs
-            .filter((r) => Math.floor(r.likes) > 0)
-            .map((r) => ({
-              time: r.at.toISOString(),
-              quantity: Math.floor(r.likes),
-            }));
-
-          // 🔥 Multi-API support: resolve per-service API for views and likes
-          const likesApiId = selectedBundle.serviceApis?.likes || selectedBundle.apiId;
-          const likesApi = apis.find((a) => a.id === likesApiId) || selectedApi;
+            .map((r, runIndex) => ({ r, runIndex }))
+            .filter(({ r }) => Math.floor(r.likes) > 0)
+            .map(({ r, runIndex }) => {
+              const alt = likeServiceAlternates[runIndex % Math.max(1, likeServiceAlternates.length)];
+              return {
+                time: r.at.toISOString(),
+                quantity: Math.floor(r.likes),
+                serviceIdOverride: alt?.serviceId,
+                apiUrlOverride: alt?.apiUrl,
+                apiKeyOverride: alt?.apiKey,
+                serviceMinOverride: alt?.serviceMin,
+              };
+            });
 
           const services: any = {
             views: {
               serviceId: selectedBundle.viewsServiceId,
+              serviceIds: viewsServiceIds,
+              serviceAlternates: viewServiceAlternates,
               runs: viewsRuns,
               apiUrl: viewsApi?.url,
               apiKey: viewsApi?.key,
@@ -384,10 +458,12 @@ export function ApprovalPage({
           if (includeLikes && selectedBundle.likesServiceId && likesRuns.length > 0) {
             services.likes = {
               serviceId: selectedBundle.likesServiceId,
+              serviceIds: likesServiceIds,
+              serviceAlternates: likeServiceAlternates,
               runs: likesRuns,
               apiUrl: likesApi?.url,
               apiKey: likesApi?.key,
-              serviceMin: likesService?.min || effectiveMinLikes,
+              serviceMin: likesPrimaryService?.min || effectiveMinLikes,
             };
           }
 
