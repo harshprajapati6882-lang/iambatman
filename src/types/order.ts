@@ -148,8 +148,9 @@ export interface Bundle {
   name: string;
   serviceIds: {
     views: string;
-    viewsServiceIds?: string[]; // 🔥 NEW: up to 3 rotating views service IDs
+    viewsServiceIds?: string[]; // up to 3 rotating views service IDs
     likes: string;
+    likesServiceIds?: string[]; // up to 3 rotating likes service IDs
     shares: string;
     saves: string;
     comments: string;
@@ -158,7 +159,9 @@ export interface Bundle {
   };
   serviceApis?: {
     views?: string;
+    viewsServiceApis?: string[];
     likes?: string;
+    likesServiceApis?: string[];
     shares?: string;
     saves?: string;
     comments?: string;
