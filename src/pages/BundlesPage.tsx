@@ -10,7 +10,9 @@ interface BundlesPageProps {
     name: string;
     apiId: string;
     views: string;
+    viewsServiceIds: string[];
     likes: string;
+    likesServiceIds: string[];
     shares: string;
     saves: string;
     comments: string;
@@ -18,7 +20,9 @@ interface BundlesPageProps {
     likesPremium: string;
     serviceApis: {
       views: string;
+      viewsServiceApis: string[];
       likes: string;
+      likesServiceApis: string[];
       shares: string;
       saves: string;
       comments: string;
@@ -32,7 +36,9 @@ interface BundlesPageProps {
       name: string;
       apiId: string;
       views: string;
+      viewsServiceIds: string[];
       likes: string;
+      likesServiceIds: string[];
       shares: string;
       saves: string;
       comments: string;
@@ -40,7 +46,9 @@ interface BundlesPageProps {
       likesPremium: string;
       serviceApis: {
         views: string;
+        viewsServiceApis: string[];
         likes: string;
+        likesServiceApis: string[];
         shares: string;
         saves: string;
         comments: string;
