@@ -16,6 +16,7 @@ interface BundleManagerProps {
     comments: string;
     reposts: string;
     likesPremium: string;
+    likesPremiumServiceIds: string[];
     serviceApis: {
       views: string;
       viewsServiceApis: string[];
@@ -26,6 +27,7 @@ interface BundleManagerProps {
       comments: string;
       reposts: string;
       likesPremium: string;
+      likesPremiumServiceApis: string[];
     };
   }) => void;
   onUpdateBundle: (
@@ -42,6 +44,7 @@ interface BundleManagerProps {
       comments: string;
       reposts: string;
       likesPremium: string;
+      likesPremiumServiceIds: string[];
       serviceApis: {
         views: string;
         viewsServiceApis: string[];
@@ -52,6 +55,7 @@ interface BundleManagerProps {
         comments: string;
         reposts: string;
         likesPremium: string;
+        likesPremiumServiceApis: string[];
       };
     }
   ) => void;
@@ -235,6 +239,8 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
   const [repostsService, setRepostsService] = useState("");
   const [likesPremiumApi, setLikesPremiumApi] = useState("");
   const [likesPremiumService, setLikesPremiumService] = useState("");
+  const [likesPremiumRotApis, setLikesPremiumRotApis] = useState<string[]>(["", ""]);
+  const [likesPremiumRotServices, setLikesPremiumRotServices] = useState<string[]>(["", ""]);
 
   const resetForm = () => {
     setName("");
@@ -245,7 +251,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
     setSavesApi(""); setSavesService("");
     setCommentsApi(""); setCommentsService("");
     setRepostsApi(""); setRepostsService("");
-    setLikesPremiumApi(""); setLikesPremiumService("");
+    setLikesPremiumApi(""); setLikesPremiumService(""); setLikesPremiumRotApis(["", ""]); setLikesPremiumRotServices(["", ""]);
     setEditingBundleId(null);
     setShowForm(false);
   };
@@ -258,7 +264,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
     setSavesService("");
     setCommentsService("");
     setRepostsService("");
-    setLikesPremiumService("");
+    setLikesPremiumService(""); setLikesPremiumRotApis(["", ""]); setLikesPremiumRotServices(["", ""]);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -268,6 +274,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
 
     const rotIds = viewsRotServices.map((s) => s.trim()).filter(Boolean);
     const likesRotIds = likesRotServices.map((s) => s.trim()).filter(Boolean);
+    const premiumRotIds = likesPremiumRotServices.map((s) => s.trim()).filter(Boolean);
     const payload = {
       name: name.trim(),
       apiId: defaultApiId,
@@ -280,6 +287,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
       comments: commentsService,
       reposts: repostsService,
       likesPremium: likesPremiumService,
+      likesPremiumServiceIds: premiumRotIds.length > 0 ? premiumRotIds : [],
       serviceApis: {
         views: viewsApi || defaultApiId,
         viewsServiceApis: [viewsApi || defaultApiId, ...viewsRotApis.map((apiId) => apiId || viewsApi || defaultApiId)],
@@ -290,6 +298,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
         comments: commentsApi || defaultApiId,
         reposts: repostsApi || defaultApiId,
         likesPremium: likesPremiumApi || defaultApiId,
+        likesPremiumServiceApis: [likesPremiumApi || defaultApiId, ...likesPremiumRotApis.map((apiId) => apiId || likesPremiumApi || defaultApiId)],
       },
     };
 
@@ -304,6 +313,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
   const viewsEffectiveApiId = viewsApi || defaultApiId;
   const viewsServices = getApiServices(apis, viewsEffectiveApiId);
   const likesEffectiveApiId = likesApi || defaultApiId;
+  const likesPremiumEffectiveApiId = likesPremiumApi || defaultApiId;
 
   return (
     <section className="space-y-5">
@@ -487,20 +497,23 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
 
               <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
                 <p className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
-                  <span>🪶 Likes (min=1) — for Sub-Likes feature</span>
+                  <span>🪶 Likes (min=1) — up to 3 rotating services</span>
                   <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[8px] font-normal text-emerald-200">OPTIONAL</span>
                 </p>
                 <p className="mb-2 text-[10px] text-gray-500">
-                  Pick a service with <strong>min=1</strong>. Only used when you turn ON the "Sub-Likes" toggle on the New Order page.
+                  Pick min=1 services for Manual Min 1 / Sub-Likes. Each row can use a different SMM panel/API.
                 </p>
-                <div className="grid grid-cols-2 gap-2">
+
+                <div className="mb-2 grid grid-cols-2 gap-2">
                   <div>
-                    <label className="mb-1 block text-[10px] text-gray-600">API Panel</label>
+                    <label className="mb-1 block text-[10px] text-gray-600">API for min=1 #1</label>
                     <select
                       value={likesPremiumApi || defaultApiId}
                       onChange={(e) => {
                         setLikesPremiumApi(e.target.value === defaultApiId ? "" : e.target.value);
                         setLikesPremiumService("");
+                        setLikesPremiumRotApis(["", ""]);
+                        setLikesPremiumRotServices(["", ""]);
                       }}
                       className="w-full rounded-lg border border-emerald-500/20 bg-gray-950 px-2 py-1.5 text-xs text-gray-200"
                     >
@@ -513,11 +526,55 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
                     options={getApiServices(apis, likesPremiumApi || defaultApiId)}
                     value={likesPremiumService}
                     onChange={setLikesPremiumService}
-                    placeholder="Pick min=1 service..."
-                    label="Service ID"
+                    placeholder="Pick primary min=1 service..."
+                    label="Service #1"
                     disabled={!(likesPremiumApi || defaultApiId)}
                   />
                 </div>
+
+                {[0, 1].map((i) => {
+                  const rowApiId = likesPremiumRotApis[i] || likesPremiumEffectiveApiId;
+                  const rowServices = getApiServices(apis, rowApiId);
+                  return (
+                    <div key={i} className="mb-2 grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="mb-1 block text-[10px] text-gray-600">API for min=1 #{i + 2}</label>
+                        <select
+                          value={rowApiId}
+                          onChange={(e) => {
+                            const nextApis = [...likesPremiumRotApis];
+                            nextApis[i] = e.target.value === likesPremiumEffectiveApiId ? "" : e.target.value;
+                            setLikesPremiumRotApis(nextApis);
+                            const nextServices = [...likesPremiumRotServices];
+                            nextServices[i] = "";
+                            setLikesPremiumRotServices(nextServices);
+                          }}
+                          className="w-full rounded-lg border border-emerald-500/20 bg-gray-950 px-2 py-1.5 text-xs text-gray-200"
+                        >
+                          {apis.map((api) => <option key={api.id} value={api.id}>{api.name}</option>)}
+                        </select>
+                      </div>
+                      <SearchableSelect
+                        options={rowServices}
+                        value={likesPremiumRotServices[i]}
+                        onChange={(val) => {
+                          const next = [...likesPremiumRotServices];
+                          next[i] = val;
+                          setLikesPremiumRotServices(next);
+                        }}
+                        placeholder={`Add min=1 service #${i + 2} (optional)...`}
+                        label={`Service #${i + 2}`}
+                        disabled={!rowApiId}
+                      />
+                    </div>
+                  );
+                })}
+
+                {likesPremiumService && likesPremiumRotServices.filter(Boolean).length > 0 && (
+                  <p className="mt-1 text-[10px] text-emerald-300/80">
+                    🔄 Min=1 likes will rotate across {1 + likesPremiumRotServices.filter(Boolean).length} services.
+                  </p>
+                )}
               </div>
             </>
           )}
@@ -552,6 +609,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
           const defaultApiName = getApiName(bundle.apiId);
           const viewsRotCount = bundle.serviceIds.viewsServiceIds?.length ?? 0;
           const likesRotCount = bundle.serviceIds.likesServiceIds?.length ?? 0;
+          const premiumRotCount = bundle.serviceIds.likesPremiumServiceIds?.length ?? 0;
 
           const serviceRows: Array<{ emoji: string; label: string; serviceId: string | undefined; apiId: string; isPremium?: boolean }> = [
             { emoji: "👁️", label: viewsRotCount > 1 ? `Views (${viewsRotCount} rotating)` : "Views", serviceId: bundle.serviceIds.views, apiId: bundle.serviceApis?.views || bundle.apiId },
@@ -564,7 +622,7 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
           if (bundle.serviceIds.likesPremium) {
             serviceRows.push({
               emoji: "🪶",
-              label: "Likes min=1",
+              label: premiumRotCount > 1 ? `Likes min=1 (${premiumRotCount} rotating)` : "Likes min=1",
               serviceId: bundle.serviceIds.likesPremium,
               apiId: bundle.serviceApis?.likesPremium || bundle.apiId,
               isPremium: true,
@@ -641,6 +699,16 @@ export function BundleManager({ apis, bundles, onAddBundle, onUpdateBundle, onDe
                     setRepostsService(bundle.serviceIds.reposts || "");
                     setLikesPremiumApi(bundle.serviceApis?.likesPremium || bundle.apiId);
                     setLikesPremiumService(bundle.serviceIds.likesPremium || "");
+                    const savedPremiumRotation = bundle.serviceIds.likesPremiumServiceIds || [];
+                    const savedPremiumApis = bundle.serviceApis?.likesPremiumServiceApis || [];
+                    setLikesPremiumRotApis([
+                      savedPremiumApis[1] && savedPremiumApis[1] !== (bundle.serviceApis?.likesPremium || bundle.apiId) ? savedPremiumApis[1] : "",
+                      savedPremiumApis[2] && savedPremiumApis[2] !== (bundle.serviceApis?.likesPremium || bundle.apiId) ? savedPremiumApis[2] : "",
+                    ]);
+                    setLikesPremiumRotServices([
+                      savedPremiumRotation[1] || "",
+                      savedPremiumRotation[2] || "",
+                    ]);
                     setShowForm(true);
                   }}
                   className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-2.5 py-1.5 text-xs text-yellow-300 transition hover:bg-yellow-500/20"
