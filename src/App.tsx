@@ -727,6 +727,10 @@ export default function App() {
           const rotIds = rawViewIds
             .map((s) => String(s || "").trim())
             .filter(Boolean);
+          const rawLikeIds = [bundle.likes, ...(bundle.likesServiceIds || [])];
+          const likeRotIds = rawLikeIds
+            .map((s) => String(s || "").trim())
+            .filter(Boolean);
           const next: Bundle[] = [
             ...bundles,
             {
@@ -737,6 +741,7 @@ export default function App() {
                 views: bundle.views,
                 viewsServiceIds: rotIds.length > 1 ? rotIds : undefined,
                 likes: bundle.likes,
+                likesServiceIds: likeRotIds.length > 1 ? likeRotIds : undefined,
                 shares: bundle.shares,
                 saves: bundle.saves,
                 comments: bundle.comments,
@@ -753,6 +758,10 @@ export default function App() {
           const rotIds = rawViewIds
             .map((s) => String(s || "").trim())
             .filter(Boolean);
+          const rawLikeIds = [bundle.likes, ...(bundle.likesServiceIds || [])];
+          const likeRotIds = rawLikeIds
+            .map((s) => String(s || "").trim())
+            .filter(Boolean);
           const next: Bundle[] = bundles.map((item) =>
             item.id === id
               ? {
@@ -763,6 +772,7 @@ export default function App() {
                     views: bundle.views,
                     viewsServiceIds: rotIds.length > 1 ? rotIds : undefined,
                     likes: bundle.likes,
+                    likesServiceIds: likeRotIds.length > 1 ? likeRotIds : undefined,
                     shares: bundle.shares,
                     saves: bundle.saves,
                     comments: bundle.comments,
