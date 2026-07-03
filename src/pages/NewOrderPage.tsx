@@ -749,7 +749,9 @@ const effectiveMinViews = Math.max(
         ? selectedBundle.serviceApis?.viewsServiceApis
         : type === "likes"
           ? selectedBundle.serviceApis?.likesServiceApis
-          : undefined;
+          : type === "likesPremium"
+            ? selectedBundle.serviceApis?.likesPremiumServiceApis
+            : undefined;
       const overrideApiId = typeof rotationIndex === "number" ? apiList?.[rotationIndex] : undefined;
       const apiId = overrideApiId || selectedBundle.serviceApis?.[type] || selectedBundle.apiId || selectedApiId;
       const api = apis.find((a) => a.id === apiId);
@@ -794,12 +796,26 @@ const effectiveMinViews = Math.max(
     if (includeLikes) {
       const likesQty = safePlan.runs.reduce((sum, run) => sum + Math.max(0, Math.floor(run.likes || 0)), 0);
       if (likesMode === "manual-min1") {
+        const premiumServiceIds = (selectedBundle.serviceIds.likesPremiumServiceIds?.filter(Boolean) || [selectedBundle.serviceIds.likesPremium || ""]).filter(Boolean);
+        const premiumQtyByService = new Map<string, { qty: number; index: number }>();
+        safePlan.runs.forEach((run, i) => {
+          const qty = Math.max(0, Math.floor(run.likes || 0));
+          if (!qty) return;
+          const index = i % Math.max(1, premiumServiceIds.length);
+          const sid = premiumServiceIds[index] || selectedBundle.serviceIds.likesPremium || "";
+          const prev = premiumQtyByService.get(sid) || { qty: 0, index };
+          premiumQtyByService.set(sid, { qty: prev.qty + qty, index: prev.index });
+        });
+        let premiumPrice = 0;
+        premiumQtyByService.forEach(({ qty, index }, sid) => {
+          premiumPrice += priceFor("likesPremium", qty, sid, index);
+        });
         items.push({
           icon: "❤️",
           label: "Likes min=1",
           qty: likesQty,
-          price: priceFor("likesPremium", likesQty),
-          note: "premium/min=1",
+          price: premiumPrice,
+          note: premiumServiceIds.length > 1 ? `${premiumServiceIds.length} rotating min=1` : "premium/min=1",
         });
       } else {
         const likeServiceIds = (selectedBundle.serviceIds.likesServiceIds?.filter(Boolean) || [selectedBundle.serviceIds.likes]).filter(Boolean);
@@ -861,7 +877,9 @@ const effectiveMinViews = Math.max(
         ? selectedBundle.serviceApis?.viewsServiceApis
         : type === "likes"
           ? selectedBundle.serviceApis?.likesServiceApis
-          : undefined;
+          : type === "likesPremium"
+            ? selectedBundle.serviceApis?.likesPremiumServiceApis
+            : undefined;
       const overrideApiId = typeof rotationIndex === "number" ? apiList?.[rotationIndex] : undefined;
       const apiId = overrideApiId || selectedBundle.serviceApis?.[type] || selectedBundle.apiId || selectedApiId;
       const api = apis.find((a) => a.id === apiId);
@@ -902,7 +920,12 @@ const effectiveMinViews = Math.max(
           checkQty(`Likes run ${i + 1}`, Math.floor(run.likes || 0), getInfo("likes", sid, index));
         });
       } else {
-        safePlan.runs.forEach((run, i) => checkQty(`Likes run ${i + 1}`, Math.floor(run.likes || 0), getInfo(type)));
+        const premiumServiceIds = (selectedBundle.serviceIds.likesPremiumServiceIds?.filter(Boolean) || [selectedBundle.serviceIds.likesPremium || ""]).filter(Boolean);
+        safePlan.runs.forEach((run, i) => {
+          const index = i % Math.max(1, premiumServiceIds.length);
+          const sid = premiumServiceIds[index] || selectedBundle.serviceIds.likesPremium || "";
+          checkQty(`Likes min=1 run ${i + 1}`, Math.floor(run.likes || 0), getInfo("likesPremium", sid, index));
+        });
       }
     }
     if (includeShares) safePlan.runs.forEach((run, i) => checkQty(`Shares run ${i + 1}`, Math.floor(run.shares || 0), getInfo("shares")));
@@ -2482,6 +2505,19 @@ const effectiveMinViews = Math.max(
                       serviceMin: service?.min || 10,
                     };
                   });
+                  const premiumServiceIds = (selectedBundle.serviceIds.likesPremiumServiceIds?.filter(Boolean) || [selectedBundle.serviceIds.likesPremium || ""]).filter(Boolean);
+                  const premiumServiceApis = selectedBundle.serviceApis?.likesPremiumServiceApis || [];
+                  const premiumServiceAlternates = premiumServiceIds.map((serviceId, idx) => {
+                    const apiId = premiumServiceApis[idx] || selectedBundle.serviceApis?.likesPremium || selectedBundle.apiId || selectedApiId;
+                    const api = apis.find((a) => a.id === apiId) || selectedApi;
+                    const service = api?.services.find((s) => s.id === serviceId);
+                    return {
+                      serviceId,
+                      apiUrl: api?.url || selectedApi.url,
+                      apiKey: api?.key || selectedApi.key,
+                      serviceMin: service?.min || 1,
+                    };
+                  });
                   const viewRuns = (safePlan?.runs || []).map((run, i) => ({
                     time: run.at.toISOString(),
                     quantity: Math.max(Math.floor(run.views), effectiveMinViews),
@@ -2491,12 +2527,12 @@ const effectiveMinViews = Math.max(
                   // 🔥 NEW: build likes payload — for runs with `likesSubRuns`,
                   // emit ONE entry PER sub-run (each with the premium service override).
                   // For runs without sub-runs, emit a single entry as before.
-                  const premiumApiId = selectedBundle.serviceApis?.likesPremium || selectedBundle.apiId;
-                  const premiumApi = apis.find((a) => a.id === premiumApiId);
-                  const premiumServiceId = selectedBundle.serviceIds.likesPremium || "";
-                  const premiumService = premiumApi?.services.find((s) => s.id === premiumServiceId);
-                  const minOneLikesReady = Boolean(likesMode === "manual-min1" && premiumApi && premiumService);
-                  const subLikesReady = Boolean(subLikesEnabled && premiumApi && premiumService);
+                  const premiumPrimary = premiumServiceAlternates[0] || null;
+                  const premiumServiceId = premiumPrimary?.serviceId || selectedBundle.serviceIds.likesPremium || "";
+                  const minOneLikesReady = Boolean(likesMode === "manual-min1" && premiumPrimary);
+                  const subLikesReady = Boolean(subLikesEnabled && premiumPrimary);
+
+                  let premiumRunCursor = 0;
 
                   const likesRuns: Array<{
                     time: string;
@@ -2511,24 +2547,27 @@ const effectiveMinViews = Math.max(
                     const parentQty = Math.max(0, Math.floor(r.likes));
                     if (subLikesReady && Array.isArray(r.likesSubRuns) && r.likesSubRuns.length >= 2) {
                       for (const sub of r.likesSubRuns) {
+                        const alt = premiumServiceAlternates[premiumRunCursor % Math.max(1, premiumServiceAlternates.length)] || premiumPrimary!;
+                        premiumRunCursor += 1;
                         likesRuns.push({
                           time: sub.at.toISOString(),
                           quantity: Math.max(1, Math.floor(sub.quantity)),
-                          serviceIdOverride: premiumService!.id,
-                          apiUrlOverride: premiumApi!.url,
-                          apiKeyOverride: premiumApi!.key,
-                          serviceMinOverride: premiumService!.min || 1,
+                          serviceIdOverride: alt.serviceId,
+                          apiUrlOverride: alt.apiUrl,
+                          apiKeyOverride: alt.apiKey,
+                          serviceMinOverride: alt.serviceMin || 1,
                           preserveExactTime: true,
                         });
                       }
                     } else if (minOneLikesReady && parentQty > 0) {
+                      const alt = premiumServiceAlternates[runIndex % Math.max(1, premiumServiceAlternates.length)] || premiumPrimary!;
                       likesRuns.push({
                         time: r.at.toISOString(),
                         quantity: parentQty,
-                        serviceIdOverride: premiumService!.id,
-                        apiUrlOverride: premiumApi!.url,
-                        apiKeyOverride: premiumApi!.key,
-                        serviceMinOverride: premiumService!.min || 1,
+                        serviceIdOverride: alt.serviceId,
+                        apiUrlOverride: alt.apiUrl,
+                        apiKeyOverride: alt.apiKey,
+                        serviceMinOverride: alt.serviceMin || 1,
                         preserveExactTime: true,
                       });
                     } else {
@@ -2605,7 +2644,28 @@ const effectiveMinViews = Math.max(
                        const repostsServiceId = selectedBundle.serviceIds.reposts?.trim();
             const repostsRuns = (safePlan?.runs || []).map((run) => ({ time: run.at.toISOString(), quantity: Math.max(0, Math.floor(run.reposts || 0)) }));
 
-                        if (includeLikes) servicesPayload.likes = { serviceId: likesServiceId, serviceIds: likesServiceIds, serviceAlternates: likesMode === "manual-min10" ? likeServiceAlternates : undefined, runs: likesRuns, ...getServiceApi('likes'), serviceMin: getServiceMin('likes') };
+                        if (includeLikes) {
+              if (likesMode === "manual-min1") {
+                servicesPayload.likes = {
+                  serviceId: premiumServiceId || likesServiceId,
+                  serviceIds: premiumServiceIds,
+                  serviceAlternates: premiumServiceAlternates,
+                  runs: likesRuns,
+                  apiUrl: premiumPrimary?.apiUrl || selectedApi.url,
+                  apiKey: premiumPrimary?.apiKey || selectedApi.key,
+                  serviceMin: premiumPrimary?.serviceMin || 1,
+                };
+              } else {
+                servicesPayload.likes = {
+                  serviceId: likesServiceId,
+                  serviceIds: likesServiceIds,
+                  serviceAlternates: likeServiceAlternates,
+                  runs: likesRuns,
+                  ...getServiceApi('likes'),
+                  serviceMin: getServiceMin('likes'),
+                };
+              }
+            }
             if (includeShares) servicesPayload.shares = { serviceId: sharesServiceId, runs: sharesRuns, ...getServiceApi('shares'), serviceMin: getServiceMin('shares') };
             if (includeSaves) servicesPayload.saves = { serviceId: savesServiceId, runs: savesRuns, ...getServiceApi('saves'), serviceMin: getServiceMin('saves') };
             if (includeReposts && repostsServiceId) servicesPayload.reposts = { serviceId: repostsServiceId, runs: repostsRuns, ...getServiceApi('reposts'), serviceMin: getServiceMin('reposts') };
